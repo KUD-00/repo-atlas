@@ -45,6 +45,19 @@ repo-atlas serve               # dev server at http://localhost:4400 (-p to chan
 working tree or `.atlas/notes/` changes — leave it open while writing notes. No
 bundler involved; the viewer is a single self-contained page.
 
+Selecting a file splits the right side into description + source preview
+(syntax-highlighted). Contents come from the server's `/raw` endpoint — only
+paths inside the scan are served, never arbitrary disk paths — so the preview
+pane works under `serve`; the static `build` output carries descriptions only
+and shows a hint instead.
+
+Syntax highlighting is a vendored highlight.js bundle (`src/vendor/hljs.js`),
+regenerated with:
+
+```sh
+pnpm dlx esbuild src/vendor/hljs-entry.mjs --bundle --minify --format=iife --outfile=src/vendor/hljs.js
+```
+
 Install: `pnpm install` in this repo, then `pnpm link --global` (or call `src/cli.js` directly).
 
 ## Agent workflow

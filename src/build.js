@@ -1,6 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { marked } from 'marked'
+
+const VENDOR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'vendor')
+const hljsJs = fs.readFileSync(path.join(VENDOR, 'hljs.js'), 'utf8')
+const hljsCss = fs.readFileSync(path.join(VENDOR, 'hljs-theme.css'), 'utf8')
 
 /**
  * Build a self-contained HTML atlas from a status result.
@@ -47,7 +52,12 @@ export function buildHtml({ repoName, commit, status }) {
   }
   const json = JSON.stringify(data).replace(/</g, '\\u003c')
 
-  return TEMPLATE.replace('__TITLE__', escapeHtml(repoName)).replace('"__DATA__"', json)
+  // function-form replacements: the payloads may contain `$&`-style sequences
+  // that String.replace would otherwise interpret
+  return TEMPLATE.replace('__TITLE__', () => escapeHtml(repoName))
+    .replace('/*__HLJS_CSS__*/', () => hljsCss)
+    .replace('/*__HLJS_JS__*/', () => hljsJs)
+    .replace('"__DATA__"', () => json)
 }
 
 function escapeHtml(s) {
@@ -109,8 +119,21 @@ const TEMPLATE = `<!doctype html>
     color: var(--muted); background: #00000008;
   }
   .badge.warn { color: #9a6a06; background: #d9930d1a; }
-  main { overflow: auto; min-width: 0; }
+  main { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; }
+  main.with-preview { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .pane { overflow: auto; min-width: 0; }
   .doc { max-width: 760px; padding: 36px 48px 96px; }
+  .preview { border-left: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .pv-head {
+    display: flex; align-items: baseline; gap: 10px; padding: 10px 16px;
+    border-bottom: 1px solid var(--border); font-size: 0.78rem; flex: none;
+  }
+  .pv-head .pv-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pv-head .pv-meta { color: var(--muted); flex: none; margin-left: auto; font-size: 0.72rem; }
+  .pv-body { flex: 1; min-height: 0; overflow: auto; }
+  .pv-body pre { margin: 0; padding: 14px 16px 48px; font-size: 0.78rem; line-height: 1.55; }
+  .pv-body code.hljs { background: none; padding: 0; }
+  .pv-body .empty { padding: 16px; }
   .crumb { font-size: 0.78rem; color: var(--muted); word-break: break-all; }
   .doc h1.path { font-size: 1.25rem; font-weight: 650; margin: 4px 0 12px; word-break: break-all; }
   .state {
@@ -132,6 +155,7 @@ const TEMPLATE = `<!doctype html>
   .empty { color: var(--muted); font-size: 0.9rem; margin-top: 8px; }
   .empty code { background: #00000009; padding: 0.1em 0.4em; border-radius: 4px; font-size: 0.85em; }
 </style>
+<style>/*__HLJS_CSS__*/</style>
 </head>
 <body>
 <aside>
@@ -147,7 +171,17 @@ const TEMPLATE = `<!doctype html>
   </div>
   <nav id="tree"></nav>
 </aside>
-<main><div class="doc" id="doc"></div></main>
+<main id="main">
+  <div class="pane"><div class="doc" id="doc"></div></div>
+  <section class="preview" id="preview" hidden>
+    <div class="pv-head">
+      <span class="pv-name" id="pvName"></span>
+      <span class="pv-meta" id="pvMeta"></span>
+    </div>
+    <div class="pv-body" id="pvBody"></div>
+  </section>
+</main>
+<script>/*__HLJS_JS__*/</script>
 <script>
 const DATA = "__DATA__";
 const treeEl = document.getElementById('tree');
@@ -259,7 +293,72 @@ function select(node, row) {
   renderDoc(node);
 }
 
+// --- file preview pane (content served by \`repo-atlas serve\` via /raw) ---
+const mainEl = document.getElementById('main');
+const previewEl = document.getElementById('preview');
+const pvName = document.getElementById('pvName');
+const pvMeta = document.getElementById('pvMeta');
+const pvBody = document.getElementById('pvBody');
+const PV_LANG = {
+  ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
+  js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
+  json: 'json', jsonc: 'json', md: 'markdown', mdx: 'markdown',
+  css: 'css', html: 'xml', xml: 'xml', svg: 'xml', astro: 'xml', vue: 'xml',
+  py: 'python', sh: 'bash', bash: 'bash', zsh: 'bash', yml: 'yaml', yaml: 'yaml',
+  sql: 'sql', rs: 'rust', go: 'go', nix: 'nix', toml: 'ini', ini: 'ini', diff: 'diff',
+};
+let pvToken = 0;
+
+async function updatePreview(node) {
+  const token = ++pvToken;
+  if (node.type !== 'file') {
+    previewEl.hidden = true;
+    mainEl.classList.remove('with-preview');
+    return;
+  }
+  previewEl.hidden = false;
+  mainEl.classList.add('with-preview');
+  pvName.textContent = node.path;
+  pvMeta.textContent = '';
+  pvBody.innerHTML = '<div class="empty">loading…</div>';
+  try {
+    const res = await fetch('raw?p=' + encodeURIComponent(node.path));
+    if (!res.ok) throw new Error('http ' + res.status);
+    const text = await res.text();
+    if (token !== pvToken) return;
+    if (res.headers.get('x-atlas-binary')) {
+      pvBody.innerHTML = '<div class="empty">binary file — no preview</div>';
+      return;
+    }
+    renderCode(node.path, text, res.headers.get('x-atlas-truncated'));
+  } catch (err) {
+    if (token !== pvToken) return;
+    pvBody.innerHTML = '<div class="empty">no preview — file contents are served by <code>repo-atlas serve</code>; the static build only carries descriptions</div>';
+  }
+}
+
+function renderCode(p, text, truncated) {
+  const name = p.slice(p.lastIndexOf('/') + 1).toLowerCase();
+  const ext = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : '';
+  let lang = PV_LANG[ext];
+  if (!lang && name.startsWith('dockerfile')) lang = 'dockerfile';
+  const code = document.createElement('code');
+  code.className = 'hljs';
+  if (lang && window.hljs && hljs.getLanguage(lang)) {
+    code.innerHTML = hljs.highlight(text, { language: lang, ignoreIllegals: true }).value;
+  } else {
+    code.textContent = text;
+  }
+  const pre = document.createElement('pre');
+  pre.appendChild(code);
+  pvMeta.textContent = text.split('\\n').length + ' lines' + (truncated ? ' · truncated' : '') + (lang ? ' · ' + lang : '');
+  pvBody.textContent = '';
+  pvBody.appendChild(pre);
+  pvBody.scrollTop = 0;
+}
+
 function renderDoc(node) {
+  updatePreview(node);
   const labels = { fresh: 'up to date', outdated: 'outdated — code changed since this was written', missing: 'no description yet' };
   docEl.innerHTML = '';
   const crumb = document.createElement('div'); crumb.className = 'crumb';

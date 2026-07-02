@@ -14,8 +14,16 @@ importers:
       picomatch:
         specifier: ^4.0.0
         version: 4.0.4
+    devDependencies:
+      highlight.js:
+        specifier: ^11.11.1
+        version: 11.11.1
 
 packages:
+
+  highlight.js@11.11.1:
+    resolution: {integrity: sha512-Xwwo44whKBVCYoliBQwaPvtd/2tYFkRQtXDWj1nackaV2JPXx3L0+Jvd8/qCJ2p+ML0/XVkJ2q+Mr+UVdpJK5w==}
+    engines: {node: '>=12.0.0'}
 
   marked@15.0.12:
     resolution: {integrity: sha512-8dD6FusOQSrpv9Z1rdNMdlSgQOIP880DHqnohobOmYLElGEqAL/JvxvuxZO16r4HtjTlfPRDC1hbvxC9dPN2nA==}
@@ -27,6 +35,8 @@ packages:
     engines: {node: '>=12'}
 
 snapshots:
+
+  highlight.js@11.11.1: {}
 
   marked@15.0.12: {}
 
