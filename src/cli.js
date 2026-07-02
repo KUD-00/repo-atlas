@@ -7,6 +7,7 @@ import {
 import { noteFileFor, loadNotes, stampNote, notesRoot } from './notes.js'
 import { computeStatus, summarize } from './status.js'
 import { buildHtml, writeAtlas } from './build.js'
+import { serve } from './serve.js'
 
 const USAGE = `repo-atlas — incremental codebase atlas with staleness tracking
 
@@ -17,6 +18,7 @@ usage: repo-atlas <command> [args]
   notepath <path>          print the note file location for a repo path
   stamp [paths...|--all]   stamp note(s) with the current git hash
   build [-o <file>]        generate the self-contained HTML atlas (default .atlas/atlas.html)
+  serve [-p <port>]        dev server with auto-reload (default port 4400)
 
 Notes live in .atlas/notes/ — one markdown file per described path:
   directory apps/daemon   -> .atlas/notes/apps/daemon/__dir__.md
@@ -34,6 +36,10 @@ function main() {
     case 'notepath': return notepath(root, args)
     case 'stamp': return stamp(root, args)
     case 'build': return build(root, args)
+    case 'serve': {
+      const pIdx = args.indexOf('-p')
+      return serve(root, requireConfig(root), pIdx >= 0 ? Number(args[pIdx + 1]) : 4400)
+    }
     default:
       console.log(USAGE)
       process.exitCode = cmd && cmd !== 'help' ? 1 : 0

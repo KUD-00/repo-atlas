@@ -38,7 +38,12 @@ repo-atlas notepath apps/x.ts  # where to write the note for a path
 repo-atlas stamp               # stamp all notes with current hashes
 repo-atlas stamp apps/x.ts     # or stamp specific paths ("." = repo root)
 repo-atlas build               # write .atlas/atlas.html (open in a browser)
+repo-atlas serve               # dev server at http://localhost:4400 (-p to change)
 ```
+
+`serve` rebuilds on every request and auto-reloads open pages (SSE) whenever the
+working tree or `.atlas/notes/` changes — leave it open while writing notes. No
+bundler involved; the viewer is a single self-contained page.
 
 Install: `pnpm install` in this repo, then `pnpm link --global` (or call `src/cli.js` directly).
 
