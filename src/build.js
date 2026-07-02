@@ -71,9 +71,9 @@ const TEMPLATE = `<!doctype html>
   body {
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     background: var(--bg); color: var(--text); height: 100vh;
-    display: grid; grid-template-columns: 340px 1fr; overflow: hidden;
+    display: grid; grid-template-columns: 340px 1fr; grid-template-rows: 100vh; overflow: hidden;
   }
-  aside { border-right: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; min-width: 0; }
+  aside { border-right: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; min-width: 0; min-height: 0; }
   .side-head { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
   .side-head h1 { font-size: 0.95rem; font-weight: 600; }
   .side-head .meta { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
@@ -90,7 +90,7 @@ const TEMPLATE = `<!doctype html>
     background: none; color: var(--muted); cursor: pointer; white-space: nowrap;
   }
   .chip.on { border-color: var(--accent); color: var(--accent); background: #3d6b540f; }
-  nav { flex: 1; overflow: auto; padding: 8px 6px 24px; }
+  nav { flex: 1; min-height: 0; overflow: auto; padding: 8px 6px 24px; }
   .row {
     display: flex; align-items: center; gap: 6px; padding: 2px 8px 2px 0; border-radius: 6px;
     cursor: pointer; user-select: none; font-size: 0.82rem; white-space: nowrap;
