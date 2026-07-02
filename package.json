@@ -1,0 +1,16 @@
+{
+  "name": "repo-atlas",
+  "version": "0.1.0",
+  "description": "Incremental, agent-friendly codebase atlas: per-path descriptions with git-hash staleness tracking and a self-contained HTML viewer.",
+  "type": "module",
+  "bin": {
+    "repo-atlas": "./src/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "marked": "^15.0.0",
+    "picomatch": "^4.0.0"
+  }
+}

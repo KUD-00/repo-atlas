@@ -1,0 +1,61 @@
+# repo-atlas
+
+Incremental codebase atlas: per-path descriptions with git-hash staleness tracking and a
+self-contained HTML viewer (folder tree on the left, description on the right).
+
+The point: descriptions are written **once** (by you or a coding agent), tracked against the
+exact git hash they were written for, and only the paths whose code actually changed get
+flagged for re-review. No full regeneration, no wasted tokens.
+
+## How it works
+
+- **Ledger** — `.atlas/notes/` in the target repo, one markdown file per described path:
+  - directory `apps/daemon` → `.atlas/notes/apps/daemon/__dir__.md`
+  - file `apps/daemon/x.ts` → `.atlas/notes/apps/daemon/x.ts.md`
+  - repo root → `.atlas/notes/__dir__.md`
+
+  Each note has frontmatter (`hash`, `stamped`) managed by the tool; the body is yours.
+  Commit `.atlas/` — descriptions are versioned with the code.
+
+- **Staleness** — a file's hash is its git blob hash. A directory's hash covers its
+  *immediate children* (child file contents + child dir names), so editing a file flags the
+  file and its direct parent; adding/removing/renaming entries flags the directory. Deep
+  edits don't cascade to every ancestor.
+
+- **Scan scope** — `git ls-files` (tracked + untracked-not-ignored), so `.gitignore` is
+  respected for free; `.atlas/config.json` `exclude` patterns (picomatch) filter on top
+  (lockfiles, binaries, snapshots by default).
+
+## Usage
+
+```sh
+cd /path/to/some/repo
+repo-atlas init                # creates .atlas/ (config + notes dir)
+repo-atlas status              # what's missing / outdated / fresh
+repo-atlas status --json       # machine-readable, for agents
+repo-atlas notepath apps/x.ts  # where to write the note for a path
+# ... write note bodies ...
+repo-atlas stamp               # stamp all notes with current hashes
+repo-atlas stamp apps/x.ts     # or stamp specific paths ("." = repo root)
+repo-atlas build               # write .atlas/atlas.html (open in a browser)
+```
+
+Install: `pnpm install` in this repo, then `pnpm link --global` (or call `src/cli.js` directly).
+
+## Agent workflow
+
+This tool deliberately does **not** call an LLM. Description quality comes from letting a
+coding agent (Claude Code etc.) actually read the code:
+
+1. `repo-atlas status --json` → lists `missing` and `outdated` paths.
+2. Agent reads the code for each path, writes/updates the note body in `.atlas/notes/...`
+   (keep frontmatter lines if present; `stamp` rewrites them anyway).
+3. `repo-atlas stamp` → marks those notes current.
+4. `repo-atlas build` → refreshed HTML.
+
+For an `outdated` path, the agent should diff what changed since `stamped` and revise the
+note rather than rewrite from scratch.
+
+Suggested note shape: 1–3 sentences of *what this is and why it exists*, then bullets for
+anything non-obvious (invariants, gotchas, who calls it). Directory notes describe the
+area's role and how its children divide the work — not a file-by-file inventory.
