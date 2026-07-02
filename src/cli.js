@@ -18,7 +18,9 @@ usage: repo-atlas <command> [args]
   notepath <path>          print the note file location for a repo path
   stamp [paths...|--all]   stamp note(s) with the current git hash
   build [-o <file>]        generate the self-contained HTML atlas (default .atlas/atlas.html)
-  serve [-p <port>]        dev server with auto-reload (default port 4400)
+  serve [-p <port>] [--host [addr]]
+                           dev server with auto-reload (default 127.0.0.1:4400;
+                           --host with no addr binds 0.0.0.0 for LAN access)
 
 Notes live in .atlas/notes/ — one markdown file per described path:
   directory apps/daemon   -> .atlas/notes/apps/daemon/__dir__.md
@@ -38,7 +40,9 @@ function main() {
     case 'build': return build(root, args)
     case 'serve': {
       const pIdx = args.indexOf('-p')
-      return serve(root, requireConfig(root), pIdx >= 0 ? Number(args[pIdx + 1]) : 4400)
+      const hIdx = args.indexOf('--host')
+      const host = hIdx >= 0 ? (args[hIdx + 1]?.startsWith('-') || !args[hIdx + 1] ? '0.0.0.0' : args[hIdx + 1]) : '127.0.0.1'
+      return serve(root, requireConfig(root), pIdx >= 0 ? Number(args[pIdx + 1]) : 4400, host)
     }
     default:
       console.log(USAGE)

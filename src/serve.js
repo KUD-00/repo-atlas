@@ -1,4 +1,5 @@
 import http from 'node:http'
+import os from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { scan, headCommit } from './scan.js'
@@ -16,7 +17,7 @@ const POLL_MS = 1500
  * thousands of files) and pushes an SSE reload whenever the working tree or the
  * notes ledger changes. No bundler — the viewer is a single self-contained page.
  */
-export function serve(root, config, port) {
+export function serve(root, config, port, host = '127.0.0.1') {
   const render = () => {
     const status = computeStatus(root, scan(root, config))
     const html = buildHtml({ repoName: path.basename(root), commit: headCommit(root), status })
@@ -69,8 +70,16 @@ export function serve(root, config, port) {
     res.writeHead(404).end('not found')
   })
 
-  server.listen(port, '127.0.0.1', () => {
-    console.log(`atlas dev server: http://localhost:${port}`)
+  server.listen(port, host, () => {
+    console.log(`atlas dev server: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`)
+    if (host === '0.0.0.0') {
+      const { networkInterfaces } = os
+      for (const addrs of Object.values(networkInterfaces())) {
+        for (const a of addrs ?? []) {
+          if (a.family === 'IPv4' && !a.internal) console.log(`             http://${a.address}:${port}`)
+        }
+      }
+    }
     console.log(`watching ${root} (working tree + .atlas/notes) — auto-reloads on change`)
   })
   return server
