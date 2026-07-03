@@ -31,7 +31,11 @@ export function serve(root, config, port, host = '127.0.0.1') {
     const digest = createHash('sha1')
       .update(JSON.stringify(status.entries) + JSON.stringify(status.orphans))
       .digest('hex')
-    return { html: html.replace('</body>', LIVE_SNIPPET + '</body>'), digest }
+    // inject before the LAST </body> — embedded vendor bundles may contain the
+    // literal string "</body>" (mermaid's sanitizer does), and String.replace
+    // would splice the snippet into the middle of that script
+    const at = html.lastIndexOf('</body>')
+    return { html: html.slice(0, at) + LIVE_SNIPPET + html.slice(at), digest }
   }
 
   const clients = new Set()
