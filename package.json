@@ -23,10 +23,5 @@
   "scripts": {
     "build:viewer": "esbuild viewer/main.jsx --bundle --minify --jsx=automatic --outfile=src/vendor/viewer.js",
     "dev:viewer": "esbuild viewer/main.jsx --bundle --jsx=automatic --outfile=src/vendor/viewer.js --watch"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
   }
 }
