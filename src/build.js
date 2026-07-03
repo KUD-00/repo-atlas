@@ -7,6 +7,13 @@ const VENDOR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'vendor')
 const hljsJs = fs.readFileSync(path.join(VENDOR, 'hljs.js'), 'utf8')
 const hljsCss = fs.readFileSync(path.join(VENDOR, 'hljs-theme.css'), 'utf8')
 
+// mermaid is ~3.4MB, so it is embedded only when at least one note actually
+// contains a ```mermaid fence; read lazily and cached.
+let mermaidJs = null
+function loadMermaid() {
+  return (mermaidJs ??= fs.readFileSync(path.join(VENDOR, 'mermaid.js'), 'utf8'))
+}
+
 /**
  * Build a self-contained HTML atlas from a status result.
  * Tree data is embedded as JSON; markdown bodies are pre-rendered at build time.
@@ -52,11 +59,14 @@ export function buildHtml({ repoName, commit, status }) {
   }
   const json = JSON.stringify(data).replace(/</g, '\\u003c')
 
+  const usesMermaid = status.entries.some((e) => e.body?.includes('```mermaid'))
+
   // function-form replacements: the payloads may contain `$&`-style sequences
   // that String.replace would otherwise interpret
   return TEMPLATE.replace('__TITLE__', () => escapeHtml(repoName))
     .replace('/*__HLJS_CSS__*/', () => hljsCss)
     .replace('/*__HLJS_JS__*/', () => hljsJs)
+    .replace('/*__MERMAID_JS__*/', () => (usesMermaid ? loadMermaid() : ''))
     .replace('"__DATA__"', () => json)
 }
 
@@ -152,6 +162,9 @@ const TEMPLATE = `<!doctype html>
   .prose pre code { background: none; border: none; padding: 0; }
   .prose a { color: var(--accent); }
   .prose blockquote { border-left: 3px solid var(--border); padding-left: 1em; color: var(--muted); }
+  .prose .mermaid-diagram { margin: 1em 0; overflow-x: auto; }
+  .prose .mermaid-diagram svg { max-width: 100%; height: auto; }
+  .prose .mermaid-diagram pre.mermaid-error { background: #c4222e0d; border-color: #c4222e55; }
   .empty { color: var(--muted); font-size: 0.9rem; margin-top: 8px; }
   .empty code { background: #00000009; padding: 0.1em 0.4em; border-radius: 4px; font-size: 0.85em; }
 </style>
@@ -182,6 +195,7 @@ const TEMPLATE = `<!doctype html>
   </section>
 </main>
 <script>/*__HLJS_JS__*/</script>
+<script>/*__MERMAID_JS__*/</script>
 <script>
 const DATA = "__DATA__";
 const treeEl = document.getElementById('tree');
@@ -357,6 +371,36 @@ function renderCode(p, text, truncated) {
   pvBody.scrollTop = 0;
 }
 
+// mermaid: \`\`\`mermaid fences arrive as pre>code.language-mermaid; swap each for
+// a rendered SVG. window.mermaid exists only when the build embedded the bundle
+// (some note used a mermaid fence) — otherwise the fence stays visible as code.
+let mermaidSeq = 0;
+async function renderMermaid(container) {
+  if (!window.mermaid) return;
+  const blocks = container.querySelectorAll('pre > code.language-mermaid');
+  if (!blocks.length) return;
+  if (!window.__mermaidReady) {
+    mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
+    window.__mermaidReady = true;
+  }
+  for (const code of blocks) {
+    const src = code.textContent;
+    const holder = document.createElement('div');
+    holder.className = 'mermaid-diagram';
+    code.parentElement.replaceWith(holder);
+    try {
+      const { svg } = await mermaid.render('mmd-' + (++mermaidSeq), src);
+      holder.innerHTML = svg;
+    } catch (err) {
+      const pre = document.createElement('pre');
+      pre.className = 'mermaid-error';
+      pre.textContent = 'mermaid: ' + (err.message ?? err) + '\\n\\n' + src;
+      holder.replaceChildren(pre);
+      document.getElementById('mmd-' + mermaidSeq)?.remove();
+    }
+  }
+}
+
 function renderDoc(node) {
   updatePreview(node);
   const labels = { fresh: 'up to date', outdated: 'outdated — code changed since this was written', missing: 'no description yet' };
@@ -376,6 +420,7 @@ function renderDoc(node) {
     const prose = document.createElement('div'); prose.className = 'prose';
     prose.innerHTML = node.html;
     docEl.appendChild(prose);
+    renderMermaid(prose);
   } else {
     const e = document.createElement('div'); e.className = 'empty';
     e.innerHTML = 'No note for this path. Write one at <code></code> and run <code>repo-atlas stamp</code>.';

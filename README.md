@@ -58,6 +58,12 @@ regenerated with:
 pnpm dlx esbuild src/vendor/hljs-entry.mjs --bundle --minify --format=iife --outfile=src/vendor/hljs.js
 ```
 
+Note bodies may contain ` ```mermaid ` fences — they render as diagrams in the
+viewer. The vendored mermaid bundle (`src/vendor/mermaid.js`, ~3.4MB, copied from
+`node_modules/mermaid/dist/mermaid.min.js`) is embedded into the output HTML only
+when at least one note actually uses a mermaid fence; a fence that fails to parse
+falls back to showing the error plus the source.
+
 No install needed — run straight from GitHub with whichever runner you have
 (deliberately NOT a dependency of target repos):
 
