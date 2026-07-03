@@ -42,8 +42,9 @@ repo-atlas serve               # dev server at http://localhost:4400 (-p to chan
 ```
 
 `serve` rebuilds on every request and auto-reloads open pages (SSE) whenever the
-working tree or `.atlas/notes/` changes — leave it open while writing notes. No
-bundler involved; the viewer is a single self-contained page.
+working tree or `.atlas/notes/` changes — leave it open while writing notes. The
+output is still a single self-contained page (viewer prebuilt + committed, see
+"Viewer" below); nothing builds at run time.
 
 The selected path is recorded in the URL hash (`…:4400/#packages/kernel`), so
 routes are deep-linkable and browser back/forward work. The doc header is a
@@ -57,6 +58,19 @@ Selecting a file splits the right side into description + source preview
 paths inside the scan are served, never arbitrary disk paths — so the preview
 pane works under `serve`; the static `build` output carries descriptions only
 and shows a hint instead.
+
+## Viewer
+
+The viewer is a small React app in `viewer/` (App/Tree/Doc/Preview components +
+`lib.js` helpers), prebuilt into `src/vendor/viewer.js` + `viewer.css` and
+COMMITTED — target repos still run the tool with zero install and zero build.
+To hack on it:
+
+```sh
+pnpm install
+pnpm dev:viewer      # esbuild --watch; repo-atlas serve picks the bundle up per request
+pnpm build:viewer    # minified bundle — commit the regenerated vendor files
+```
 
 Syntax highlighting is a vendored highlight.js bundle (`src/vendor/hljs.js`),
 regenerated with:

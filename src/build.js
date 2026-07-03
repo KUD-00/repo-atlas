@@ -4,6 +4,22 @@ import { fileURLToPath } from 'node:url'
 import { marked } from 'marked'
 
 const VENDOR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'vendor')
+
+/**
+ * The viewer is a React app (viewer/*.jsx) prebuilt into src/vendor/viewer.js
+ * + viewer.css by `pnpm build:viewer` and COMMITTED — so target repos still run
+ * the tool with zero install/build. Hack on viewer/, run `pnpm dev:viewer`
+ * (esbuild --watch), and commit the regenerated bundle alongside.
+ */
+function readVendor(name) {
+  const file = path.join(VENDOR, name)
+  try {
+    return fs.readFileSync(file, 'utf8')
+  } catch {
+    throw new Error(`${file} missing — run \`pnpm build:viewer\` in the repo-atlas checkout`)
+  }
+}
+
 const hljsJs = fs.readFileSync(path.join(VENDOR, 'hljs.js'), 'utf8')
 const hljsCss = fs.readFileSync(path.join(VENDOR, 'hljs-theme.css'), 'utf8')
 
@@ -58,16 +74,17 @@ export function buildHtml({ repoName, commit, status }) {
     orphans: status.orphans.map((o) => o.path),
   }
   const json = JSON.stringify(data).replace(/</g, '\\u003c')
-
   const usesMermaid = status.entries.some((e) => e.body?.includes('```mermaid'))
 
   // function-form replacements: the payloads may contain `$&`-style sequences
   // that String.replace would otherwise interpret
   return TEMPLATE.replace('__TITLE__', () => escapeHtml(repoName))
+    .replace('/*__VIEWER_CSS__*/', () => readVendor('viewer.css'))
     .replace('/*__HLJS_CSS__*/', () => hljsCss)
+    .replace('"__DATA__"', () => json)
     .replace('/*__HLJS_JS__*/', () => hljsJs)
     .replace('/*__MERMAID_JS__*/', () => (usesMermaid ? loadMermaid() : ''))
-    .replace('"__DATA__"', () => json)
+    .replace('/*__VIEWER_JS__*/', () => readVendor('viewer.js'))
 }
 
 function escapeHtml(s) {
@@ -80,457 +97,15 @@ const TEMPLATE = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__ · atlas</title>
-<style>
-  :root {
-    --bg: #fbfbfa; --panel: #ffffff; --border: #e7e5e1; --text: #1f1e1c;
-    --muted: #8a867e; --accent: #3d6b54;
-    --fresh: #4a9d6e; --outdated: #d9930d; --missing: #c4c0b8;
-    font-size: 15px;
-  }
-  * { box-sizing: border-box; margin: 0; }
-  body {
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    background: var(--bg); color: var(--text); height: 100vh;
-    display: grid; grid-template-columns: 340px 1fr; grid-template-rows: 100vh; overflow: hidden;
-  }
-  aside { border-right: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-  .side-head { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
-  .side-head h1 { font-size: 0.95rem; font-weight: 600; }
-  .side-head .meta { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
-  .counts { display: flex; gap: 10px; margin-top: 8px; font-size: 0.72rem; color: var(--muted); }
-  .counts b { color: var(--text); font-weight: 600; }
-  .filters { padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; gap: 6px; align-items: center; }
-  .filters input {
-    flex: 1; min-width: 0; font: inherit; font-size: 0.8rem; padding: 4px 8px;
-    border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text);
-  }
-  .filters input:focus { outline: none; border-color: var(--accent); }
-  .chip {
-    font-size: 0.7rem; padding: 3px 8px; border-radius: 99px; border: 1px solid var(--border);
-    background: none; color: var(--muted); cursor: pointer; white-space: nowrap;
-  }
-  .chip.on { border-color: var(--accent); color: var(--accent); background: #3d6b540f; }
-  nav { flex: 1; min-height: 0; overflow: auto; padding: 8px 6px 24px; }
-  .row {
-    display: flex; align-items: center; gap: 6px; padding: 2px 8px 2px 0; border-radius: 6px;
-    cursor: pointer; user-select: none; font-size: 0.82rem; white-space: nowrap;
-  }
-  .row:hover { background: #00000006; }
-  .row.sel { background: #3d6b5414; }
-  .twist { width: 16px; flex: none; text-align: center; color: var(--muted); font-size: 0.65rem; }
-  .dot { width: 8px; height: 8px; border-radius: 99px; flex: none; }
-  .dot.fresh { background: var(--fresh); }
-  .dot.outdated { background: var(--outdated); }
-  .dot.missing { background: none; border: 1.5px solid var(--missing); }
-  .row .name { overflow: hidden; text-overflow: ellipsis; }
-  .row .name.dir { font-weight: 550; }
-  .badge {
-    margin-left: auto; font-size: 0.65rem; padding: 0 6px; border-radius: 99px; flex: none;
-    color: var(--muted); background: #00000008;
-  }
-  .badge.warn { color: #9a6a06; background: #d9930d1a; }
-  main { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; }
-  main.with-preview { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .pane { overflow: auto; min-width: 0; }
-  .doc { max-width: 760px; padding: 36px 48px 96px; }
-  .preview { border-left: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-  .pv-head {
-    display: flex; align-items: baseline; gap: 10px; padding: 10px 16px;
-    border-bottom: 1px solid var(--border); font-size: 0.78rem; flex: none;
-  }
-  .pv-head .pv-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pv-head .pv-meta { color: var(--muted); flex: none; margin-left: auto; font-size: 0.72rem; }
-  .pv-body { flex: 1; min-height: 0; overflow: auto; }
-  .pv-body pre { margin: 0; padding: 14px 16px 48px; font-size: 0.78rem; line-height: 1.55; }
-  .pv-body code.hljs { background: none; padding: 0; }
-  .pv-body .empty { padding: 16px; }
-  .crumb { font-size: 0.78rem; color: var(--muted); word-break: break-all; }
-  .doc h1.path { font-size: 1.25rem; font-weight: 650; margin: 4px 0 12px; word-break: break-all; }
-  .doc h1.path a.seg { color: inherit; text-decoration: none; opacity: 0.5; }
-  .doc h1.path a.seg:hover { opacity: 1; text-decoration: underline; }
-  .prose a.pathlink { text-decoration: none; border-bottom: 1px dashed var(--accent); }
-  .prose a.pathlink code { color: var(--accent); }
-  .prose a.pathlink:hover code { background: #3d6b541a; }
-  .state {
-    display: inline-flex; align-items: center; gap: 7px; font-size: 0.75rem;
-    border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; margin-bottom: 20px;
-    background: var(--panel);
-  }
-  .state.outdated { border-color: #d9930d55; background: #d9930d0d; }
-  .prose { line-height: 1.65; font-size: 0.92rem; }
-  .prose h1, .prose h2, .prose h3 { margin: 1.4em 0 0.5em; line-height: 1.3; }
-  .prose h1 { font-size: 1.15rem; } .prose h2 { font-size: 1.05rem; } .prose h3 { font-size: 0.95rem; }
-  .prose p, .prose ul, .prose ol, .prose pre, .prose table { margin: 0.7em 0; }
-  .prose ul, .prose ol { padding-left: 1.4em; }
-  .prose code { background: #00000009; border: 1px solid var(--border); border-radius: 4px; padding: 0.05em 0.35em; font-size: 0.85em; }
-  .prose pre { background: #f4f3f1; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; }
-  .prose pre code { background: none; border: none; padding: 0; }
-  .prose a { color: var(--accent); }
-  .prose blockquote { border-left: 3px solid var(--border); padding-left: 1em; color: var(--muted); }
-  .prose .mermaid-diagram { margin: 1em 0; overflow-x: auto; }
-  .prose .mermaid-diagram svg { max-width: 100%; height: auto; }
-  .prose .mermaid-diagram pre.mermaid-error { background: #c4222e0d; border-color: #c4222e55; }
-  .empty { color: var(--muted); font-size: 0.9rem; margin-top: 8px; }
-  .empty code { background: #00000009; padding: 0.1em 0.4em; border-radius: 4px; font-size: 0.85em; }
-</style>
+<style>/*__VIEWER_CSS__*/</style>
 <style>/*__HLJS_CSS__*/</style>
 </head>
 <body>
-<aside>
-  <div class="side-head">
-    <h1 id="repoName"></h1>
-    <div class="meta" id="meta"></div>
-    <div class="counts" id="counts"></div>
-  </div>
-  <div class="filters">
-    <input id="q" type="search" placeholder="filter paths…">
-    <button class="chip" id="chipOutdated">outdated</button>
-    <button class="chip" id="chipMissing">missing</button>
-  </div>
-  <nav id="tree"></nav>
-</aside>
-<main id="main">
-  <div class="pane"><div class="doc" id="doc"></div></div>
-  <section class="preview" id="preview" hidden>
-    <div class="pv-head">
-      <span class="pv-name" id="pvName"></span>
-      <span class="pv-meta" id="pvMeta"></span>
-    </div>
-    <div class="pv-body" id="pvBody"></div>
-  </section>
-</main>
+<div id="root"></div>
+<script>window.__ATLAS__ = "__DATA__";</script>
 <script>/*__HLJS_JS__*/</script>
 <script>/*__MERMAID_JS__*/</script>
-<script>
-const DATA = "__DATA__";
-const treeEl = document.getElementById('tree');
-const docEl = document.getElementById('doc');
-let selected = null;
-let filterText = '';
-let filterStatus = null;
-
-// subtree rollups
-(function roll(n) {
-  n.agg = { outdated: n.status === 'outdated' ? 1 : 0, missing: n.status === 'missing' ? 1 : 0 };
-  for (const c of n.children) { roll(c); n.agg.outdated += c.agg.outdated; n.agg.missing += c.agg.missing; }
-})(DATA.tree);
-
-const nodesByPath = new Map();
-(function index(n) { nodesByPath.set(n.path, n); n.children.forEach(index); })(DATA.tree);
-// path -> { row, ensureOpen } for rows the lazy tree has materialized
-const rowRefs = new Map();
-
-document.getElementById('repoName').textContent = DATA.repoName;
-document.getElementById('meta').textContent =
-  (DATA.commit ? '@ ' + DATA.commit + ' · ' : '') + new Date(DATA.generatedAt).toLocaleString();
-{
-  const a = DATA.tree.agg, total = countNodes(DATA.tree);
-  document.getElementById('counts').innerHTML =
-    '<span><b>' + (total - a.outdated - a.missing) + '</b> fresh</span>' +
-    '<span><b>' + a.outdated + '</b> outdated</span>' +
-    '<span><b>' + a.missing + '</b> missing</span>';
-}
-function countNodes(n) { return 1 + n.children.reduce((s, c) => s + countNodes(c), 0); }
-
-function dot(status) { const d = document.createElement('span'); d.className = 'dot ' + status; return d; }
-
-function makeRow(node, depth, expandable) {
-  const row = document.createElement('div');
-  row.className = 'row';
-  row.style.paddingLeft = (depth * 14) + 'px';
-  const twist = document.createElement('span');
-  twist.className = 'twist';
-  twist.textContent = expandable ? '▸' : '';
-  row.appendChild(twist);
-  row.appendChild(dot(node.status));
-  const name = document.createElement('span');
-  name.className = 'name' + (node.type === 'dir' ? ' dir' : '');
-  name.textContent = node.name + (node.type === 'dir' ? '/' : '');
-  row.appendChild(name);
-  if (node.type === 'dir' && (node.agg.outdated || node.agg.missing)) {
-    if (node.agg.outdated) {
-      const b = document.createElement('span'); b.className = 'badge warn';
-      b.textContent = node.agg.outdated; row.appendChild(b);
-    }
-    if (node.agg.missing) {
-      const b = document.createElement('span'); b.className = 'badge';
-      b.textContent = node.agg.missing; row.appendChild(b);
-    }
-  }
-  return { row, twist };
-}
-
-// lazy tree rendering
-function renderNode(node, depth, container) {
-  const expandable = node.children.length > 0;
-  const { row, twist } = makeRow(node, depth, expandable);
-  container.appendChild(row);
-  let childBox = null, open = false;
-  const toggle = () => {
-    if (!expandable) return;
-    open = !open;
-    twist.textContent = open ? '▾' : '▸';
-    if (open && !childBox) {
-      childBox = document.createElement('div');
-      row.after(childBox);
-      for (const c of node.children) renderNode(c, depth + 1, childBox);
-    } else if (childBox) {
-      childBox.style.display = open ? '' : 'none';
-    }
-  };
-  rowRefs.set(node.path, { row, ensureOpen: () => { if (expandable && !open) toggle(); } });
-  row.addEventListener('click', (ev) => {
-    select(node, row);
-    if (node.type === 'dir') toggle();
-  });
-  twist.addEventListener('click', (ev) => { ev.stopPropagation(); toggle(); });
-  if (depth === 0) toggle();
-  return row;
-}
-
-function renderTree() {
-  treeEl.textContent = '';
-  rowRefs.clear();
-  if (!filterText && !filterStatus) { renderNode(DATA.tree, 0, treeEl); return; }
-  // flat filtered list
-  const q = filterText.toLowerCase();
-  const walk = (n) => {
-    const hit = (!q || n.path.toLowerCase().includes(q)) && (!filterStatus || n.status === filterStatus);
-    if (hit && n.path !== '') {
-      const { row } = makeRow(n, 0, false);
-      row.querySelector('.name').textContent = n.path + (n.type === 'dir' ? '/' : '');
-      row.addEventListener('click', () => select(n, row));
-      treeEl.appendChild(row);
-    }
-    n.children.forEach(walk);
-  };
-  walk(DATA.tree);
-  if (!treeEl.children.length) {
-    const e = document.createElement('div'); e.className = 'empty'; e.style.padding = '8px 12px';
-    e.textContent = 'no matches'; treeEl.appendChild(e);
-  }
-}
-
-let selRow = null;
-function select(node, row) {
-  selected = node;
-  if (selRow) selRow.classList.remove('sel');
-  selRow = row ?? null;
-  if (selRow) selRow.classList.add('sel');
-  // record the route in the hash (pushState does not re-fire hashchange)
-  const want = node.path ? '#' + encodeURI(node.path) : location.pathname + location.search;
-  if (decodeURI(location.hash.slice(1)) !== node.path) history.pushState(null, '', want);
-  renderDoc(node);
-}
-
-/** Route to a repo path: expand tree ancestors, select, scroll into view. */
-function navigateTo(path) {
-  const node = nodesByPath.get(path);
-  if (!node) return false;
-  if (!filterText && !filterStatus) {
-    const segs = path === '' ? [] : path.split('/');
-    let p = '';
-    rowRefs.get('')?.ensureOpen();
-    for (let i = 0; i < segs.length - 1; i++) {
-      p = p ? p + '/' + segs[i] : segs[i];
-      rowRefs.get(p)?.ensureOpen();
-    }
-  }
-  const ref = rowRefs.get(path);
-  select(node, ref?.row);
-  ref?.row.scrollIntoView({ block: 'nearest' });
-  return true;
-}
-
-window.addEventListener('hashchange', () => {
-  const path = decodeURI(location.hash.slice(1));
-  if (path !== (selected?.path ?? '')) navigateTo(path);
-});
-
-// --- file preview pane (content served by \`repo-atlas serve\` via /raw) ---
-const mainEl = document.getElementById('main');
-const previewEl = document.getElementById('preview');
-const pvName = document.getElementById('pvName');
-const pvMeta = document.getElementById('pvMeta');
-const pvBody = document.getElementById('pvBody');
-const PV_LANG = {
-  ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
-  js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
-  json: 'json', jsonc: 'json', md: 'markdown', mdx: 'markdown',
-  css: 'css', html: 'xml', xml: 'xml', svg: 'xml', astro: 'xml', vue: 'xml',
-  py: 'python', sh: 'bash', bash: 'bash', zsh: 'bash', yml: 'yaml', yaml: 'yaml',
-  sql: 'sql', rs: 'rust', go: 'go', nix: 'nix', toml: 'ini', ini: 'ini', diff: 'diff',
-};
-let pvToken = 0;
-
-async function updatePreview(node) {
-  const token = ++pvToken;
-  if (node.type !== 'file') {
-    previewEl.hidden = true;
-    mainEl.classList.remove('with-preview');
-    return;
-  }
-  previewEl.hidden = false;
-  mainEl.classList.add('with-preview');
-  pvName.textContent = node.path;
-  pvMeta.textContent = '';
-  pvBody.innerHTML = '<div class="empty">loading…</div>';
-  try {
-    const res = await fetch('raw?p=' + encodeURIComponent(node.path));
-    if (!res.ok) throw new Error('http ' + res.status);
-    const text = await res.text();
-    if (token !== pvToken) return;
-    if (res.headers.get('x-atlas-binary')) {
-      pvBody.innerHTML = '<div class="empty">binary file — no preview</div>';
-      return;
-    }
-    renderCode(node.path, text, res.headers.get('x-atlas-truncated'));
-  } catch (err) {
-    if (token !== pvToken) return;
-    pvBody.innerHTML = '<div class="empty">no preview — file contents are served by <code>repo-atlas serve</code>; the static build only carries descriptions</div>';
-  }
-}
-
-function renderCode(p, text, truncated) {
-  const name = p.slice(p.lastIndexOf('/') + 1).toLowerCase();
-  const ext = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : '';
-  let lang = PV_LANG[ext];
-  if (!lang && name.startsWith('dockerfile')) lang = 'dockerfile';
-  const code = document.createElement('code');
-  code.className = 'hljs';
-  if (lang && window.hljs && hljs.getLanguage(lang)) {
-    code.innerHTML = hljs.highlight(text, { language: lang, ignoreIllegals: true }).value;
-  } else {
-    code.textContent = text;
-  }
-  const pre = document.createElement('pre');
-  pre.appendChild(code);
-  pvMeta.textContent = text.split('\\n').length + ' lines' + (truncated ? ' · truncated' : '') + (lang ? ' · ' + lang : '');
-  pvBody.textContent = '';
-  pvBody.appendChild(pre);
-  pvBody.scrollTop = 0;
-}
-
-// mermaid: \`\`\`mermaid fences arrive as pre>code.language-mermaid; swap each for
-// a rendered SVG. window.mermaid exists only when the build embedded the bundle
-// (some note used a mermaid fence) — otherwise the fence stays visible as code.
-let mermaidSeq = 0;
-async function renderMermaid(container) {
-  if (!window.mermaid) return;
-  const blocks = container.querySelectorAll('pre > code.language-mermaid');
-  if (!blocks.length) return;
-  if (!window.__mermaidReady) {
-    mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
-    window.__mermaidReady = true;
-  }
-  for (const code of blocks) {
-    const src = code.textContent;
-    const holder = document.createElement('div');
-    holder.className = 'mermaid-diagram';
-    code.parentElement.replaceWith(holder);
-    try {
-      const { svg } = await mermaid.render('mmd-' + (++mermaidSeq), src);
-      holder.innerHTML = svg;
-    } catch (err) {
-      const pre = document.createElement('pre');
-      pre.className = 'mermaid-error';
-      pre.textContent = 'mermaid: ' + (err.message ?? err) + '\\n\\n' + src;
-      holder.replaceChildren(pre);
-      document.getElementById('mmd-' + mermaidSeq)?.remove();
-    }
-  }
-}
-
-// Inline-code path linking: a <code> whose text resolves to a scanned path —
-// absolute (packages/kernel/core), relative to the current dir (core,
-// src/queue.ts), or with a trailing / or glob tail (drivers/, telemetry-*) —
-// becomes a link to that path's page. Purely a view concern; notes stay plain.
-function linkifyPaths(prose, node) {
-  const base = node.type === 'dir' ? node.path : node.path.slice(0, node.path.lastIndexOf('/'));
-  for (const code of prose.querySelectorAll('code')) {
-    if (code.parentElement.closest('a, pre')) continue;
-    const raw = code.textContent.trim();
-    if (!raw || raw.length > 120 || /[\\s\`$(){}"']/.test(raw)) continue;
-    const t = raw.replace(/\\/$/, '').replace(/\\/?\\*$/, '').replace(/-\\*$/, '');
-    if (!t) continue;
-    const candidates = [t, base ? base + '/' + t : t];
-    if (base.includes('/')) candidates.push(base.slice(0, base.lastIndexOf('/')) + '/' + t);
-    const hit = candidates.find((c) => c !== node.path && nodesByPath.has(c));
-    if (!hit) continue;
-    const a = document.createElement('a');
-    a.href = '#' + encodeURI(hit);
-    a.className = 'pathlink';
-    code.replaceWith(a);
-    a.appendChild(code);
-  }
-}
-
-function renderDoc(node) {
-  updatePreview(node);
-  const labels = { fresh: 'up to date', outdated: 'outdated — code changed since this was written', missing: 'no description yet' };
-  docEl.innerHTML = '';
-  const crumb = document.createElement('div'); crumb.className = 'crumb';
-  crumb.textContent = node.type === 'dir' ? 'directory' : 'file';
-  docEl.appendChild(crumb);
-  // breadcrumb: every ancestor segment is a link (repo name = root)
-  const h = document.createElement('h1'); h.className = 'path';
-  const rootLink = document.createElement('a');
-  rootLink.href = '#'; rootLink.textContent = DATA.repoName; rootLink.className = 'seg';
-  h.appendChild(rootLink);
-  if (node.path !== '') {
-    const segs = node.path.split('/');
-    let p = '';
-    segs.forEach((seg, i) => {
-      p = p ? p + '/' + seg : seg;
-      h.appendChild(document.createTextNode(' / '));
-      if (i === segs.length - 1) {
-        const cur = document.createElement('span'); cur.textContent = seg;
-        h.appendChild(cur);
-      } else {
-        const a = document.createElement('a');
-        a.href = '#' + encodeURI(p); a.textContent = seg; a.className = 'seg';
-        h.appendChild(a);
-      }
-    });
-  }
-  docEl.appendChild(h);
-  const state = document.createElement('div'); state.className = 'state ' + node.status;
-  state.appendChild(dot(node.status));
-  state.appendChild(document.createTextNode(labels[node.status] +
-    (node.stamped ? ' · stamped ' + new Date(node.stamped).toLocaleDateString() : '')));
-  docEl.appendChild(state);
-  if (node.html) {
-    const prose = document.createElement('div'); prose.className = 'prose';
-    prose.innerHTML = node.html;
-    linkifyPaths(prose, node);
-    docEl.appendChild(prose);
-    renderMermaid(prose);
-  } else {
-    const e = document.createElement('div'); e.className = 'empty';
-    e.innerHTML = 'No note for this path. Write one at <code></code> and run <code>repo-atlas stamp</code>.';
-    e.querySelector('code').textContent = '.atlas/notes/' +
-      (node.type === 'dir' ? (node.path ? node.path + '/' : '') + '__dir__.md' : node.path + '.md');
-    docEl.appendChild(e);
-  }
-}
-
-document.getElementById('q').addEventListener('input', (e) => { filterText = e.target.value.trim(); renderTree(); });
-for (const [id, st] of [['chipOutdated', 'outdated'], ['chipMissing', 'missing']]) {
-  const el = document.getElementById(id);
-  el.addEventListener('click', () => {
-    filterStatus = filterStatus === st ? null : st;
-    document.getElementById('chipOutdated').classList.toggle('on', filterStatus === 'outdated');
-    document.getElementById('chipMissing').classList.toggle('on', filterStatus === 'missing');
-    renderTree();
-  });
-}
-
-renderTree();
-{
-  const initial = decodeURI(location.hash.slice(1));
-  if (!initial || !navigateTo(initial)) select(DATA.tree, treeEl.firstChild);
-}
-</script>
+<script>/*__VIEWER_JS__*/</script>
 </body>
 </html>`
 
