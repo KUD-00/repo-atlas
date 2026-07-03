@@ -34,7 +34,7 @@ function loadMermaid() {
  * Build a self-contained HTML atlas from a status result.
  * Tree data is embedded as JSON; markdown bodies are pre-rendered at build time.
  */
-export function buildHtml({ repoName, commit, status }) {
+export function buildHtml({ repoName, commit, status, graph = null, glossary = [] }) {
   const byPath = new Map(status.entries.map((e) => [e.path, e]))
 
   // nested tree from flat paths; root is ''
@@ -72,6 +72,8 @@ export function buildHtml({ repoName, commit, status }) {
     generatedAt: new Date().toISOString(),
     tree: root,
     orphans: status.orphans.map((o) => o.path),
+    graph,
+    glossary,
   }
   const json = JSON.stringify(data).replace(/</g, '\\u003c')
   const usesMermaid = status.entries.some((e) => e.body?.includes('```mermaid'))

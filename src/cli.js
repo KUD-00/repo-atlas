@@ -8,6 +8,8 @@ import { noteFileFor, loadNotes, stampNote, notesRoot } from './notes.js'
 import { computeStatus, summarize } from './status.js'
 import { buildHtml, writeAtlas } from './build.js'
 import { serve } from './serve.js'
+import { buildImportGraph } from './deps.js'
+import { loadGlossaryRaw, parseGlossary } from './glossary.js'
 
 const USAGE = `repo-atlas — incremental codebase atlas with staleness tracking
 
@@ -162,11 +164,14 @@ function build(root, args) {
   const config = requireConfig(root)
   const oIdx = args.indexOf('-o')
   const outFile = oIdx >= 0 ? args[oIdx + 1] : (config.output ?? '.atlas/atlas.html')
-  const status = computeStatus(root, scan(root, config))
+  const scanResult = scan(root, config)
+  const status = computeStatus(root, scanResult)
   const html = buildHtml({
     repoName: path.basename(root),
     commit: headCommit(root),
     status,
+    graph: buildImportGraph(root, scanResult),
+    glossary: parseGlossary(loadGlossaryRaw(root)),
   })
   const target = writeAtlas(root, outFile, html)
   const sum = summarize(status)

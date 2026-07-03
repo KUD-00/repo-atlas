@@ -53,6 +53,15 @@ resolves to a scanned path — absolute (`packages/kernel/core`), relative to th
 note's directory (`core`, `src/queue.ts`), or with a `/`/`*` tail — renders as
 a link to that path's page. Notes stay plain markdown; linking is view-side.
 
+Two things are derived from the code, not written in notes: **import
+relations** — every page shows "imports → / ← imported by" chips (exact files
+for a file, grouped to package roots for a directory), resolved from relative
+imports and workspace package names, memoized by blob hash so serve stays
+fast. And the **glossary** — define project jargon once in
+`.atlas/glossary.md` (`## term`, optional `别名：`/`aliases:` line, body);
+every occurrence in note prose gets a dotted underline with a hover popover,
+so terminology can't drift between notes.
+
 Selecting a file splits the right side into description + source preview
 (syntax-highlighted). Contents come from the server's `/raw` endpoint — only
 paths inside the scan are served, never arbitrary disk paths — so the preview

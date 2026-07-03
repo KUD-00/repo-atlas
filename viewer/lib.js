@@ -110,3 +110,126 @@ export function languageFor(path) {
   const ext = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : ''
   return PV_LANG[ext] ?? null
 }
+
+/** Decode the embedded import graph into path-pair edges + package-root set. */
+export function buildRelationIndex(graph) {
+  if (!graph) return null
+  const paths = graph.paths
+  return {
+    edges: graph.edges.map(([s, d]) => [paths[s], paths[d]]),
+    packageRoots: new Set(graph.packageRoots),
+  }
+}
+
+/**
+ * Dependencies / dependents of a node, from the import graph. File nodes get
+ * exact endpoint paths; directory nodes get endpoints grouped to their nearest
+ * package root (own package excluded — internal wiring is not a relation).
+ */
+export function relationsFor(node, rel, nodesByPath) {
+  if (!rel || node.path === '') return { deps: [], dependents: [] }
+  const prefix = node.path + '/'
+  const inside = (p) => p === node.path || p.startsWith(prefix)
+  const groupOf = (p) => {
+    let cur = p
+    while (cur) {
+      if (rel.packageRoots.has(cur)) return cur
+      cur = cur.includes('/') ? cur.slice(0, cur.lastIndexOf('/')) : ''
+    }
+    return p.includes('/') ? p.split('/')[0] : p
+  }
+  const isFile = node.type === 'file'
+  const ownGroup = groupOf(node.path)
+  const deps = new Set()
+  const dependents = new Set()
+  for (const [src, dst] of rel.edges) {
+    const srcIn = inside(src)
+    const dstIn = inside(dst)
+    if (srcIn === dstIn) continue
+    if (srcIn) {
+      const t = isFile ? dst : groupOf(dst)
+      if (isFile || t !== ownGroup) deps.add(t)
+    } else {
+      const t = isFile ? src : groupOf(src)
+      if (isFile || t !== ownGroup) dependents.add(t)
+    }
+  }
+  const clean = (set) => [...set].filter((p) => p !== node.path && nodesByPath.has(p)).sort()
+  return { deps: clean(deps), dependents: clean(dependents) }
+}
+
+// ---------------------------------------------------------------------------
+// Glossary: highlight known terms in prose, define them in a hover popover.
+// ---------------------------------------------------------------------------
+
+let popoverEl = null
+function popover() {
+  if (!popoverEl) {
+    popoverEl = document.createElement('div')
+    popoverEl.className = 'glossary-pop'
+    popoverEl.hidden = true
+    document.body.appendChild(popoverEl)
+  }
+  return popoverEl
+}
+
+function showPopover(anchor, entry) {
+  const pop = popover()
+  pop.textContent = ''
+  const term = document.createElement('b')
+  term.textContent = entry.term
+  const def = document.createElement('div')
+  def.textContent = entry.def
+  pop.append(term, def)
+  pop.hidden = false
+  const r = anchor.getBoundingClientRect()
+  pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 356)) + 'px'
+  pop.style.top = r.bottom + 6 + 'px'
+}
+
+const escapeReg = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** Wrap every glossary term/alias occurrence in prose text with a hover span. */
+export function annotateGlossary(container, glossary) {
+  if (!glossary?.length) return
+  const entries = []
+  for (const g of glossary) for (const t of [g.term, ...(g.aliases ?? [])]) if (t) entries.push([t, g])
+  if (!entries.length) return
+  entries.sort((a, b) => b[0].length - a[0].length)
+  const byText = new Map(entries.slice().reverse()) // longest wins on ties
+  const pattern = new RegExp(entries.map(([t]) => escapeReg(t)).join('|'), 'g')
+
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+    acceptNode(n) {
+      if (!n.nodeValue.trim()) return NodeFilter.FILTER_REJECT
+      if (n.parentElement?.closest('a, pre, .term, .mermaid-diagram')) return NodeFilter.FILTER_REJECT
+      return NodeFilter.FILTER_ACCEPT
+    },
+  })
+  const textNodes = []
+  while (walker.nextNode()) textNodes.push(walker.currentNode)
+
+  for (const tn of textNodes) {
+    const text = tn.nodeValue
+    pattern.lastIndex = 0
+    let m
+    let last = 0
+    let frag = null
+    while ((m = pattern.exec(text)) !== null) {
+      frag ??= document.createDocumentFragment()
+      if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)))
+      const span = document.createElement('span')
+      span.className = 'term'
+      span.textContent = m[0]
+      const entry = byText.get(m[0])
+      span.addEventListener('mouseenter', () => showPopover(span, entry))
+      span.addEventListener('mouseleave', () => { popover().hidden = true })
+      frag.appendChild(span)
+      last = m.index + m[0].length
+    }
+    if (frag) {
+      if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)))
+      tn.replaceWith(frag)
+    }
+  }
+}

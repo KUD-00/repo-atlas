@@ -6,6 +6,8 @@ import { createHash } from 'node:crypto'
 import { scan, headCommit } from './scan.js'
 import { computeStatus } from './status.js'
 import { buildHtml } from './build.js'
+import { buildImportGraph } from './deps.js'
+import { loadGlossaryRaw, parseGlossary } from './glossary.js'
 
 const LIVE_SNIPPET = `<script>
 new EventSource('/events').addEventListener('reload', () => location.reload());
@@ -27,9 +29,16 @@ export function serve(root, config, port, host = '127.0.0.1') {
     const scanResult = scan(root, config)
     lastFiles = scanResult.files
     const status = computeStatus(root, scanResult)
-    const html = buildHtml({ repoName: path.basename(root), commit: headCommit(root), status })
+    const glossaryRaw = loadGlossaryRaw(root)
+    const html = buildHtml({
+      repoName: path.basename(root),
+      commit: headCommit(root),
+      status,
+      graph: buildImportGraph(root, scanResult),
+      glossary: parseGlossary(glossaryRaw),
+    })
     const digest = createHash('sha1')
-      .update(JSON.stringify(status.entries) + JSON.stringify(status.orphans))
+      .update(JSON.stringify(status.entries) + JSON.stringify(status.orphans) + glossaryRaw)
       .digest('hex')
     // inject before the LAST </body> — embedded vendor bundles may contain the
     // literal string "</body>" (mermaid's sanitizer does), and String.replace

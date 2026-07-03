@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { indexTree, ancestorsOf } from './lib.js'
+import { indexTree, ancestorsOf, buildRelationIndex } from './lib.js'
 import { Tree } from './Tree.jsx'
 import { DocPane } from './Doc.jsx'
 import { PreviewPane } from './Preview.jsx'
@@ -28,6 +28,7 @@ function useRoute(nodesByPath) {
 
 export function App({ data }) {
   const nodesByPath = useMemo(() => indexTree(data.tree), [data])
+  const rel = useMemo(() => buildRelationIndex(data.graph), [data])
   const [path, navigate] = useRoute(nodesByPath)
   const [expanded, setExpanded] = useState(() => new Set(ancestorsOf(path)))
   const [query, setQuery] = useState('')
@@ -99,7 +100,13 @@ export function App({ data }) {
       </aside>
       <main className={node.type === 'file' ? 'with-preview' : ''}>
         <div className="pane">
-          <DocPane node={node} repoName={data.repoName} nodesByPath={nodesByPath} />
+          <DocPane
+            node={node}
+            repoName={data.repoName}
+            nodesByPath={nodesByPath}
+            rel={rel}
+            glossary={data.glossary}
+          />
         </div>
         {node.type === 'file' && <PreviewPane path={node.path} />}
       </main>

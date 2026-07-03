@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import { linkifyPaths, renderMermaidIn, noteFileFor } from './lib.js'
+import { useEffect, useMemo, useRef } from 'react'
+import { linkifyPaths, renderMermaidIn, noteFileFor, relationsFor, annotateGlossary } from './lib.js'
 
 const STATE_LABELS = {
   fresh: 'up to date',
@@ -32,20 +32,51 @@ function Breadcrumb({ node, repoName }) {
   )
 }
 
-/** Markdown body, pre-rendered to HTML at build time. Path-linking and
- * mermaid rendering are DOM post-passes over the injected HTML. */
-function Prose({ node, nodesByPath }) {
+/** Import relations derived from the code, not from the note: what this path
+ * imports (grouped to package roots for dirs, exact for files) and who
+ * imports it. Every chip navigates. */
+function Relations({ node, rel, nodesByPath }) {
+  const { deps, dependents } = useMemo(
+    () => relationsFor(node, rel, nodesByPath),
+    [node, rel, nodesByPath],
+  )
+  if (!deps.length && !dependents.length) return null
+  const CAP = 24
+  const Chips = ({ items }) => (
+    <span className="chips">
+      {items.slice(0, CAP).map((p) => (
+        <a key={p} className="rel-chip" href={'#' + encodeURI(p)}>{p}</a>
+      ))}
+      {items.length > CAP && <span className="rel-more">+{items.length - CAP} more</span>}
+    </span>
+  )
+  return (
+    <div className="relations">
+      {deps.length > 0 && (
+        <div className="rel-row"><span className="rel-label">imports →</span><Chips items={deps} /></div>
+      )}
+      {dependents.length > 0 && (
+        <div className="rel-row"><span className="rel-label">← imported by</span><Chips items={dependents} /></div>
+      )}
+    </div>
+  )
+}
+
+/** Markdown body, pre-rendered to HTML at build time. Path-linking, glossary
+ * annotation and mermaid rendering are DOM post-passes over the injected HTML. */
+function Prose({ node, nodesByPath, glossary }) {
   const ref = useRef(null)
   useEffect(() => {
     const el = ref.current
     el.innerHTML = node.html
     linkifyPaths(el, node, nodesByPath)
+    annotateGlossary(el, glossary)
     renderMermaidIn(el)
-  }, [node, nodesByPath])
+  }, [node, nodesByPath, glossary])
   return <div className="prose" ref={ref} />
 }
 
-export function DocPane({ node, repoName, nodesByPath }) {
+export function DocPane({ node, repoName, nodesByPath, rel, glossary }) {
   return (
     <div className="doc">
       <div className="crumb">{node.type === 'dir' ? 'directory' : 'file'}</div>
@@ -55,8 +86,9 @@ export function DocPane({ node, repoName, nodesByPath }) {
         {STATE_LABELS[node.status]}
         {node.stamped ? ` · stamped ${new Date(node.stamped).toLocaleDateString()}` : ''}
       </div>
+      <Relations node={node} rel={rel} nodesByPath={nodesByPath} />
       {node.html ? (
-        <Prose node={node} nodesByPath={nodesByPath} />
+        <Prose node={node} nodesByPath={nodesByPath} glossary={glossary} />
       ) : (
         <div className="empty">
           No note for this path. Write one at <code>{noteFileFor(node)}</code> and run{' '}
