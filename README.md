@@ -45,6 +45,13 @@ repo-atlas serve               # dev server at http://localhost:4400 (-p to chan
 working tree or `.atlas/notes/` changes — leave it open while writing notes. No
 bundler involved; the viewer is a single self-contained page.
 
+The selected path is recorded in the URL hash (`…:4400/#packages/kernel`), so
+routes are deep-linkable and browser back/forward work. The doc header is a
+breadcrumb (every ancestor segment navigates), and inline code in a note that
+resolves to a scanned path — absolute (`packages/kernel/core`), relative to the
+note's directory (`core`, `src/queue.ts`), or with a `/`/`*` tail — renders as
+a link to that path's page. Notes stay plain markdown; linking is view-side.
+
 Selecting a file splits the right side into description + source preview
 (syntax-highlighted). Contents come from the server's `/raw` endpoint — only
 paths inside the scan are served, never arbitrary disk paths — so the preview

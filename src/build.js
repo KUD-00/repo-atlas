@@ -146,6 +146,11 @@ const TEMPLATE = `<!doctype html>
   .pv-body .empty { padding: 16px; }
   .crumb { font-size: 0.78rem; color: var(--muted); word-break: break-all; }
   .doc h1.path { font-size: 1.25rem; font-weight: 650; margin: 4px 0 12px; word-break: break-all; }
+  .doc h1.path a.seg { color: inherit; text-decoration: none; opacity: 0.5; }
+  .doc h1.path a.seg:hover { opacity: 1; text-decoration: underline; }
+  .prose a.pathlink { text-decoration: none; border-bottom: 1px dashed var(--accent); }
+  .prose a.pathlink code { color: var(--accent); }
+  .prose a.pathlink:hover code { background: #3d6b541a; }
   .state {
     display: inline-flex; align-items: center; gap: 7px; font-size: 0.75rem;
     border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; margin-bottom: 20px;
@@ -210,6 +215,11 @@ let filterStatus = null;
   for (const c of n.children) { roll(c); n.agg.outdated += c.agg.outdated; n.agg.missing += c.agg.missing; }
 })(DATA.tree);
 
+const nodesByPath = new Map();
+(function index(n) { nodesByPath.set(n.path, n); n.children.forEach(index); })(DATA.tree);
+// path -> { row, ensureOpen } for rows the lazy tree has materialized
+const rowRefs = new Map();
+
 document.getElementById('repoName').textContent = DATA.repoName;
 document.getElementById('meta').textContent =
   (DATA.commit ? '@ ' + DATA.commit + ' · ' : '') + new Date(DATA.generatedAt).toLocaleString();
@@ -268,6 +278,7 @@ function renderNode(node, depth, container) {
       childBox.style.display = open ? '' : 'none';
     }
   };
+  rowRefs.set(node.path, { row, ensureOpen: () => { if (expandable && !open) toggle(); } });
   row.addEventListener('click', (ev) => {
     select(node, row);
     if (node.type === 'dir') toggle();
@@ -279,6 +290,7 @@ function renderNode(node, depth, container) {
 
 function renderTree() {
   treeEl.textContent = '';
+  rowRefs.clear();
   if (!filterText && !filterStatus) { renderNode(DATA.tree, 0, treeEl); return; }
   // flat filtered list
   const q = filterText.toLowerCase();
@@ -303,9 +315,37 @@ let selRow = null;
 function select(node, row) {
   selected = node;
   if (selRow) selRow.classList.remove('sel');
-  selRow = row; row.classList.add('sel');
+  selRow = row ?? null;
+  if (selRow) selRow.classList.add('sel');
+  // record the route in the hash (pushState does not re-fire hashchange)
+  const want = node.path ? '#' + encodeURI(node.path) : location.pathname + location.search;
+  if (decodeURI(location.hash.slice(1)) !== node.path) history.pushState(null, '', want);
   renderDoc(node);
 }
+
+/** Route to a repo path: expand tree ancestors, select, scroll into view. */
+function navigateTo(path) {
+  const node = nodesByPath.get(path);
+  if (!node) return false;
+  if (!filterText && !filterStatus) {
+    const segs = path === '' ? [] : path.split('/');
+    let p = '';
+    rowRefs.get('')?.ensureOpen();
+    for (let i = 0; i < segs.length - 1; i++) {
+      p = p ? p + '/' + segs[i] : segs[i];
+      rowRefs.get(p)?.ensureOpen();
+    }
+  }
+  const ref = rowRefs.get(path);
+  select(node, ref?.row);
+  ref?.row.scrollIntoView({ block: 'nearest' });
+  return true;
+}
+
+window.addEventListener('hashchange', () => {
+  const path = decodeURI(location.hash.slice(1));
+  if (path !== (selected?.path ?? '')) navigateTo(path);
+});
 
 // --- file preview pane (content served by \`repo-atlas serve\` via /raw) ---
 const mainEl = document.getElementById('main');
@@ -401,6 +441,30 @@ async function renderMermaid(container) {
   }
 }
 
+// Inline-code path linking: a <code> whose text resolves to a scanned path —
+// absolute (packages/kernel/core), relative to the current dir (core,
+// src/queue.ts), or with a trailing / or glob tail (drivers/, telemetry-*) —
+// becomes a link to that path's page. Purely a view concern; notes stay plain.
+function linkifyPaths(prose, node) {
+  const base = node.type === 'dir' ? node.path : node.path.slice(0, node.path.lastIndexOf('/'));
+  for (const code of prose.querySelectorAll('code')) {
+    if (code.parentElement.closest('a, pre')) continue;
+    const raw = code.textContent.trim();
+    if (!raw || raw.length > 120 || /[\\s\`$(){}"']/.test(raw)) continue;
+    const t = raw.replace(/\\/$/, '').replace(/\\/?\\*$/, '').replace(/-\\*$/, '');
+    if (!t) continue;
+    const candidates = [t, base ? base + '/' + t : t];
+    if (base.includes('/')) candidates.push(base.slice(0, base.lastIndexOf('/')) + '/' + t);
+    const hit = candidates.find((c) => c !== node.path && nodesByPath.has(c));
+    if (!hit) continue;
+    const a = document.createElement('a');
+    a.href = '#' + encodeURI(hit);
+    a.className = 'pathlink';
+    code.replaceWith(a);
+    a.appendChild(code);
+  }
+}
+
 function renderDoc(node) {
   updatePreview(node);
   const labels = { fresh: 'up to date', outdated: 'outdated — code changed since this was written', missing: 'no description yet' };
@@ -408,8 +472,27 @@ function renderDoc(node) {
   const crumb = document.createElement('div'); crumb.className = 'crumb';
   crumb.textContent = node.type === 'dir' ? 'directory' : 'file';
   docEl.appendChild(crumb);
+  // breadcrumb: every ancestor segment is a link (repo name = root)
   const h = document.createElement('h1'); h.className = 'path';
-  h.textContent = node.path === '' ? DATA.repoName : node.path;
+  const rootLink = document.createElement('a');
+  rootLink.href = '#'; rootLink.textContent = DATA.repoName; rootLink.className = 'seg';
+  h.appendChild(rootLink);
+  if (node.path !== '') {
+    const segs = node.path.split('/');
+    let p = '';
+    segs.forEach((seg, i) => {
+      p = p ? p + '/' + seg : seg;
+      h.appendChild(document.createTextNode(' / '));
+      if (i === segs.length - 1) {
+        const cur = document.createElement('span'); cur.textContent = seg;
+        h.appendChild(cur);
+      } else {
+        const a = document.createElement('a');
+        a.href = '#' + encodeURI(p); a.textContent = seg; a.className = 'seg';
+        h.appendChild(a);
+      }
+    });
+  }
   docEl.appendChild(h);
   const state = document.createElement('div'); state.className = 'state ' + node.status;
   state.appendChild(dot(node.status));
@@ -419,6 +502,7 @@ function renderDoc(node) {
   if (node.html) {
     const prose = document.createElement('div'); prose.className = 'prose';
     prose.innerHTML = node.html;
+    linkifyPaths(prose, node);
     docEl.appendChild(prose);
     renderMermaid(prose);
   } else {
@@ -442,7 +526,10 @@ for (const [id, st] of [['chipOutdated', 'outdated'], ['chipMissing', 'missing']
 }
 
 renderTree();
-select(DATA.tree, treeEl.firstChild);
+{
+  const initial = decodeURI(location.hash.slice(1));
+  if (!initial || !navigateTo(initial)) select(DATA.tree, treeEl.firstChild);
+}
 </script>
 </body>
 </html>`
