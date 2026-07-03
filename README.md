@@ -58,7 +58,19 @@ regenerated with:
 pnpm dlx esbuild src/vendor/hljs-entry.mjs --bundle --minify --format=iife --outfile=src/vendor/hljs.js
 ```
 
-Install: `pnpm install` in this repo, then `pnpm link --global` (or call `src/cli.js` directly).
+Install (per machine, like git/jq — deliberately NOT a dependency of target repos):
+
+```sh
+git clone git@github.com:KUD-00/repo-atlas.git && cd repo-atlas
+pnpm install && pnpm link --global      # or call src/cli.js directly
+```
+
+## Versioning contract
+
+The only coupling between tool and data is the `.atlas/` format, tracked as
+`formatVersion` in `config.json` (absent = 1). The tool migrates older data
+forward transparently; data written by a NEWER tool fails with a clear
+"update the tool" error. Target repos never pin the tool.
 
 ## Agent workflow
 

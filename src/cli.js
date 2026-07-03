@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {
-  repoRoot, headCommit, atlasDir, loadConfig, scan, hashFor, DEFAULT_EXCLUDE,
+  repoRoot, headCommit, atlasDir, loadConfig, scan, hashFor, DEFAULT_EXCLUDE, DATA_FORMAT,
 } from './scan.js'
 import { noteFileFor, loadNotes, stampNote, notesRoot } from './notes.js'
 import { computeStatus, summarize } from './status.js'
@@ -31,6 +31,15 @@ Agent loop: status --json  ->  read code, write note bodies  ->  stamp  ->  buil
 
 function main() {
   const [cmd, ...args] = process.argv.slice(2)
+  try {
+    dispatch(cmd, args)
+  } catch (err) {
+    console.error(err.message)
+    process.exit(1)
+  }
+}
+
+function dispatch(cmd, args) {
   const root = cmd && cmd !== 'help' ? repoRoot() : null
   switch (cmd) {
     case 'init': return init(root)
@@ -67,7 +76,7 @@ function init(root) {
     return
   }
   fs.mkdirSync(notesRoot(root), { recursive: true })
-  fs.writeFileSync(configFile, JSON.stringify({ exclude: DEFAULT_EXCLUDE, output: '.atlas/atlas.html' }, null, 2) + '\n')
+  fs.writeFileSync(configFile, JSON.stringify({ formatVersion: DATA_FORMAT, exclude: DEFAULT_EXCLUDE, output: '.atlas/atlas.html' }, null, 2) + '\n')
   fs.writeFileSync(path.join(dir, '.gitignore'), 'atlas.html\n')
   console.log(`initialized ${dir}`)
   console.log(`- edit config.json to tune excludes (picomatch patterns, on top of .gitignore)`)

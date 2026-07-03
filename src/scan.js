@@ -35,10 +35,27 @@ export function atlasDir(root) {
   return path.join(root, '.atlas')
 }
 
+/**
+ * Version of the on-disk .atlas data format (config.json + notes layout +
+ * frontmatter fields). The tool migrates OLDER data forward transparently
+ * (absent formatVersion = 1) and refuses NEWER data with a clear "update the
+ * tool" error — so the CLI can live outside the repo without version pinning.
+ */
+export const DATA_FORMAT = 1
+
 export function loadConfig(root) {
   const file = path.join(atlasDir(root), 'config.json')
   if (!fs.existsSync(file)) return null
-  return JSON.parse(fs.readFileSync(file, 'utf8'))
+  const config = JSON.parse(fs.readFileSync(file, 'utf8'))
+  const version = config.formatVersion ?? 1
+  if (version > DATA_FORMAT) {
+    throw new Error(
+      `.atlas data is format v${version}, but this repo-atlas only knows v${DATA_FORMAT} — ` +
+      `update the tool (git pull in the repo-atlas checkout).`,
+    )
+  }
+  // version < DATA_FORMAT: apply forward migrations here as the format evolves.
+  return config
 }
 
 export const DEFAULT_EXCLUDE = [
