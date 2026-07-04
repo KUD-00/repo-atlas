@@ -17,7 +17,7 @@ export function SettingsButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"
-      className="settings-btn"
+      className="shrink-0 flex items-center justify-center w-7 h-7 border border-border rounded-lg bg-bg text-muted cursor-pointer p-0 hover:text-accent hover:border-[#3d6b5440] hover:bg-[#3d6b540a]"
       onClick={onClick}
       title={t(i18n)`Settings`}
       aria-label={t(i18n)`Settings`}
@@ -48,20 +48,38 @@ export function SettingsDialog({
   }, [onClose])
 
   return (
-    <div className="toc-overlay" onClick={onClose}>
-      <div className="toc-panel settings-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="toc-head settings-head">
+    <div
+      className="fixed inset-0 z-30 bg-[#00000033] flex items-center justify-center"
+      onClick={onClose}
+    >
+      <div
+        className="w-[min(360px,90vw)] flex flex-col bg-panel border border-border rounded-xl shadow-[0_10px_40px_#00000030] overflow-hidden animate-[chat-in_0.16s_ease] origin-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center flex-wrap gap-0.5 py-2.5 px-3.5 border-b border-border text-[0.8rem] w-full">
           <b>{t(i18n)`Settings`}</b>
-          <button type="button" className="toc-open" onClick={onClose} aria-label={t(i18n)`Close`}>×</button>
+          <button
+            type="button"
+            className="ml-auto font-inherit border-none bg-transparent cursor-pointer text-muted py-0 px-1 hover:text-accent"
+            onClick={onClose}
+            aria-label={t(i18n)`Close`}
+          >
+            ×
+          </button>
         </div>
-        <div className="settings-body">
-          <div className="settings-label">{t(i18n)`Language`}</div>
-          <div className="settings-langs">
+        <div className="px-4 py-3.5 pb-[18px] flex flex-col gap-2.5">
+          <div className="text-[0.75rem] text-muted">{t(i18n)`Language`}</div>
+          <div className="flex flex-col gap-1.5">
             {LOCALES.map((l) => (
               <button
                 key={l}
                 type="button"
-                className={'settings-lang' + (locale === l ? ' on' : '')}
+                className={
+                  'font-inherit text-[0.85rem] text-left py-2 px-3 border border-border rounded-lg bg-bg text-text cursor-pointer ' +
+                  (locale === l
+                    ? 'on border-accent text-accent bg-[#3d6b540f]'
+                    : 'hover:border-[#3d6b5440]')
+                }
                 onClick={() => {
                   setStoredLocale(l)
                   onLocale(l)

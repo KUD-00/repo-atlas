@@ -3,6 +3,11 @@ import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import type { EntryStatus, TreeNode } from '../src/types'
 
+const ROW =
+  'row flex items-center gap-1.5 py-0.5 pr-2 pl-0 rounded-md cursor-pointer select-none text-[0.82rem] whitespace-nowrap hover:bg-[#00000006]'
+const EMPTY =
+  'text-muted text-[0.9rem] mt-2 [&_code]:bg-[#00000009] [&_code]:py-[0.1em] [&_code]:px-[0.4em] [&_code]:rounded [&_code]:text-[0.85em]'
+
 export function Collapse({ open, children }: { open: boolean; children: ReactNode }) {
   const [mounted, setMounted] = useState(open)
   const [expanded, setExpanded] = useState(open)
@@ -24,13 +29,24 @@ export function Collapse({ open, children }: { open: boolean; children: ReactNod
         if (e.target === e.currentTarget && !open) setMounted(false)
       }}
     >
-      <div className="collapse-inner">{children}</div>
+      <div className="overflow-hidden min-h-0">{children}</div>
     </div>
   )
 }
 
+function dotClass(status: EntryStatus): string {
+  const base = 'w-2 h-2 rounded-full shrink-0 '
+  switch (status) {
+    case 'fresh': return base + 'bg-fresh'
+    case 'outdated': return base + 'bg-outdated'
+    case 'missing': return base + 'bg-none border-[1.5px] border-missing'
+    case 'ignored': return base + 'bg-missing opacity-[0.55]'
+    default: return base
+  }
+}
+
 function Dot({ status }: { status: EntryStatus }) {
-  return <span className={'dot ' + status} />
+  return <span className={dotClass(status)} />
 }
 
 function Row({
@@ -47,25 +63,47 @@ function Row({
   onTwist?: (e: MouseEvent) => void
 }) {
   const { i18n } = useLingui()
+  const ignored = node.status === 'ignored'
   return (
     <div
-      className={'row' + (selected ? ' sel' : '') + (node.status === 'ignored' ? ' ignored' : '')}
+      className={
+        ROW +
+        (selected ? ' sel bg-[#3d6b5414]' : '') +
+        (ignored ? ' ignored opacity-[0.45] hover:opacity-70' + (selected ? ' opacity-70' : '') : '')
+      }
       style={{ paddingLeft: depth * 14 }}
       onClick={onClick}
     >
-      <span className={'twist' + (open ? ' open' : '')} onClick={onTwist}>
+      <span
+        className={
+          'w-4 shrink-0 text-center text-muted text-[0.65rem] transition-transform duration-[160ms] ease-[ease]' +
+          (open ? ' open rotate-90' : '')
+        }
+        onClick={onTwist}
+      >
         {expandable ? '▸' : ''}
       </span>
       <Dot status={node.status} />
-      <span className={'name' + (node.type === 'dir' ? ' dir' : '')}>
+      <span className={'overflow-hidden text-ellipsis' + (node.type === 'dir' ? ' font-[550]' : '')}>
         {(flat ? node.path : node.name) + (node.type === 'dir' ? '/' : '')}
       </span>
-      {rank !== undefined && <span className="ord" title={t(i18n)`pinned reading order`}>{rank}</span>}
+      {rank !== undefined && (
+        <span
+          className="shrink-0 w-3.5 h-3.5 rounded-full ml-0.5 text-[0.6rem] leading-[14px] text-center text-accent bg-[#3d6b5414]"
+          title={t(i18n)`pinned reading order`}
+        >
+          {rank}
+        </span>
+      )}
       {node.type === 'dir' && node.agg && node.agg.outdated > 0 && (
-        <span className="badge warn">{node.agg.outdated}</span>
+        <span className="ml-auto text-[0.65rem] px-1.5 rounded-full shrink-0 text-[#9a6a06] bg-[#d9930d1a]">
+          {node.agg.outdated}
+        </span>
       )}
       {node.type === 'dir' && node.agg && node.agg.missing > 0 && (
-        <span className="badge">{node.agg.missing}</span>
+        <span className="ml-auto text-[0.65rem] px-1.5 rounded-full shrink-0 text-muted bg-[#00000008]">
+          {node.agg.missing}
+        </span>
       )}
     </div>
   )
@@ -169,7 +207,9 @@ export function Tree({
     n.children.forEach(walk)
   })(root)
   const { i18n } = useLingui()
-  if (!matches.length) return <div className="empty" style={{ padding: '8px 12px' }}>{t(i18n)`no matches`}</div>
+  if (!matches.length) {
+    return <div className={EMPTY} style={{ padding: '8px 12px' }}>{t(i18n)`no matches`}</div>
+  }
   return matches.map((n) => (
     <Row
       key={n.path}

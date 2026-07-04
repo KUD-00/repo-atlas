@@ -11,6 +11,12 @@ import { PanelPane, type CodeJump, type PanelMode } from './Preview'
 import { ChatDock } from './Chat'
 import { SettingsButton, SettingsDialog } from './Settings'
 
+const PV_ICON =
+  'flex items-center justify-center w-[26px] h-[26px] border-none rounded-md bg-transparent text-muted cursor-pointer p-0 shrink-0 hover:text-accent hover:bg-[#3d6b540d] [&_svg]:w-4 [&_svg]:h-4'
+const CHIP =
+  'text-[0.7rem] py-0.5 px-2 rounded-full border border-border bg-transparent text-muted cursor-pointer whitespace-nowrap'
+const CHIP_ON = 'border-accent text-accent bg-[#3d6b540f]'
+
 function useRoute(nodesByPath: Map<string, { path: string }>) {
   const read = () => {
     const p = decodeURI(location.hash.slice(1))
@@ -90,26 +96,29 @@ export function App({ data }: { data: AtlasPayload }) {
   return (
     <>
       {!sideOpen && (
-        <div className="side-rail">
-          <button className="pv-icon" title={t(i18n)`expand sidebar`} onClick={() => setSideOpen(true)}>
+        <div className="flex flex-col items-center pt-2.5 bg-panel w-10 border-r border-border">
+          <button className={PV_ICON} title={t(i18n)`expand sidebar`} onClick={() => setSideOpen(true)}>
             <PanelLeftOpen />
           </button>
         </div>
       )}
-      <aside hidden={!sideOpen}>
-        <div className="side-head">
-          <div className="side-title">
-            <h1>{data.repoName}</h1>
-            <button className="pv-icon" title={t(i18n)`collapse sidebar`} onClick={() => setSideOpen(false)}>
+      <aside
+        hidden={!sideOpen}
+        className="w-[340px] border-r border-border bg-panel flex flex-col min-w-0 min-h-0 [hidden]:hidden"
+      >
+        <div className="px-4 pt-3.5 pb-2.5 border-b border-border">
+          <div className="flex items-center justify-between gap-2">
+            <h1 className="text-[0.95rem] font-semibold">{data.repoName}</h1>
+            <button className={PV_ICON} title={t(i18n)`collapse sidebar`} onClick={() => setSideOpen(false)}>
               <PanelLeftClose />
             </button>
           </div>
-          <div className="meta">
+          <div className="text-[0.72rem] text-muted mt-0.5">
             {data.commit ? `@ ${data.commit} · ` : ''}
             {new Date(data.generatedAt).toLocaleString(i18n.locale)}
           </div>
-          <div className="side-foot">
-            <div className="counts">
+          <div className="flex items-end justify-between gap-2 mt-2">
+            <div className="flex gap-2.5 text-[0.72rem] text-muted flex-wrap [&_b]:text-text [&_b]:font-semibold">
               <span><b>{fresh}</b> {t(i18n)`fresh`}</span>
               <span><b>{agg.outdated}</b> {t(i18n)`outdated`}</span>
               <span><b>{agg.missing}</b> {t(i18n)`missing`}</span>
@@ -117,35 +126,36 @@ export function App({ data }: { data: AtlasPayload }) {
             <SettingsButton onClick={() => setSettingsOpen(true)} />
           </div>
         </div>
-        <div className="filters">
+        <div className="px-3 py-2 border-b border-border flex flex-col gap-1.5">
           <input
             type="search"
+            className="w-full min-w-0 font-inherit text-[0.8rem] py-1 px-2 border border-border rounded-md bg-bg text-text focus:outline-none focus:border-accent"
             placeholder={t(i18n)`filter paths…`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <div className="filter-chips">
+          <div className="flex gap-1.5 flex-wrap">
             <button
-              className={'chip' + (statusFilter === 'outdated' ? ' on' : '')}
+              className={CHIP + (statusFilter === 'outdated' ? ' ' + CHIP_ON : '')}
               onClick={() => setStatusFilter(statusFilter === 'outdated' ? null : 'outdated')}
             >
               {t(i18n)`outdated`}
             </button>
             <button
-              className={'chip' + (statusFilter === 'missing' ? ' on' : '')}
+              className={CHIP + (statusFilter === 'missing' ? ' ' + CHIP_ON : '')}
               onClick={() => setStatusFilter(statusFilter === 'missing' ? null : 'missing')}
             >
               {t(i18n)`missing`}
             </button>
             <button
-              className={'chip' + (showIgnored ? ' on' : '')}
+              className={CHIP + (showIgnored ? ' ' + CHIP_ON : '')}
               onClick={() => setShowIgnored(!showIgnored)}
               title={t(i18n)`also show config-excluded paths, greyed out`}
             >
               {t(i18n)`ignored`}
             </button>
             <button
-              className="chip sort"
+              className={CHIP + ' sort'}
               onClick={() => setSortMode(sortMode === 'az' ? 'read' : 'az')}
               title={t(i18n)`tree layout: alphabetical or reading order`}
             >
@@ -153,7 +163,7 @@ export function App({ data }: { data: AtlasPayload }) {
             </button>
           </div>
         </div>
-        <nav>
+        <nav className="flex-1 min-h-0 overflow-auto px-1.5 pt-2 pb-6">
           <Tree
             root={data.tree}
             selected={path}
@@ -167,8 +177,13 @@ export function App({ data }: { data: AtlasPayload }) {
           />
         </nav>
       </aside>
-      <main className={panelOpen ? 'with-preview' : 'panel-collapsed'}>
-        <div className="pane">
+      <main
+        className={
+          'min-w-0 min-h-0 grid overflow-hidden ' +
+          (panelOpen ? 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)_auto]')
+        }
+      >
+        <div className="overflow-auto min-w-0">
           <DocPane
             node={node}
             repoName={data.repoName}
@@ -193,8 +208,8 @@ export function App({ data }: { data: AtlasPayload }) {
             jump={jump}
           />
         ) : (
-          <div className="pv-rail">
-            <button className="pv-icon" title={t(i18n)`expand panel`} onClick={() => setPanelOpen(true)}>
+          <div className="flex flex-col items-center pt-2.5 bg-panel w-10 border-l border-border">
+            <button className={PV_ICON} title={t(i18n)`expand panel`} onClick={() => setPanelOpen(true)}>
               <PanelRightOpen />
             </button>
           </div>

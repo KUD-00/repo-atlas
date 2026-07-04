@@ -11,6 +11,11 @@ import {
 } from './lib'
 import { useLive } from './live'
 
+const BTN =
+  'font-inherit text-[0.75rem] py-[5px] px-3 rounded-lg border border-border bg-panel text-text cursor-pointer whitespace-nowrap hover:border-accent hover:text-accent disabled:opacity-50 disabled:cursor-default'
+const EMPTY =
+  'text-muted text-[0.9rem] mt-2 [&_code]:bg-[#00000009] [&_code]:py-[0.1em] [&_code]:px-[0.4em] [&_code]:rounded [&_code]:text-[0.85em]'
+
 function stateLabel(status: EntryStatus, i18n: Parameters<typeof t>[0]): string {
   switch (status) {
     case 'fresh': return t(i18n)`up to date`
@@ -18,6 +23,17 @@ function stateLabel(status: EntryStatus, i18n: Parameters<typeof t>[0]): string 
     case 'missing': return t(i18n)`no description yet`
     case 'ignored': return t(i18n)`ignored — excluded by .atlas/config.json`
     case 'moved': return t(i18n)`moved`
+  }
+}
+
+function dotClass(status: EntryStatus): string {
+  const base = 'w-2 h-2 rounded-full shrink-0 '
+  switch (status) {
+    case 'fresh': return base + 'bg-fresh'
+    case 'outdated': return base + 'bg-outdated'
+    case 'missing': return base + 'bg-none border-[1.5px] border-missing'
+    case 'ignored': return base + 'bg-missing opacity-[0.55]'
+    default: return base
   }
 }
 
@@ -30,14 +46,19 @@ function Breadcrumb({ node, repoName }: { node: TreeNode; repoName: string }) {
     crumbs.push({ label: seg, path: p })
   }
   return (
-    <h1 className="path">
+    <h1 className="text-[1.25rem] font-[650] my-1 mb-3 break-all">
       {crumbs.map((c, i) => (
         <span key={c.path}>
           {i > 0 && ' / '}
           {i === crumbs.length - 1 ? (
             <span>{c.label}</span>
           ) : (
-            <a className="seg" href={'#' + encodeURI(c.path)}>{c.label}</a>
+            <a
+              className="text-inherit no-underline opacity-50 hover:opacity-100 hover:underline"
+              href={'#' + encodeURI(c.path)}
+            >
+              {c.label}
+            </a>
           )}
         </span>
       ))}
@@ -96,18 +117,30 @@ function RelationChips({ items }: { items: string[] }) {
   const collapsed = !expanded && hidden > 0
 
   return (
-    <span className="chips-wrap">
+    <span className="flex flex-col gap-0.5 min-w-0 flex-1">
       <span
         ref={ref}
-        className={'chips' + (collapsed ? ' chips-collapsed' : '')}
-        style={collapsed && maxH ? { '--chips-max-h': `${maxH}px` } as CSSProperties : undefined}
+        className={
+          'flex flex-wrap gap-1 min-w-0' + (collapsed ? ' overflow-hidden' : '')
+        }
+        style={collapsed && maxH ? { maxHeight: maxH } as CSSProperties : undefined}
       >
         {items.map((p) => (
-          <a key={p} className="rel-chip" href={'#' + encodeURI(p)}>{p}</a>
+          <a
+            key={p}
+            className="rel-chip text-accent no-underline bg-[#3d6b540d] border border-[#3d6b5426] rounded-md py-px px-[7px] font-mono text-[0.72rem] whitespace-nowrap hover:bg-[#3d6b541f]"
+            href={'#' + encodeURI(p)}
+          >
+            {p}
+          </a>
         ))}
       </span>
       {hidden > 0 && (
-        <button type="button" className="rel-more" onClick={() => setExpanded((e) => !e)}>
+        <button
+          type="button"
+          className="text-muted text-[0.72rem] bg-transparent border-none py-px px-0 cursor-pointer font-inherit hover:text-accent"
+          onClick={() => setExpanded((e) => !e)}
+        >
           {expanded ? t(i18n)`show less` : t(i18n)`+${hidden} more`}
         </button>
       )}
@@ -129,12 +162,18 @@ function Relations({
   const { i18n } = useLingui()
   if (!deps.length && !dependents.length) return null
   return (
-    <div className="relations">
+    <div className="-mt-2 mb-5 flex flex-col gap-1">
       {deps.length > 0 && (
-        <div className="rel-row"><span className="rel-label">{t(i18n)`uses →`}</span><RelationChips items={deps} /></div>
+        <div className="flex gap-2 items-baseline text-[0.75rem]">
+          <span className="text-muted shrink-0 w-[92px] text-right">{t(i18n)`uses →`}</span>
+          <RelationChips items={deps} />
+        </div>
       )}
       {dependents.length > 0 && (
-        <div className="rel-row"><span className="rel-label">{t(i18n)`← used by`}</span><RelationChips items={dependents} /></div>
+        <div className="flex gap-2 items-baseline text-[0.75rem]">
+          <span className="text-muted shrink-0 w-[92px] text-right">{t(i18n)`← used by`}</span>
+          <RelationChips items={dependents} />
+        </div>
       )}
     </div>
   )
@@ -201,23 +240,26 @@ function Editor({ node, onClose }: { node: TreeNode; onClose: () => void }) {
     if (e.key === 'Escape' && !busy) onClose()
   }
   return (
-    <div className="editor">
-      <div className="editor-file"><code>{noteFileFor(node)}</code></div>
+    <div className="flex flex-col gap-2 mt-2">
+      <div className="text-[0.72rem] text-muted [&_code]:bg-[#00000009] [&_code]:py-[0.1em] [&_code]:px-[0.4em] [&_code]:rounded">
+        <code>{noteFileFor(node)}</code>
+      </div>
       <textarea
         autoFocus
         spellCheck={false}
+        className="w-full min-h-[420px] resize-y text-[0.82rem] leading-[1.6] font-mono py-3 px-3.5 border border-border rounded-lg bg-panel text-text focus:outline-none focus:border-accent"
         value={text}
         placeholder={t(i18n)`Markdown note for this path…`}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKey}
       />
-      <div className="editor-bar">
-        <button className="btn primary" onClick={save} disabled={busy}>
+      <div className="flex items-center gap-2">
+        <button className={BTN + ' bg-accent border-accent text-white hover:opacity-90'} onClick={save} disabled={busy}>
           {busy ? t(i18n)`saving…` : t(i18n)`save & stamp`}
         </button>
-        <button className="btn" onClick={onClose} disabled={busy}>{t(i18n)`cancel`}</button>
-        <span className="editor-hint">{t(i18n)`⌘⏎ save · esc cancel`}</span>
-        {error && <span className="editor-error">{error}</span>}
+        <button className={BTN} onClick={onClose} disabled={busy}>{t(i18n)`cancel`}</button>
+        <span className="text-[0.7rem] text-muted">{t(i18n)`⌘⏎ save · esc cancel`}</span>
+        {error && <span className="text-[0.75rem] text-[#c4222e]">{error}</span>}
       </div>
     </div>
   )
@@ -265,22 +307,33 @@ export function DocPane({
     return () => window.removeEventListener('keydown', onKey)
   }, [prev, next])
   return (
-    <div className="doc">
-      <div className="crumb">{node.type === 'dir' ? t(i18n)`directory` : t(i18n)`file`}</div>
+    <div className="max-w-[760px] py-9 px-12 pb-24">
+      <div className="text-[0.78rem] text-muted break-all">
+        {node.type === 'dir' ? t(i18n)`directory` : t(i18n)`file`}
+      </div>
       <Breadcrumb node={node} repoName={repoName} />
-      <div className="state-row">
-        <div className={'state ' + node.status}>
-          <span className={'dot ' + node.status} />
+      <div className="flex items-center gap-2.5 mb-5">
+        <div
+          className={
+            'inline-flex items-center gap-[7px] text-[0.75rem] border border-border rounded-lg py-[5px] px-2.5 bg-panel' +
+            (node.status === 'outdated' ? ' border-[#d9930d55] bg-[#d9930d0d]' : '')
+          }
+        >
+          <span className={dotClass(node.status)} />
           {stateLabel(node.status, i18n)}
           {node.stamped ? ` · ${t(i18n)`stamped`} ${new Date(node.stamped).toLocaleDateString(i18n.locale)}` : ''}
         </div>
         {dive && (
-          <a className="btn start-read" href={'#' + encodeURI(dive)} title={dive}>
+          <a
+            className={BTN + ' no-underline text-accent border-[#3d6b5455] hover:bg-[#3d6b540d]'}
+            href={'#' + encodeURI(dive)}
+            title={dive}
+          >
             {t(i18n)`start reading ↘`}
           </a>
         )}
         {live && !editing && node.status !== 'ignored' && (
-          <button className="btn edit" onClick={() => setEditing(true)}>
+          <button className={BTN + ' text-muted hover:text-accent'} onClick={() => setEditing(true)}>
             {node.source ? t(i18n)`edit` : t(i18n)`write note`}
           </button>
         )}
@@ -291,7 +344,7 @@ export function DocPane({
       ) : node.html ? (
         <Prose node={node} nodesByPath={nodesByPath} glossary={glossary} />
       ) : (
-        <div className="empty">
+        <div className={EMPTY}>
           <Trans>
             No note for this path. Write one at <code>{noteFileFor(node)}</code> and run{' '}
             <code>repo-atlas stamp</code>.
@@ -299,25 +352,40 @@ export function DocPane({
         </div>
       )}
       {!editing && (prev !== null || next !== null) && (
-        <nav className="read-nav">
+        <nav className="flex gap-2.5 mt-12 pt-3.5 border-t border-border">
           {prev !== null ? (
-            <a className="read-link prev" href={'#' + encodeURI(prev)} title={prev || '(root)'}>
-              <span className="read-dir">{t(i18n)`← prev`}</span>
-              <span className="read-target">{shortLabel(prev, repoName)}</span>
+            <a
+              className="group flex-1 min-w-0 flex flex-col gap-0.5 no-underline py-2 px-3 border border-border rounded-lg font-inherit bg-transparent cursor-pointer text-left hover:border-accent"
+              href={'#' + encodeURI(prev)}
+              title={prev || '(root)'}
+            >
+              <span className="text-[0.7rem] text-muted group-hover:text-accent">{t(i18n)`← prev`}</span>
+              <span className="text-[0.76rem] text-text font-mono overflow-hidden text-ellipsis whitespace-nowrap">
+                {shortLabel(prev, repoName)}
+              </span>
             </a>
-          ) : <span className="read-spacer" />}
-          <button className="read-link toc" onClick={onContents}>
-            <span className="read-dir">{t(i18n)`contents`}</span>
-            <span className="read-target">
+          ) : <span className="flex-1 min-w-0" />}
+          <button
+            className="group flex-1 min-w-0 flex flex-col gap-0.5 py-2 px-3 border border-border rounded-lg font-inherit bg-transparent cursor-pointer text-center hover:border-accent"
+            onClick={onContents}
+          >
+            <span className="text-[0.7rem] text-muted group-hover:text-accent">{t(i18n)`contents`}</span>
+            <span className="text-[0.76rem] text-text font-mono overflow-hidden text-ellipsis whitespace-nowrap">
               {shortLabel(node.type === 'dir' ? node.path : parentOf(node.path), repoName)}
             </span>
           </button>
           {next !== null ? (
-            <a className="read-link next" href={'#' + encodeURI(next)} title={next}>
-              <span className="read-dir">{t(i18n)`next →`}</span>
-              <span className="read-target">{shortLabel(next, repoName)}</span>
+            <a
+              className="group flex-1 min-w-0 flex flex-col gap-0.5 no-underline py-2 px-3 border border-border rounded-lg font-inherit bg-transparent cursor-pointer text-right hover:border-accent"
+              href={'#' + encodeURI(next)}
+              title={next}
+            >
+              <span className="text-[0.7rem] text-muted group-hover:text-accent">{t(i18n)`next →`}</span>
+              <span className="text-[0.76rem] text-text font-mono overflow-hidden text-ellipsis whitespace-nowrap">
+                {shortLabel(next, repoName)}
+              </span>
             </a>
-          ) : <span className="read-spacer" />}
+          ) : <span className="flex-1 min-w-0" />}
         </nav>
       )}
     </div>

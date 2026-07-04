@@ -6,6 +6,10 @@ import type { TreeNode } from '../src/types'
 import { languageFor } from './lib'
 import { TocView, baseFor } from './Toc'
 
+const PV_ICON =
+  'flex items-center justify-center w-[26px] h-[26px] border-none rounded-md bg-transparent text-muted cursor-pointer p-0 shrink-0 hover:text-accent hover:bg-[#3d6b540d] [&_svg]:w-4 [&_svg]:h-4'
+const EMPTY = 'text-muted text-[0.9rem] mt-2 p-4 [&_code]:bg-[#00000009] [&_code]:py-[0.1em] [&_code]:px-[0.4em] [&_code]:rounded [&_code]:text-[0.85em]'
+
 export type PanelMode = 'code' | 'diff' | 'toc'
 
 export interface CodeJump {
@@ -35,7 +39,10 @@ export function PanelPane({
   const effective: PanelMode = isDir ? 'toc' : mode
   const tab = (m: PanelMode, icon: React.ReactNode, label: string) => (
     <button
-      className={'pv-tab' + (effective === m ? ' on' : '')}
+      className={
+        'flex items-center gap-[5px] font-inherit text-[0.76rem] border border-transparent rounded-[7px] bg-transparent text-muted cursor-pointer py-1 px-[9px] [&_svg]:w-3.5 [&_svg]:h-3.5 hover:enabled:text-text disabled:opacity-40 disabled:cursor-default' +
+        (effective === m ? ' on text-text bg-panel border-border' : '')
+      }
       disabled={isDir && m !== 'toc'}
       onClick={() => onMode(m)}
     >
@@ -45,13 +52,13 @@ export function PanelPane({
   )
   const base = baseFor(node.path, basePoints)
   return (
-    <section className="preview">
-      <div className="pv-tabs">
+    <section className="border-l border-border bg-panel flex flex-col min-h-0 overflow-hidden">
+      <div className="flex items-center gap-0.5 py-1.5 px-2 border-b border-border bg-bg">
         {tab('code', <Code />, t(i18n)`Code`)}
         {tab('diff', <FileDiff />, t(i18n)`Changes`)}
         {tab('toc', <TableOfContents />, t(i18n)`Contents`)}
-        <span className="pv-tabs-spacer" />
-        <button className="pv-icon" title={t(i18n)`collapse panel`} onClick={onCollapse}>
+        <span className="flex-1" />
+        <button className={PV_ICON} title={t(i18n)`collapse panel`} onClick={onCollapse}>
           <PanelRightClose />
         </button>
       </div>
@@ -59,11 +66,11 @@ export function PanelPane({
       {effective === 'diff' && <DiffView path={node.path} status={node.status} />}
       {effective === 'toc' && (
         <>
-          <div className="pv-head">
-            <span className="pv-name">{base || repoName}</span>
-            <span className="pv-meta">{t(i18n)`reading order`}</span>
+          <div className="flex items-baseline gap-2.5 py-2.5 px-4 border-b border-border text-[0.78rem] shrink-0">
+            <span className="font-semibold overflow-hidden text-ellipsis whitespace-nowrap">{base || repoName}</span>
+            <span className="text-muted shrink-0 ml-auto text-[0.72rem]">{t(i18n)`reading order`}</span>
           </div>
-          <div className="pv-body">
+          <div className="flex-1 min-h-0 overflow-auto">
             <TocView node={node} nodesByPath={nodesByPath} basePoints={basePoints} repoName={repoName} />
           </div>
         </>
@@ -132,15 +139,15 @@ function CodeView({ path, jump }: { path: string; jump: CodeJump | null }) {
 
   return (
     <>
-      <div className="pv-head">
-        <span className="pv-name">{path}</span>
-        <span className="pv-meta">{meta}</span>
+      <div className="flex items-baseline gap-2.5 py-2.5 px-4 border-b border-border text-[0.78rem] shrink-0">
+        <span className="font-semibold overflow-hidden text-ellipsis whitespace-nowrap">{path}</span>
+        <span className="text-muted shrink-0 ml-auto text-[0.72rem]">{meta}</span>
       </div>
-      <div className="pv-body" ref={bodyRef}>
-        {state.kind === 'loading' && <div className="empty">{t(i18n)`loading…`}</div>}
-        {state.kind === 'binary' && <div className="empty">{t(i18n)`binary file — no preview`}</div>}
+      <div className="flex-1 min-h-0 overflow-auto pv-body" ref={bodyRef}>
+        {state.kind === 'loading' && <div className={EMPTY}>{t(i18n)`loading…`}</div>}
+        {state.kind === 'binary' && <div className={EMPTY}>{t(i18n)`binary file — no preview`}</div>}
         {state.kind === 'unavailable' && (
-          <div className="empty">
+          <div className={EMPTY}>
             <Trans>
               no preview — file contents are served by <code>repo-atlas serve</code>; the static
               build only carries descriptions
@@ -158,13 +165,13 @@ function CodeBlock({ text, lang }: { text: string; lang: string | null }) {
   if (lang && hljs?.getLanguage(lang)) {
     const html = hljs.highlight(text, { language: lang, ignoreIllegals: true }).value
     return (
-      <pre>
+      <pre className="m-0 py-3.5 px-4 pb-12 text-[0.78rem] leading-[1.55]">
         <code className="hljs" dangerouslySetInnerHTML={{ __html: html }} />
       </pre>
     )
   }
   return (
-    <pre>
+    <pre className="m-0 py-3.5 px-4 pb-12 text-[0.78rem] leading-[1.55]">
       <code className="hljs">{text}</code>
     </pre>
   )
@@ -213,9 +220,9 @@ function DiffView({ path, status }: { path: string; status: TreeNode['status'] }
 
   return (
     <>
-      <div className="pv-head">
-        <span className="pv-name">{path}</span>
-        <span className="pv-meta">
+      <div className="flex items-baseline gap-2.5 py-2.5 px-4 border-b border-border text-[0.78rem] shrink-0">
+        <span className="font-semibold overflow-hidden text-ellipsis whitespace-nowrap">{path}</span>
+        <span className="text-muted shrink-0 ml-auto text-[0.72rem]">
           {(state.kind === 'diff' || state.kind === 'clean') &&
             t(i18n)`since ${state.anchor} (note's anchor)`}
           {counts && (
@@ -227,20 +234,20 @@ function DiffView({ path, status }: { path: string; status: TreeNode['status'] }
           )}
         </span>
       </div>
-      <div className="pv-body">
-        {state.kind === 'loading' && <div className="empty">{t(i18n)`loading…`}</div>}
+      <div className="flex-1 min-h-0 overflow-auto pv-body">
+        {state.kind === 'loading' && <div className={EMPTY}>{t(i18n)`loading…`}</div>}
         {state.kind === 'no-anchor' && (
-          <div className="empty">{t(i18n)`no anchor — this note has never been stamped`}</div>
+          <div className={EMPTY}>{t(i18n)`no anchor — this note has never been stamped`}</div>
         )}
         {state.kind === 'clean' && (
-          <div className="empty">
+          <div className={EMPTY}>
             {status === 'outdated'
               ? t(i18n)`content hash changed but git shows no diff against the anchor`
               : t(i18n)`no changes since the note was stamped`}
           </div>
         )}
         {state.kind === 'unavailable' && (
-          <div className="empty">
+          <div className={EMPTY}>
             <Trans>
               no diff — change review needs <code>repo-atlas serve</code> (the static build has
               no git access)

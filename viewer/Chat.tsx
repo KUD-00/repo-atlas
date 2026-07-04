@@ -4,6 +4,9 @@ import { Trans, useLingui } from '@lingui/react/macro'
 import type { ChatMessage } from '../src/types'
 import { useLive } from './live'
 
+const BTN =
+  'font-inherit text-[0.75rem] py-[5px] px-3 rounded-lg border border-border bg-panel text-text cursor-pointer whitespace-nowrap hover:border-accent hover:text-accent disabled:opacity-50 disabled:cursor-default'
+
 /** Floating "attach to chat" pill that appears when a text selection is
  * released anywhere outside the chat dock. */
 function SelectionAttach({ onAttach }: { onAttach: (text: string) => void }) {
@@ -45,7 +48,7 @@ function SelectionAttach({ onAttach }: { onAttach: (text: string) => void }) {
   if (!pos) return null
   return (
     <button
-      className="sel-attach"
+      className="sel-attach fixed z-40 font-inherit text-[0.72rem] py-1 px-2.5 rounded-full border border-accent bg-panel text-accent cursor-pointer shadow-[0_3px_12px_#00000022] whitespace-nowrap animate-[chat-in_0.12s_ease] hover:bg-[linear-gradient(#3d6b5412,#3d6b5412),var(--color-panel)]"
       style={{ left: pos.x, top: pos.y }}
       onMouseDown={(e) => e.preventDefault()} // keep the selection alive through the click
       onClick={() => {
@@ -164,8 +167,13 @@ export function ChatDock({ currentPath }: { currentPath: string }) {
     return (
       <>
         <SelectionAttach onAttach={addAttachment} />
-        <button className="chat-fab" onClick={() => setOpen(true)} title={t(i18n)`chat with the attached agent session`}>
-          {t(i18n)`chat`}{connected && <span className="chat-dot on" />}
+        <button
+          className="fixed right-5 bottom-5 z-20 font-inherit text-[0.8rem] py-2 px-4 rounded-full border border-border bg-panel text-text cursor-pointer shadow-[0_2px_10px_#00000018] inline-flex items-center gap-[7px] origin-bottom-right animate-[chat-in_0.16s_ease] hover:border-accent hover:text-accent"
+          onClick={() => setOpen(true)}
+          title={t(i18n)`chat with the attached agent session`}
+        >
+          {t(i18n)`chat`}
+          {connected && <span className="w-2 h-2 rounded-full shrink-0 bg-fresh" />}
         </button>
       </>
     )
@@ -174,7 +182,7 @@ export function ChatDock({ currentPath }: { currentPath: string }) {
     <>
     <SelectionAttach onAttach={addAttachment} />
     <div
-      className={'chat-dock' + (closing ? ' closing' : '')}
+      className={'chat-dock fixed right-5 bottom-5 z-20 w-[380px] h-[480px] max-h-[calc(100vh-40px)] flex flex-col bg-panel border border-border rounded-xl shadow-[0_6px_28px_#00000026] overflow-hidden origin-bottom-right animate-[chat-in_0.2s_ease]' + (closing ? ' closing' : '')}
       onAnimationEnd={(e) => {
         if (closing && e.target === e.currentTarget) {
           setClosing(false)
@@ -182,14 +190,24 @@ export function ChatDock({ currentPath }: { currentPath: string }) {
         }
       }}
     >
-      <div className="chat-head">
-        <span className={'chat-dot' + (connected ? ' on' : '')} />
-        <span className="chat-title">{connected ? t(i18n)`agent connected` : t(i18n)`no agent polling`}</span>
-        <button className="chat-x" onClick={() => setClosing(true)}>×</button>
+      <div className="flex items-center gap-2 py-2.5 px-3 border-b border-border text-[0.78rem] shrink-0">
+        <span
+          className={
+            'w-2 h-2 rounded-full shrink-0 ' +
+            (connected ? 'bg-fresh' : 'bg-none border-[1.5px] border-missing')
+          }
+        />
+        <span className="text-muted">{connected ? t(i18n)`agent connected` : t(i18n)`no agent polling`}</span>
+        <button
+          className="ml-auto font-inherit text-base leading-none border-none bg-transparent text-muted cursor-pointer py-0.5 px-1.5 hover:text-text"
+          onClick={() => setClosing(true)}
+        >
+          ×
+        </button>
       </div>
-      <div className="chat-list" ref={listRef}>
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-2" ref={listRef}>
         {messages.length === 0 && (
-          <div className="chat-hint">
+          <div className="text-muted text-[0.78rem] leading-normal [&_code]:bg-[#00000009] [&_code]:py-[0.1em] [&_code]:px-[0.4em] [&_code]:rounded">
             <Trans>
               Messages go to whichever agent session is polling <code>/chat/poll</code>.
             </Trans>
@@ -197,36 +215,65 @@ export function ChatDock({ currentPath }: { currentPath: string }) {
           </div>
         )}
         {messages.map((m) => (
-          <div key={m.id} className={'chat-msg ' + m.role + (m.cancelled ? ' cancelled' : '')}>
-            {m.role === 'user' && m.context && <div className="chat-ctx">@ {m.context}</div>}
-            <div className="chat-text">{m.text}</div>
-            {m.cancelled && <div className="chat-ctx">{t(i18n)`retracted`}</div>}
+          <div
+            key={m.id}
+            className={
+              'max-w-[88%] text-[0.82rem] leading-normal ' +
+              (m.role === 'user' ? 'self-end ' : 'self-start ') +
+              (m.cancelled ? 'opacity-[0.45] [&_.chat-text]:line-through' : '')
+            }
+          >
+            {m.role === 'user' && m.context && (
+              <div className="text-[0.68rem] text-muted mx-1 mb-0.5 text-right font-mono">@ {m.context}</div>
+            )}
+            <div
+              className={
+                'chat-text py-[7px] px-[11px] rounded-[10px] whitespace-pre-wrap break-words ' +
+                (m.role === 'user'
+                  ? 'bg-accent text-white rounded-br-[3px]'
+                  : 'bg-[#00000008] border border-border rounded-bl-[3px]')
+              }
+            >
+              {m.text}
+            </div>
+            {m.cancelled && (
+              <div className="text-[0.68rem] text-muted mx-1 mb-0.5 text-right font-mono">{t(i18n)`retracted`}</div>
+            )}
           </div>
         ))}
         {working && (
-          <div className="chat-msg agent">
-            {progress && <div className="chat-progress">{progress}</div>}
-            <div className="chat-text chat-typing"><span /><span /><span /></div>
+          <div className="max-w-[88%] text-[0.82rem] leading-normal self-start">
+            {progress && <div className="text-[0.72rem] text-muted italic mx-1 mb-[3px]">{progress}</div>}
+            <div className="chat-text chat-typing inline-flex gap-1 items-center min-h-[1.2em] py-[7px] px-[11px] rounded-[10px] bg-[#00000008] border border-border rounded-bl-[3px]">
+              <span className="w-1.5 h-1.5 rounded-full bg-muted" />
+              <span className="w-1.5 h-1.5 rounded-full bg-muted" />
+              <span className="w-1.5 h-1.5 rounded-full bg-muted" />
+            </div>
           </div>
         )}
       </div>
       {retractable && (
-        <div className="chat-retract">
-          <button className="btn" onClick={cancel}>
+        <div className="py-1.5 px-3 pt-0 shrink-0 flex justify-end">
+          <button className={BTN + ' text-[0.7rem] py-0.5 px-2.5'} onClick={cancel}>
             {working ? t(i18n)`retract last message (agent is already on it)` : t(i18n)`retract last message`}
           </button>
         </div>
       )}
       {attachments.length > 0 && (
-        <div className="chat-attachments">
+        <div className="shrink-0 max-h-[130px] overflow-y-auto pt-2 px-3 flex flex-col gap-1.5 border-t border-border">
           {attachments.map((a) => (
-            <div key={a.id} className="chat-att">
-              <div className="chat-att-body">
-                <div className="chat-att-from">@ {a.from}</div>
-                <div className="chat-att-text">{a.text}</div>
+            <div
+              key={a.id}
+              className="flex items-start gap-1 border border-border border-l-[3px] border-l-accent rounded-md py-[5px] px-2 bg-bg"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="text-[0.65rem] text-muted font-mono">@ {a.from}</div>
+                <div className="text-[0.72rem] leading-[1.45] text-text line-clamp-3 whitespace-pre-wrap break-words">
+                  {a.text}
+                </div>
               </div>
               <button
-                className="chat-x"
+                className="font-inherit text-base leading-none border-none bg-transparent text-muted cursor-pointer py-0.5 px-1.5 hover:text-text"
                 onClick={() => setAttachments((x) => x.filter((y) => y.id !== a.id))}
               >
                 ×
@@ -235,9 +282,10 @@ export function ChatDock({ currentPath }: { currentPath: string }) {
           ))}
         </div>
       )}
-      <div className="chat-input">
+      <div className="flex gap-2 py-2.5 px-3 border-t border-border shrink-0">
         <textarea
           rows={2}
+          className="flex-1 min-w-0 resize-none font-inherit text-[0.82rem] leading-normal py-[7px] px-2.5 border border-border rounded-lg bg-bg text-text focus:outline-none focus:border-accent"
           placeholder={t(i18n)`message the agent… (⏎ send, ⇧⏎ newline)`}
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -250,7 +298,13 @@ export function ChatDock({ currentPath }: { currentPath: string }) {
             }
           }}
         />
-        <button className="btn primary" onClick={send} disabled={!text.trim() && !attachments.length}>{t(i18n)`send`}</button>
+        <button
+          className={BTN + ' bg-accent border-accent text-white hover:opacity-90'}
+          onClick={send}
+          disabled={!text.trim() && !attachments.length}
+        >
+          {t(i18n)`send`}
+        </button>
       </div>
     </div>
     </>
