@@ -22,13 +22,13 @@
   }
   body {
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    @apply bg-bg text-text h-screen overflow-hidden;
+    @apply bg-bg text-text h-dvh overflow-hidden;
   }
   #root {
     display: grid;
     grid-template-columns: auto 1fr;
-    grid-template-rows: 100vh;
-    @apply h-screen;
+    grid-template-rows: 100dvh;
+    @apply h-dvh;
   }
 }
 
@@ -469,5 +469,34 @@
   .glossary-pop div {
     color: var(--color-text);
     white-space: pre-wrap;
+  }
+
+  @media (max-width: 768px) {
+    .prose pre,
+    .prose table {
+      overflow-x: auto;
+      max-width: 100%;
+    }
+    .d-line {
+      overflow-x: auto;
+    }
+  }
+
+  @media (pointer: coarse) {
+    .row {
+      min-height: 36px;
+      padding-top: 6px;
+      padding-bottom: 6px;
+    }
+    .pv-tab,
+    .chip,
+    .settings-btn,
+    .pv-icon {
+      min-height: 36px;
+      min-width: 36px;
+    }
+    .btn {
+      min-height: 36px;
+    }
   }
 }

@@ -12,7 +12,7 @@ import {
 import { useLive } from './live'
 
 const BTN =
-  'font-inherit text-[0.75rem] py-[5px] px-3 rounded-lg border border-border bg-panel text-text cursor-pointer whitespace-nowrap hover:border-accent hover:text-accent disabled:opacity-50 disabled:cursor-default'
+  'btn font-inherit text-[0.75rem] py-[5px] px-3 rounded-lg border border-border bg-panel text-text cursor-pointer whitespace-nowrap hover:border-accent hover:text-accent disabled:opacity-50 disabled:cursor-default'
 const EMPTY =
   'text-muted text-[0.9rem] mt-2 [&_code]:bg-[#00000009] [&_code]:py-[0.1em] [&_code]:px-[0.4em] [&_code]:rounded [&_code]:text-[0.85em]'
 
@@ -307,7 +307,7 @@ export function DocPane({
     return () => window.removeEventListener('keydown', onKey)
   }, [prev, next])
   return (
-    <div className="max-w-[760px] py-9 px-12 pb-24">
+    <div className="max-w-[760px] py-9 px-12 pb-24 max-md:py-5 max-md:px-4 max-md:pb-16">
       <div className="text-[0.78rem] text-muted break-all">
         {node.type === 'dir' ? t(i18n)`directory` : t(i18n)`file`}
       </div>

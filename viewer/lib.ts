@@ -1,4 +1,25 @@
+import { useEffect, useState } from 'react'
 import type { EntryStatus, GlossaryEntry, ImportGraph, TreeAgg, TreeNode } from '../src/types'
+
+/** Subscribe to a CSS media query; re-renders when it crosses the breakpoint. */
+export function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(query).matches,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia(query)
+    const onChange = () => setMatches(mq.matches)
+    onChange()
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [query])
+  return matches
+}
+
+/** Narrow / phone layout — sidebar drawer, preview overlay, full-width chat. */
+export function useCompact(): boolean {
+  return useMediaQuery('(max-width: 768px)')
+}
 import { findLine as findLineInSource } from '../src/findLine'
 
 export function indexTree(root: TreeNode): Map<string, TreeNode> {

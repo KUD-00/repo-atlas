@@ -17,7 +17,7 @@ export function SettingsButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"
-      className="shrink-0 flex items-center justify-center w-7 h-7 border border-border rounded-lg bg-bg text-muted cursor-pointer p-0 hover:text-accent hover:border-[#3d6b5440] hover:bg-[#3d6b540a]"
+      className="settings-btn shrink-0 flex items-center justify-center w-7 h-7 border border-border rounded-lg bg-bg text-muted cursor-pointer p-0 hover:text-accent hover:border-[#3d6b5440] hover:bg-[#3d6b540a]"
       onClick={onClick}
       title={t(i18n)`Settings`}
       aria-label={t(i18n)`Settings`}

@@ -5,7 +5,7 @@ import type { ChatMessage } from '../src/types'
 import { useLive } from './live'
 
 const BTN =
-  'font-inherit text-[0.75rem] py-[5px] px-3 rounded-lg border border-border bg-panel text-text cursor-pointer whitespace-nowrap hover:border-accent hover:text-accent disabled:opacity-50 disabled:cursor-default'
+  'btn font-inherit text-[0.75rem] py-[5px] px-3 rounded-lg border border-border bg-panel text-text cursor-pointer whitespace-nowrap hover:border-accent hover:text-accent disabled:opacity-50 disabled:cursor-default'
 
 /** Floating "attach to chat" pill that appears when a text selection is
  * released anywhere outside the chat dock. */
@@ -29,9 +29,12 @@ function SelectionAttach({ onAttach }: { onAttach: (text: string) => void }) {
           return
         }
         textRef.current = text
+        const margin = 12
+        const btnW = 150
+        const btnH = 40
         setPos({
-          x: Math.max(8, Math.min(x + 6, window.innerWidth - 150)),
-          y: Math.max(8, Math.min(y + 14, window.innerHeight - 40)),
+          x: Math.max(margin, Math.min(x + 6, window.innerWidth - btnW - margin)),
+          y: Math.max(margin, Math.min(y + 14, window.innerHeight - btnH - margin)),
         })
       }, 0)
     }
@@ -68,7 +71,7 @@ interface Attachment {
   text: string
 }
 
-export function ChatDock({ currentPath }: { currentPath: string }) {
+export function ChatDock({ currentPath, compact }: { currentPath: string; compact?: boolean }) {
   const { i18n } = useLingui()
   const live = useLive()
   const [open, setOpen] = useState(() => sessionStorage.getItem('atlas-chat-open') === '1')
@@ -168,7 +171,7 @@ export function ChatDock({ currentPath }: { currentPath: string }) {
       <>
         <SelectionAttach onAttach={addAttachment} />
         <button
-          className="fixed right-5 bottom-5 z-20 font-inherit text-[0.8rem] py-2 px-4 rounded-full border border-border bg-panel text-text cursor-pointer shadow-[0_2px_10px_#00000018] inline-flex items-center gap-[7px] origin-bottom-right animate-[chat-in_0.16s_ease] hover:border-accent hover:text-accent"
+          className="fixed right-3 bottom-3 md:right-5 md:bottom-5 z-20 font-inherit text-[0.8rem] py-2 px-4 rounded-full border border-border bg-panel text-text cursor-pointer shadow-[0_2px_10px_#00000018] inline-flex items-center gap-[7px] origin-bottom-right animate-[chat-in_0.16s_ease] hover:border-accent hover:text-accent"
           onClick={() => setOpen(true)}
           title={t(i18n)`chat with the attached agent session`}
         >
@@ -182,7 +185,13 @@ export function ChatDock({ currentPath }: { currentPath: string }) {
     <>
     <SelectionAttach onAttach={addAttachment} />
     <div
-      className={'chat-dock fixed right-5 bottom-5 z-20 w-[380px] h-[480px] max-h-[calc(100vh-40px)] flex flex-col bg-panel border border-border rounded-xl shadow-[0_6px_28px_#00000026] overflow-hidden origin-bottom-right animate-[chat-in_0.2s_ease]' + (closing ? ' closing' : '')}
+      className={
+        'chat-dock fixed z-20 flex flex-col bg-panel border border-border rounded-xl shadow-[0_6px_28px_#00000026] overflow-hidden origin-bottom-right animate-[chat-in_0.2s_ease] ' +
+        (compact
+          ? 'inset-x-3 bottom-3 w-[calc(100vw-24px)] h-[min(480px,70dvh)] max-h-[calc(100dvh-24px)]'
+          : 'right-5 bottom-5 w-[380px] h-[480px] max-h-[calc(100dvh-40px)]') +
+        (closing ? ' closing' : '')
+      }
       onAnimationEnd={(e) => {
         if (closing && e.target === e.currentTarget) {
           setClosing(false)

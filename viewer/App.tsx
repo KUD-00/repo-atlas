@@ -4,7 +4,7 @@ import { useLingui } from '@lingui/react/macro'
 import { PanelLeftClose, PanelLeftOpen, PanelRightOpen } from 'lucide-react'
 import type { AtlasPayload } from '../src/types'
 import { activateLocale, type AppLocale, getStoredLocale } from './i18n'
-import { indexTree, ancestorsOf, buildRelationIndex } from './lib'
+import { indexTree, ancestorsOf, buildRelationIndex, useCompact } from './lib'
 import { Tree } from './Tree'
 import { DocPane } from './Doc'
 import { PanelPane, type CodeJump, type PanelMode } from './Preview'
@@ -12,9 +12,9 @@ import { ChatDock } from './Chat'
 import { SettingsButton, SettingsDialog } from './Settings'
 
 const PV_ICON =
-  'flex items-center justify-center w-[26px] h-[26px] border-none rounded-md bg-transparent text-muted cursor-pointer p-0 shrink-0 hover:text-accent hover:bg-[#3d6b540d] [&_svg]:w-4 [&_svg]:h-4'
+  'pv-icon flex items-center justify-center w-[26px] h-[26px] border-none rounded-md bg-transparent text-muted cursor-pointer p-0 shrink-0 hover:text-accent hover:bg-[#3d6b540d] [&_svg]:w-4 [&_svg]:h-4'
 const CHIP =
-  'text-[0.7rem] py-0.5 px-2 rounded-full border border-border bg-transparent text-muted cursor-pointer whitespace-nowrap'
+  'chip text-[0.7rem] py-0.5 px-2 rounded-full border border-border bg-transparent text-muted cursor-pointer whitespace-nowrap'
 const CHIP_ON = 'border-accent text-accent bg-[#3d6b540f]'
 
 function useRoute(nodesByPath: Map<string, { path: string }>) {
@@ -39,6 +39,7 @@ function useRoute(nodesByPath: Map<string, { path: string }>) {
 
 export function App({ data }: { data: AtlasPayload }) {
   const { i18n } = useLingui()
+  const compact = useCompact()
   const nodesByPath = useMemo(() => indexTree(data.tree), [data])
   const rel = useMemo(() => buildRelationIndex(data.graph), [data])
   const [path, navigate] = useRoute(nodesByPath)
@@ -49,11 +50,20 @@ export function App({ data }: { data: AtlasPayload }) {
   const [sortMode, setSortMode] = useState<'az' | 'read'>('az')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [locale, setLocale] = useState<AppLocale>(getStoredLocale)
-  const [sideOpen, setSideOpen] = useState(true)
-  const [panelOpen, setPanelOpen] = useState(true)
+  const [sideOpen, setSideOpen] = useState(
+    () => !(typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches),
+  )
+  const [panelOpen, setPanelOpen] = useState(
+    () => !(typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches),
+  )
   const [panelMode, setPanelMode] = useState<PanelMode>('code')
   const [jump, setJump] = useState<CodeJump | null>(null)
   const jumpSeq = useRef(0)
+
+  const onSelect = (p: string) => {
+    navigate(p)
+    if (compact) setSideOpen(false)
+  }
 
   // single entry point for code-anchor jumps: reveal the panel, force code
   // mode, then hand the jump to CodeView as data (it may not be mounted yet)
@@ -93,6 +103,23 @@ export function App({ data }: { data: AtlasPayload }) {
     setLocale(l)
   }
 
+  const mainCols = compact
+    ? 'grid-cols-1'
+    : panelOpen
+      ? 'grid-cols-[minmax(0,1fr)_minmax(320px,45%)] min-[1100px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]'
+      : 'grid-cols-[minmax(0,1fr)_auto]'
+
+  const panelProps = {
+    node,
+    nodesByPath,
+    basePoints: data.basePoints ?? [],
+    repoName: data.repoName,
+    mode: panelMode,
+    onMode: setPanelMode,
+    onCollapse: () => setPanelOpen(false),
+    jump,
+  }
+
   return (
     <>
       {!sideOpen && (
@@ -102,9 +129,21 @@ export function App({ data }: { data: AtlasPayload }) {
           </button>
         </div>
       )}
+      {compact && sideOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-[#00000033]"
+          onClick={() => setSideOpen(false)}
+          aria-hidden
+        />
+      )}
       <aside
-        hidden={!sideOpen}
-        className="w-[340px] border-r border-border bg-panel flex flex-col min-w-0 min-h-0 [hidden]:hidden"
+        hidden={!compact && !sideOpen}
+        className={
+          compact
+            ? 'fixed inset-y-0 left-0 z-40 flex flex-col min-w-0 min-h-0 w-[min(340px,85vw)] border-r border-border bg-panel transition-transform duration-200 ease-out ' +
+              (sideOpen ? 'translate-x-0' : '-translate-x-full pointer-events-none')
+            : 'w-[340px] border-r border-border bg-panel flex flex-col min-w-0 min-h-0 [hidden]:hidden'
+        }
       >
         <div className="px-4 pt-3.5 pb-2.5 border-b border-border">
           <div className="flex items-center justify-between gap-2">
@@ -172,17 +211,12 @@ export function App({ data }: { data: AtlasPayload }) {
             statusFilter={statusFilter}
             showIgnored={showIgnored}
             sortMode={sortMode}
-            onSelect={navigate}
+            onSelect={onSelect}
             onToggle={toggle}
           />
         </nav>
       </aside>
-      <main
-        className={
-          'min-w-0 min-h-0 grid overflow-hidden ' +
-          (panelOpen ? 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)_auto]')
-        }
-      >
+      <main className={'min-w-0 min-h-0 grid overflow-hidden ' + mainCols}>
         <div className="overflow-auto min-w-0">
           <DocPane
             node={node}
@@ -196,26 +230,24 @@ export function App({ data }: { data: AtlasPayload }) {
             }}
           />
         </div>
-        {panelOpen ? (
-          <PanelPane
-            node={node}
-            nodesByPath={nodesByPath}
-            basePoints={data.basePoints ?? []}
-            repoName={data.repoName}
-            mode={panelMode}
-            onMode={setPanelMode}
-            onCollapse={() => setPanelOpen(false)}
-            jump={jump}
-          />
-        ) : (
+        {!compact && panelOpen && <PanelPane {...panelProps} />}
+        {!compact && !panelOpen && (
           <div className="flex flex-col items-center pt-2.5 bg-panel w-10 border-l border-border">
             <button className={PV_ICON} title={t(i18n)`expand panel`} onClick={() => setPanelOpen(true)}>
               <PanelRightOpen />
             </button>
           </div>
         )}
+        {compact && !panelOpen && (
+          <div className="fixed right-0 top-1/2 -translate-y-1/2 z-10 flex flex-col items-center pt-2.5 bg-panel w-10 border-l border-border rounded-l-lg shadow-[0_2px_8px_#00000012]">
+            <button className={PV_ICON} title={t(i18n)`expand panel`} onClick={() => setPanelOpen(true)}>
+              <PanelRightOpen />
+            </button>
+          </div>
+        )}
       </main>
-      <ChatDock currentPath={path} />
+      {compact && panelOpen && <PanelPane {...panelProps} overlay />}
+      <ChatDock currentPath={path} compact={compact} />
       {settingsOpen && (
         <SettingsDialog
           locale={locale}

@@ -7,7 +7,7 @@ import { languageFor } from './lib'
 import { TocView, baseFor } from './Toc'
 
 const PV_ICON =
-  'flex items-center justify-center w-[26px] h-[26px] border-none rounded-md bg-transparent text-muted cursor-pointer p-0 shrink-0 hover:text-accent hover:bg-[#3d6b540d] [&_svg]:w-4 [&_svg]:h-4'
+  'pv-icon flex items-center justify-center w-[26px] h-[26px] border-none rounded-md bg-transparent text-muted cursor-pointer p-0 shrink-0 hover:text-accent hover:bg-[#3d6b540d] [&_svg]:w-4 [&_svg]:h-4'
 const EMPTY = 'text-muted text-[0.9rem] mt-2 p-4 [&_code]:bg-[#00000009] [&_code]:py-[0.1em] [&_code]:px-[0.4em] [&_code]:rounded [&_code]:text-[0.85em]'
 
 export type PanelMode = 'code' | 'diff' | 'toc'
@@ -23,7 +23,7 @@ export interface CodeJump {
  * page — the source itself, what changed since the note's anchor, or the
  * contents of the book (base point) the page belongs to. */
 export function PanelPane({
-  node, nodesByPath, basePoints, repoName, mode, onMode, onCollapse, jump,
+  node, nodesByPath, basePoints, repoName, mode, onMode, onCollapse, jump, overlay,
 }: {
   node: TreeNode
   nodesByPath: Map<string, TreeNode>
@@ -33,6 +33,7 @@ export function PanelPane({
   onMode: (m: PanelMode) => void
   onCollapse: () => void
   jump: CodeJump | null
+  overlay?: boolean
 }) {
   const { i18n } = useLingui()
   const isDir = node.type === 'dir'
@@ -40,7 +41,7 @@ export function PanelPane({
   const tab = (m: PanelMode, icon: React.ReactNode, label: string) => (
     <button
       className={
-        'flex items-center gap-[5px] font-inherit text-[0.76rem] border border-transparent rounded-[7px] bg-transparent text-muted cursor-pointer py-1 px-[9px] [&_svg]:w-3.5 [&_svg]:h-3.5 hover:enabled:text-text disabled:opacity-40 disabled:cursor-default' +
+        'pv-tab flex items-center gap-[5px] font-inherit text-[0.76rem] border border-transparent rounded-[7px] bg-transparent text-muted cursor-pointer py-1 px-[9px] [&_svg]:w-3.5 [&_svg]:h-3.5 hover:enabled:text-text disabled:opacity-40 disabled:cursor-default' +
         (effective === m ? ' on text-text bg-panel border-border' : '')
       }
       disabled={isDir && m !== 'toc'}
@@ -52,7 +53,13 @@ export function PanelPane({
   )
   const base = baseFor(node.path, basePoints)
   return (
-    <section className="border-l border-border bg-panel flex flex-col min-h-0 overflow-hidden">
+    <section
+      className={
+        overlay
+          ? 'fixed inset-0 z-50 flex flex-col min-h-0 overflow-hidden bg-panel'
+          : 'border-l border-border bg-panel flex flex-col min-h-0 overflow-hidden'
+      }
+    >
       <div className="flex items-center gap-0.5 py-1.5 px-2 border-b border-border bg-bg">
         {tab('code', <Code />, t(i18n)`Code`)}
         {tab('diff', <FileDiff />, t(i18n)`Changes`)}
