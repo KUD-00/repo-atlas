@@ -1,27 +1,23 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { atlasDir } from './scan.js'
+import type { NoteRecord, ParsedNote, PathType } from './types.js'
 
 const DIR_NOTE = '__dir__.md'
 
-export function notesRoot(root) {
+export function notesRoot(root: string): string {
   return path.join(atlasDir(root), 'notes')
 }
 
-/**
- * Note file location for a repo path.
- * dir  apps/daemon      -> .atlas/notes/apps/daemon/__dir__.md   (repo root '' -> .atlas/notes/__dir__.md)
- * file apps/daemon/x.ts -> .atlas/notes/apps/daemon/x.ts.md
- */
-export function noteFileFor(root, relPath, type) {
+export function noteFileFor(root: string, relPath: string, type: PathType): string {
   const base = notesRoot(root)
   if (type === 'dir') return path.join(base, relPath, DIR_NOTE)
   return path.join(base, relPath + '.md')
 }
 
-function parseNote(raw) {
+function parseNote(raw: string): ParsedNote {
   const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/)
-  const meta = {}
+  const meta: Record<string, string> = {}
   let body = raw
   if (m) {
     body = raw.slice(m[0].length)
@@ -30,32 +26,40 @@ function parseNote(raw) {
       if (kv) meta[kv[1]] = kv[2].trim()
     }
   }
+  let order: string[] | null = null
+  if (meta.order) {
+    try {
+      const parsed: unknown = JSON.parse(meta.order)
+      if (Array.isArray(parsed)) order = parsed.filter((x): x is string => typeof x === 'string')
+    } catch {
+      /* malformed order — treat as absent rather than failing the whole note */
+    }
+  }
   return {
     hash: meta.hash ?? null,
     anchor: meta.anchor || null,
     dirty: meta.dirty === 'true',
     stamped: meta.stamped ?? null,
+    order,
     body,
   }
 }
 
-function serializeNote(note) {
+function serializeNote(note: ParsedNote): string {
   const lines = [`hash: ${note.hash ?? ''}`]
   if (note.anchor) lines.push(`anchor: ${note.anchor}`)
   if (note.dirty) lines.push('dirty: true')
   lines.push(`stamped: ${note.stamped ?? ''}`)
+  // one-line JSON array: unambiguous for the minimal key:value parser above
+  if (note.order?.length) lines.push(`order: ${JSON.stringify(note.order)}`)
   return `---\n${lines.join('\n')}\n---\n${note.body}`
 }
 
-/**
- * Load every note under .atlas/notes.
- * Returns Map<repoPath, {type, hash, stamped, body, file}>; repo root dir is keyed ''.
- */
-export function loadNotes(root) {
+export function loadNotes(root: string): Map<string, NoteRecord> {
   const base = notesRoot(root)
-  const notes = new Map()
+  const notes = new Map<string, NoteRecord>()
   if (!fs.existsSync(base)) return notes
-  const walk = (dir) => {
+  const walk = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name)
       if (entry.isDirectory()) {
@@ -78,23 +82,37 @@ export function loadNotes(root) {
   return notes
 }
 
-/** Write a note's body (creating parent dirs on first write), stamped with the given hash. */
-export function writeNoteBody(root, relPath, type, body, hash, meta = {}) {
+export function writeNoteBody(
+  root: string,
+  relPath: string,
+  type: PathType,
+  body: string,
+  hash: string,
+  meta: { anchor?: string | null; dirty?: boolean; order?: string[] | null } = {},
+): string {
   const file = noteFileFor(root, relPath, type)
   fs.mkdirSync(path.dirname(file), { recursive: true })
+  // a body rewrite must not lose an existing reading order
+  let order = meta.order ?? null
+  if (order === null && fs.existsSync(file)) {
+    order = parseNote(fs.readFileSync(file, 'utf8')).order
+  }
   fs.writeFileSync(file, serializeNote({
-    hash, anchor: meta.anchor, dirty: meta.dirty, stamped: new Date().toISOString(), body,
+    hash,
+    anchor: meta.anchor ?? null,
+    dirty: meta.dirty ?? false,
+    stamped: new Date().toISOString(),
+    order,
+    body,
   }))
   return file
 }
 
-/**
- * Rewrite a note's frontmatter with a new hash, preserving the body.
- * meta.anchor is the commit the stamp was taken against (for later diffing /
- * rename detection); meta.dirty marks that the stamped content was not in
- * that commit (uncommitted worktree state).
- */
-export function stampNote(file, hash, meta = {}) {
+export function stampNote(
+  file: string,
+  hash: string,
+  meta: { anchor?: string | null; dirty?: boolean } = {},
+): void {
   const note = parseNote(fs.readFileSync(file, 'utf8'))
   note.hash = hash
   note.anchor = meta.anchor ?? note.anchor
@@ -103,8 +121,7 @@ export function stampNote(file, hash, meta = {}) {
   fs.writeFileSync(file, serializeNote(note))
 }
 
-/** Relocate a note file to the ledger slot for a new repo path, body untouched. */
-export function moveNoteFile(root, note, toPath, toType) {
+export function moveNoteFile(root: string, note: NoteRecord, toPath: string, toType: PathType): string {
   const dest = noteFileFor(root, toPath, toType)
   fs.mkdirSync(path.dirname(dest), { recursive: true })
   fs.renameSync(note.file, dest)

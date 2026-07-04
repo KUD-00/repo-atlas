@@ -1,38 +1,53 @@
 import { loadNotes, noteFileFor } from './notes.js'
 import { detectMoves, attachDeltas } from './reconcile.js'
 import { checkRefs } from './refs.js'
+import type { ComputeStatusResult, EntryStatus, ScanResult, StatusEntry } from './types.js'
 
-/**
- * Compare a scan against the notes ledger.
- * Every scanned path gets one of: fresh | outdated | missing | moved.
- * `moved` = a missing path whose note was found under a former path
- * (orphan × missing reconciliation) — the note follows via `migrate`.
- * Notes whose target is gone AND unmatched stay orphans.
- * Broken inline path references in note prose are reported separately.
- *
- * opts.deltas: also diff each outdated note's anchor (extra git calls — CLI
- * status wants this; serve's per-request rebuilds don't).
- */
-export function computeStatus(root, scanResult, opts = {}) {
+export function computeStatus(
+  root: string,
+  scanResult: ScanResult,
+  opts: { deltas?: boolean } = {},
+): ComputeStatusResult {
   const notes = loadNotes(root)
-  const entries = []
-  const judge = (path, type, hash) => {
+  const entries: StatusEntry[] = []
+  const judge = (path: string, type: 'file' | 'dir', hash: string) => {
     const note = notes.get(path)
-    if (!note) return { path, type, status: 'missing' }
+    if (!note) return { path, type, status: 'missing' as const }
     return {
       path,
       type,
-      status: note.hash === hash ? 'fresh' : 'outdated',
+      status: (note.hash === hash ? 'fresh' : 'outdated') as EntryStatus,
       stamped: note.stamped,
       body: note.body,
       noteFile: note.file,
+      order: note.order,
     }
   }
   for (const [p, hash] of scanResult.dirs) entries.push(judge(p, 'dir', hash))
   for (const [p, hash] of scanResult.files) entries.push(judge(p, 'file', hash))
 
+  const ignoredFiles = scanResult.ignored ?? new Set<string>()
+  const ignoredDirs = new Set<string>()
+  for (const p of ignoredFiles) {
+    let d = p
+    while (d.includes('/')) {
+      d = d.slice(0, d.lastIndexOf('/'))
+      if (!scanResult.dirs.has(d)) ignoredDirs.add(d)
+    }
+  }
+  const judgeIgnored = (path: string, type: 'file' | 'dir') => {
+    const note = notes.get(path)
+    return {
+      path, type, status: 'ignored' as const,
+      stamped: note?.stamped, body: note?.body, noteFile: note?.file,
+    }
+  }
+  for (const p of ignoredDirs) entries.push(judgeIgnored(p, 'dir'))
+  for (const p of ignoredFiles) entries.push(judgeIgnored(p, 'file'))
+
   let orphans = [...notes.entries()]
     .filter(([p, n]) => (n.type === 'dir' ? !scanResult.dirs.has(p) : !scanResult.files.has(p)))
+    .filter(([p]) => !ignoredFiles.has(p) && !ignoredDirs.has(p))
     .map(([p, n]) => ({ path: p, type: n.type, noteFile: n.file }))
 
   const moved = detectMoves(root, scanResult, entries, orphans, notes)
@@ -43,8 +58,9 @@ export function computeStatus(root, scanResult, opts = {}) {
       const m = e.status === 'missing' ? byTo.get(e.path) : undefined
       if (!m) continue
       const note = notes.get(m.from)
+      if (!note) continue
       Object.assign(e, {
-        status: 'moved',
+        status: 'moved' as const,
         movedFrom: m.from,
         similarity: m.similarity,
         stamped: note.stamped,
@@ -61,12 +77,12 @@ export function computeStatus(root, scanResult, opts = {}) {
   return { entries, orphans, brokenRefs: checkRefs(root, scanResult, notes, moved) }
 }
 
-export function summarize(status) {
-  const counts = { fresh: 0, outdated: 0, missing: 0, moved: 0 }
+export function summarize(status: ComputeStatusResult) {
+  const counts = { fresh: 0, outdated: 0, missing: 0, moved: 0, ignored: 0 }
   for (const e of status.entries) counts[e.status]++
   return {
     ...counts,
-    total: status.entries.length,
+    total: status.entries.length - counts.ignored,
     orphans: status.orphans.length,
     brokenRefs: status.brokenRefs.length,
   }

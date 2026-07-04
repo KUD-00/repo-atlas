@@ -1,0 +1,321 @@
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { scan, headCommit, hashFor } from './scan.js';
+import { writeNoteBody } from './notes.js';
+import { computeStatus } from './status.js';
+import { buildHtml } from './build.js';
+import { buildImportGraph } from './deps.js';
+import { loadGlossaryRaw, parseGlossary } from './glossary.js';
+const LIVE_SNIPPET = `<script>
+new EventSource('/events').addEventListener('reload', () => location.reload());
+</script>`;
+const POLL_MS = 1500;
+const PREVIEW_CAP = 500_000;
+export function serve(root, config, port, host = '127.0.0.1') {
+    let lastScan = null;
+    const render = () => {
+        const scanResult = scan(root, config);
+        lastScan = scanResult;
+        const status = computeStatus(root, scanResult);
+        const glossaryRaw = loadGlossaryRaw(root);
+        const html = buildHtml({
+            repoName: path.basename(root),
+            commit: headCommit(root),
+            status,
+            graph: buildImportGraph(root, scanResult),
+            glossary: parseGlossary(glossaryRaw),
+        });
+        const digest = createHash('sha1')
+            .update(JSON.stringify(status.entries) + JSON.stringify(status.orphans) + glossaryRaw)
+            .digest('hex');
+        const at = html.lastIndexOf('</body>');
+        return { html: html.slice(0, at) + LIVE_SNIPPET + html.slice(at), digest };
+    };
+    const clients = new Set();
+    let lastDigest = render().digest;
+    const chat = { history: [], pending: [], polls: [], workingId: null, progress: null };
+    let chatSeq = 0;
+    const chatBroadcast = (msg) => {
+        for (const c of clients)
+            c.write(`event: chat\ndata: ${JSON.stringify(msg)}\n\n`);
+    };
+    const chatStatus = () => chatBroadcast({
+        type: 'status',
+        connected: chat.polls.length > 0 || chat.workingId !== null,
+        working: chat.workingId !== null,
+    });
+    const handToAgent = (msg) => {
+        chat.workingId = msg.id;
+        queueMicrotask(chatStatus);
+        return msg;
+    };
+    setInterval(() => {
+        if (clients.size === 0)
+            return;
+        try {
+            const { digest } = render();
+            if (digest !== lastDigest) {
+                lastDigest = digest;
+                for (const res of clients)
+                    res.write('event: reload\ndata: 1\n\n');
+            }
+        }
+        catch (err) {
+            console.error(`watch error: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }, POLL_MS);
+    const readJson = (req, res, cb) => {
+        let raw = '';
+        req.on('data', (chunk) => {
+            raw += chunk;
+            if (raw.length > 2_000_000)
+                req.destroy();
+        });
+        req.on('end', () => {
+            try {
+                cb(JSON.parse(raw));
+            }
+            catch (err) {
+                res.writeHead(400, { 'content-type': 'text/plain' }).end(String(err instanceof Error ? err.message : err));
+            }
+        });
+    };
+    const server = http.createServer((req, res) => {
+        const url = new URL(req.url ?? '/', 'http://localhost');
+        const json = { 'content-type': 'application/json', 'cache-control': 'no-store' };
+        if (url.pathname === '/chat/history') {
+            res.writeHead(200, json);
+            res.end(JSON.stringify({
+                messages: chat.history,
+                connected: chat.polls.length > 0 || chat.workingId !== null,
+                working: chat.workingId !== null,
+                progress: chat.progress,
+            }));
+            return;
+        }
+        if (url.pathname === '/chat/progress' && req.method === 'POST') {
+            readJson(req, res, ({ text }) => {
+                chat.progress = typeof text === 'string' && text.trim() ? text : null;
+                chatBroadcast({ type: 'progress', text: chat.progress });
+                res.writeHead(200, json).end('{}');
+            });
+            return;
+        }
+        if (url.pathname === '/chat/cancel' && req.method === 'POST') {
+            readJson(req, res, ({ id }) => {
+                const msg = chat.history.find((m) => m.id === id && m.role === 'user');
+                if (!msg || msg.cancelled) {
+                    res.writeHead(404, { 'content-type': 'text/plain' }).end('no such active message');
+                    return;
+                }
+                msg.cancelled = true;
+                const qi = chat.pending.findIndex((m) => m.id === id);
+                if (qi >= 0)
+                    chat.pending.splice(qi, 1);
+                else if (chat.workingId === id) {
+                    const note = {
+                        id: 'm' + ++chatSeq, role: 'user', system: true,
+                        text: `[the user retracted message ${id} — drop that request and just briefly acknowledge]`,
+                        time: Date.now(),
+                    };
+                    const poll = chat.polls.shift();
+                    if (poll)
+                        poll.resolve(handToAgent(note));
+                    else
+                        chat.pending.push(note);
+                }
+                chatBroadcast({ type: 'cancelled', id });
+                res.writeHead(200, json).end(JSON.stringify({ id }));
+            });
+            return;
+        }
+        if (url.pathname === '/chat/send' && req.method === 'POST') {
+            readJson(req, res, ({ text, context }) => {
+                if (typeof text !== 'string' || !text.trim()) {
+                    res.writeHead(400, { 'content-type': 'text/plain' }).end('expected {text}');
+                    return;
+                }
+                const msg = {
+                    id: 'm' + ++chatSeq, role: 'user', text,
+                    context: context ?? null, time: Date.now(),
+                };
+                chat.history.push(msg);
+                chatBroadcast(msg);
+                const poll = chat.polls.shift();
+                if (poll)
+                    poll.resolve(handToAgent(msg));
+                else
+                    chat.pending.push(msg);
+                res.writeHead(200, json).end(JSON.stringify({ id: msg.id }));
+            });
+            return;
+        }
+        if (url.pathname === '/chat/poll') {
+            const timeout = Math.min(Number(url.searchParams.get('timeout')) || 270_000, 600_000);
+            const next = chat.pending.shift();
+            if (next) {
+                res.writeHead(200, json).end(JSON.stringify(handToAgent(next)));
+                return;
+            }
+            const poll = { resolve: () => { } };
+            const drop = () => {
+                const i = chat.polls.indexOf(poll);
+                if (i >= 0)
+                    chat.polls.splice(i, 1);
+            };
+            const timer = setTimeout(() => {
+                drop();
+                res.writeHead(200, json).end(JSON.stringify({ type: 'timeout' }));
+                chatStatus();
+            }, timeout);
+            poll.resolve = (msg) => {
+                clearTimeout(timer);
+                drop();
+                res.writeHead(200, json).end(JSON.stringify(msg));
+                chatStatus();
+            };
+            chat.polls.push(poll);
+            chatStatus();
+            req.on('close', () => {
+                clearTimeout(timer);
+                drop();
+                chatStatus();
+            });
+            return;
+        }
+        if (url.pathname === '/chat/reply' && req.method === 'POST') {
+            readJson(req, res, ({ text, replyTo }) => {
+                if (typeof text !== 'string' || !text.trim()) {
+                    res.writeHead(400, { 'content-type': 'text/plain' }).end('expected {text}');
+                    return;
+                }
+                const msg = {
+                    id: 'm' + ++chatSeq, role: 'agent', text,
+                    replyTo: replyTo ?? null, time: Date.now(),
+                };
+                chat.history.push(msg);
+                chat.workingId = null;
+                chat.progress = null;
+                chatBroadcast(msg);
+                chatStatus();
+                res.writeHead(200, json).end(JSON.stringify({ id: msg.id }));
+            });
+            return;
+        }
+        if (url.pathname === '/raw') {
+            const p = url.searchParams.get('p') ?? '';
+            const known = () => lastScan.files.has(p) || lastScan.ignored.has(p);
+            if (!lastScan)
+                render();
+            if (!known())
+                lastScan = scan(root, config);
+            if (!known()) {
+                res.writeHead(404, { 'content-type': 'text/plain' }).end('not in scan');
+                return;
+            }
+            try {
+                const buf = fs.readFileSync(path.join(root, p));
+                const headers = {
+                    'content-type': 'text/plain; charset=utf-8',
+                    'cache-control': 'no-store',
+                };
+                if (buf.subarray(0, 8192).includes(0)) {
+                    headers['x-atlas-binary'] = '1';
+                    res.writeHead(200, headers).end('');
+                    return;
+                }
+                let text = buf.toString('utf8');
+                if (text.length > PREVIEW_CAP) {
+                    text = text.slice(0, PREVIEW_CAP);
+                    headers['x-atlas-truncated'] = '1';
+                }
+                res.writeHead(200, headers).end(text);
+            }
+            catch (err) {
+                res.writeHead(500, { 'content-type': 'text/plain' }).end(String(err instanceof Error ? err.message : err));
+            }
+            return;
+        }
+        if (url.pathname === '/live') {
+            res.writeHead(200, { 'content-type': 'text/plain', 'cache-control': 'no-store' }).end('ok');
+            return;
+        }
+        if (url.pathname === '/note' && req.method === 'POST') {
+            let raw = '';
+            req.on('data', (chunk) => {
+                raw += chunk;
+                if (raw.length > 2_000_000)
+                    req.destroy();
+            });
+            req.on('end', () => {
+                try {
+                    const { path: p, body } = JSON.parse(raw);
+                    if (typeof p !== 'string' || typeof body !== 'string') {
+                        res.writeHead(400, { 'content-type': 'text/plain' }).end('expected {path, body}');
+                        return;
+                    }
+                    const fresh = scan(root, config);
+                    lastScan = fresh;
+                    const found = hashFor(fresh, p);
+                    if (!found) {
+                        res.writeHead(404, { 'content-type': 'text/plain' }).end('path not in scan');
+                        return;
+                    }
+                    const file = writeNoteBody(root, p, found.type, body, found.hash);
+                    const { digest } = render();
+                    lastDigest = digest;
+                    for (const c of clients)
+                        c.write('event: reload\ndata: 1\n\n');
+                    res.writeHead(200, { 'content-type': 'application/json' });
+                    res.end(JSON.stringify({ file: path.relative(root, file) }));
+                }
+                catch (err) {
+                    res.writeHead(500, { 'content-type': 'text/plain' }).end(String(err instanceof Error ? err.message : err));
+                }
+            });
+            return;
+        }
+        if (req.url === '/events') {
+            res.writeHead(200, {
+                'content-type': 'text/event-stream',
+                'cache-control': 'no-store',
+                connection: 'keep-alive',
+            });
+            res.write(': connected\n\n');
+            clients.add(res);
+            req.on('close', () => clients.delete(res));
+            return;
+        }
+        if (req.url === '/' || req.url === '/index.html') {
+            try {
+                const { html, digest } = render();
+                lastDigest = digest;
+                res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+                res.end(html);
+            }
+            catch (err) {
+                res.writeHead(500, { 'content-type': 'text/plain' });
+                res.end(String(err instanceof Error ? err.stack : err));
+            }
+            return;
+        }
+        res.writeHead(404).end('not found');
+    });
+    server.listen(port, host, () => {
+        console.log(`atlas dev server: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
+        if (host === '0.0.0.0') {
+            const { networkInterfaces } = os;
+            for (const addrs of Object.values(networkInterfaces())) {
+                for (const a of addrs ?? []) {
+                    if (a.family === 'IPv4' && !a.internal)
+                        console.log(`             http://${a.address}:${port}`);
+                }
+            }
+        }
+        console.log(`watching ${root} — auto-reloads on change`);
+    });
+    return server;
+}

@@ -1,0 +1,469 @@
+import {
+  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
+  type CSSProperties, type KeyboardEvent,
+} from 'react'
+import type { EntryStatus, GlossaryEntry, TreeNode } from '../src/types'
+import {
+  linkifyPaths, renderMermaidIn, noteFileFor, relationsFor, annotateGlossary,
+  annotateCodeAnchors, readingSequence, firstFileWithin,
+} from './lib'
+import { useLive } from './live'
+import { Collapse } from './Tree'
+
+const STATE_LABELS: Record<EntryStatus, string> = {
+  fresh: 'up to date',
+  outdated: 'outdated — code changed since this was written',
+  missing: 'no description yet',
+  ignored: 'ignored — excluded by .atlas/config.json',
+  moved: 'moved',
+}
+
+function Breadcrumb({ node, repoName }: { node: TreeNode; repoName: string }) {
+  const segs = node.path === '' ? [] : node.path.split('/')
+  const crumbs = [{ label: repoName, path: '' }]
+  let p = ''
+  for (const seg of segs) {
+    p = p ? p + '/' + seg : seg
+    crumbs.push({ label: seg, path: p })
+  }
+  return (
+    <h1 className="path">
+      {crumbs.map((c, i) => (
+        <span key={c.path}>
+          {i > 0 && ' / '}
+          {i === crumbs.length - 1 ? (
+            <span>{c.label}</span>
+          ) : (
+            <a className="seg" href={'#' + encodeURI(c.path)}>{c.label}</a>
+          )}
+        </span>
+      ))}
+    </h1>
+  )
+}
+
+const REL_LINES = 4
+
+/** Count chips past REL_LINES wrapped rows; maxH clips through the bottom of line REL_LINES. */
+function measureChips(el: HTMLElement): { hidden: number; maxH: number } {
+  const chips = el.querySelectorAll<HTMLElement>('.rel-chip')
+  if (!chips.length) return { hidden: 0, maxH: 0 }
+  const chipH = chips[0].offsetHeight
+  const tops: number[] = []
+  for (const chip of chips) {
+    const t = chip.offsetTop
+    if (!tops.some((x) => Math.abs(x - t) <= 1)) tops.push(t)
+  }
+  tops.sort((a, b) => a - b)
+  if (tops.length <= REL_LINES) return { hidden: 0, maxH: 0 }
+  const cutoff = tops[REL_LINES]
+  let hidden = 0
+  for (const chip of chips) {
+    if (chip.offsetTop >= cutoff - 1) hidden++
+  }
+  return { hidden, maxH: tops[REL_LINES - 1] + chipH - tops[0] }
+}
+
+function RelationChips({ items }: { items: string[] }) {
+  const [expanded, setExpanded] = useState(false)
+  const [hidden, setHidden] = useState(0)
+  const [maxH, setMaxH] = useState(0)
+  const ref = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => setExpanded(false), [items])
+
+  const measure = useCallback(() => {
+    const el = ref.current
+    if (!el) return
+    const { hidden: h, maxH: mh } = measureChips(el)
+    setHidden(h)
+    setMaxH(mh)
+  }, [items])
+
+  useLayoutEffect(() => {
+    measure()
+    const el = ref.current
+    if (!el) return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [items, measure])
+
+  const collapsed = !expanded && hidden > 0
+
+  return (
+    <span className="chips-wrap">
+      <span
+        ref={ref}
+        className={'chips' + (collapsed ? ' chips-collapsed' : '')}
+        style={collapsed && maxH ? { '--chips-max-h': `${maxH}px` } as CSSProperties : undefined}
+      >
+        {items.map((p) => (
+          <a key={p} className="rel-chip" href={'#' + encodeURI(p)}>{p}</a>
+        ))}
+      </span>
+      {hidden > 0 && (
+        <button type="button" className="rel-more" onClick={() => setExpanded((e) => !e)}>
+          {expanded ? 'show less' : `+${hidden} more`}
+        </button>
+      )}
+    </span>
+  )
+}
+
+function Relations({
+  node, rel, nodesByPath,
+}: {
+  node: TreeNode
+  rel: ReturnType<typeof import('./lib').buildRelationIndex>
+  nodesByPath: Map<string, TreeNode>
+}) {
+  const { deps, dependents } = useMemo(
+    () => relationsFor(node, rel, nodesByPath),
+    [node, rel, nodesByPath],
+  )
+  if (!deps.length && !dependents.length) return null
+  return (
+    <div className="relations">
+      {deps.length > 0 && (
+        <div className="rel-row"><span className="rel-label">uses →</span><RelationChips items={deps} /></div>
+      )}
+      {dependents.length > 0 && (
+        <div className="rel-row"><span className="rel-label">← used by</span><RelationChips items={dependents} /></div>
+      )}
+    </div>
+  )
+}
+
+function Prose({
+  node, nodesByPath, glossary,
+}: {
+  node: TreeNode
+  nodesByPath: Map<string, TreeNode>
+  glossary: GlossaryEntry[]
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.innerHTML = node.html ?? ''
+    linkifyPaths(el, node, nodesByPath)
+    annotateGlossary(el, glossary)
+    renderMermaidIn(el)
+    // code anchors need the file's current source — fetched, so they resolve
+    // against what the code looks like NOW, not when the note was written
+    if (node.type !== 'file') return
+    let alive = true
+    fetch('raw?p=' + encodeURIComponent(node.path))
+      .then((res) => (res.ok && !res.headers.get('x-atlas-binary') ? res.text() : null))
+      .then((src) => {
+        if (alive && src && ref.current === el) annotateCodeAnchors(el, node.path, src)
+      })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [node, nodesByPath, glossary])
+  return <div className="prose" ref={ref} />
+}
+
+function Editor({ node, onClose }: { node: TreeNode; onClose: () => void }) {
+  const [text, setText] = useState(node.source ?? '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const save = () => {
+    setBusy(true)
+    setError(null)
+    fetch('note', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path: node.path, body: text }),
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(await res.text())
+      })
+      .catch((err: unknown) => {
+        setError(String(err instanceof Error ? err.message : err))
+        setBusy(false)
+      })
+  }
+  const onKey = (e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') save()
+    if (e.key === 'Escape' && !busy) onClose()
+  }
+  return (
+    <div className="editor">
+      <div className="editor-file"><code>{noteFileFor(node)}</code></div>
+      <textarea
+        autoFocus
+        spellCheck={false}
+        value={text}
+        placeholder="Markdown note for this path…"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={onKey}
+      />
+      <div className="editor-bar">
+        <button className="btn primary" onClick={save} disabled={busy}>
+          {busy ? 'saving…' : 'save & stamp'}
+        </button>
+        <button className="btn" onClick={onClose} disabled={busy}>cancel</button>
+        <span className="editor-hint">⌘⏎ save · esc cancel</span>
+        {error && <span className="editor-error">{error}</span>}
+      </div>
+    </div>
+  )
+}
+
+const parentOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
+
+/** Last two path segments — enough to recognize a page without the noise. */
+function shortLabel(p: string, repoName: string): string {
+  if (!p) return repoName
+  return p.split('/').slice(-2).join('/')
+}
+
+/** One row of the contents dialog — a collapsible mini-tree in reading order.
+ * Dir rows expand/collapse in place (↗ opens their page); file rows navigate
+ * and close the dialog. */
+function TocNode({
+  node, depth, rank, current, expanded, onToggle, goto,
+}: {
+  node: TreeNode
+  depth: number
+  rank?: number
+  current: string
+  expanded: Set<string>
+  onToggle: (p: string) => void
+  goto: (p: string) => void
+}) {
+  if (node.status === 'ignored') return null
+  const isDir = node.type === 'dir'
+  const kids = isDir ? node.children.filter((c) => c.status !== 'ignored') : []
+  const open = expanded.has(node.path)
+  const rankOf = new Map((node.order ?? []).map((name, i) => [name, i + 1]))
+  return (
+    <>
+      <div
+        className={'row toc-row' + (node.path === current ? ' sel' : '')}
+        style={{ paddingLeft: depth * 14 }}
+        onClick={() => (isDir ? onToggle(node.path) : goto(node.path))}
+      >
+        <span className={'twist' + (open ? ' open' : '')}>
+          {kids.length > 0 ? '▸' : ''}
+        </span>
+        <span className={'dot ' + node.status} />
+        <span className={'name' + (isDir ? ' dir' : '')}>{node.name + (isDir ? '/' : '')}</span>
+        {rank !== undefined && <span className="ord">{rank}</span>}
+        {isDir && (
+          <button
+            className="toc-goto"
+            title="open this directory's page"
+            onClick={(e) => {
+              e.stopPropagation()
+              goto(node.path)
+            }}
+          >
+            ↗
+          </button>
+        )}
+      </div>
+      {kids.length > 0 && (
+        <Collapse open={open}>
+          {kids.map((c) => (
+            <TocNode
+              key={c.path}
+              node={c}
+              depth={depth + 1}
+              rank={rankOf.get(c.name)}
+              current={current}
+              expanded={expanded}
+              onToggle={onToggle}
+              goto={goto}
+            />
+          ))}
+        </Collapse>
+      )}
+    </>
+  )
+}
+
+/** "Contents" dialog: a collapsible mini-tree over the reading order, rooted
+ * at the current page's directory. Breadcrumb re-roots upward. */
+function TocDialog({
+  path, current, repoName, nodesByPath, onBrowse, onClose,
+}: {
+  path: string
+  current: string
+  repoName: string
+  nodesByPath: Map<string, TreeNode>
+  onBrowse: (p: string) => void
+  onClose: () => void
+}) {
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [onClose])
+  const dir = nodesByPath.get(path)
+  if (!dir) return null
+  const segs = path === '' ? [] : path.split('/')
+  const crumbs = [{ label: repoName, path: '' }]
+  let acc = ''
+  for (const s of segs) {
+    acc = acc ? acc + '/' + s : s
+    crumbs.push({ label: s, path: acc })
+  }
+  const rankOf = new Map((dir.order ?? []).map((name, i) => [name, i + 1]))
+  const goto = (p: string) => {
+    location.hash = '#' + encodeURI(p)
+    onClose()
+  }
+  const toggle = (p: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      next.has(p) ? next.delete(p) : next.add(p)
+      return next
+    })
+  return (
+    <div className="toc-overlay" onClick={onClose}>
+      <div className="toc-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="toc-head">
+          {crumbs.map((c, i) => (
+            <span key={c.path}>
+              {i > 0 && <span className="toc-sep">/</span>}
+              {i === crumbs.length - 1 ? (
+                <b>{c.label}</b>
+              ) : (
+                <button className="toc-crumb" onClick={() => onBrowse(c.path)}>{c.label}</button>
+              )}
+            </span>
+          ))}
+          <button className="toc-open" title="open this directory's page" onClick={() => goto(path)}>↗</button>
+        </div>
+        <div className="toc-list">
+          {dir.children.filter((c) => c.status !== 'ignored').map((c) => (
+            <TocNode
+              key={c.path}
+              node={c}
+              depth={0}
+              rank={rankOf.get(c.name)}
+              current={current}
+              expanded={expanded}
+              onToggle={toggle}
+              goto={goto}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function DocPane({
+  node, repoName, nodesByPath, rel, glossary,
+}: {
+  node: TreeNode
+  repoName: string
+  nodesByPath: Map<string, TreeNode>
+  rel: ReturnType<typeof import('./lib').buildRelationIndex>
+  glossary: GlossaryEntry[]
+}) {
+  const live = useLive()
+  const [editing, setEditing] = useState(false)
+  const [toc, setToc] = useState<string | null>(null)
+  useEffect(() => {
+    setEditing(false)
+    setToc(null)
+  }, [node])
+  const seq = useMemo(() => readingSequence(nodesByPath.get('')!), [nodesByPath])
+  const seqAt = seq.indexOf(node.path)
+  const prev = seqAt > 0 ? seq[seqAt - 1] : null
+  const next = seqAt >= 0 && seqAt < seq.length - 1 ? seq[seqAt + 1] : null
+  const dive = useMemo(() => firstFileWithin(node, seq, nodesByPath), [node, seq, nodesByPath])
+  // ← / → page through the reading order (unless focus is in an input)
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (toc !== null) return // the contents dialog owns the keyboard
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
+      const t = e.target as HTMLElement | null
+      if (t?.closest('input, textarea, [contenteditable]')) return
+      if (e.key === 'ArrowRight' && next !== null) location.hash = '#' + encodeURI(next)
+      if (e.key === 'ArrowLeft' && prev !== null) location.hash = '#' + encodeURI(prev)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [prev, next, toc])
+  return (
+    <div className="doc">
+      <div className="crumb">{node.type === 'dir' ? 'directory' : 'file'}</div>
+      <Breadcrumb node={node} repoName={repoName} />
+      <div className="state-row">
+        <div className={'state ' + node.status}>
+          <span className={'dot ' + node.status} />
+          {STATE_LABELS[node.status]}
+          {node.stamped ? ` · stamped ${new Date(node.stamped).toLocaleDateString()}` : ''}
+        </div>
+        {dive && (
+          <a className="btn start-read" href={'#' + encodeURI(dive)} title={dive}>
+            start reading ↘
+          </a>
+        )}
+        {live && !editing && node.status !== 'ignored' && (
+          <button className="btn edit" onClick={() => setEditing(true)}>
+            {node.source ? 'edit' : 'write note'}
+          </button>
+        )}
+      </div>
+      <Relations node={node} rel={rel} nodesByPath={nodesByPath} />
+      {editing ? (
+        <Editor node={node} onClose={() => setEditing(false)} />
+      ) : node.html ? (
+        <Prose node={node} nodesByPath={nodesByPath} glossary={glossary} />
+      ) : (
+        <div className="empty">
+          No note for this path. Write one at <code>{noteFileFor(node)}</code> and run{' '}
+          <code>repo-atlas stamp</code>.
+        </div>
+      )}
+      {!editing && (prev !== null || next !== null) && (
+        <nav className="read-nav">
+          {prev !== null ? (
+            <a className="read-link prev" href={'#' + encodeURI(prev)} title={prev || '(root)'}>
+              <span className="read-dir">← prev</span>
+              <span className="read-target">{shortLabel(prev, repoName)}</span>
+            </a>
+          ) : <span className="read-spacer" />}
+          <button
+            className="read-link toc"
+            onClick={() => setToc(node.type === 'dir' ? node.path : parentOf(node.path))}
+          >
+            <span className="read-dir">contents</span>
+            <span className="read-target">
+              {shortLabel(node.type === 'dir' ? node.path : parentOf(node.path), repoName)}
+            </span>
+          </button>
+          {next !== null ? (
+            <a className="read-link next" href={'#' + encodeURI(next)} title={next}>
+              <span className="read-dir">next →</span>
+              <span className="read-target">{shortLabel(next, repoName)}</span>
+            </a>
+          ) : <span className="read-spacer" />}
+        </nav>
+      )}
+      {toc !== null && (
+        <TocDialog
+          path={toc}
+          current={node.path}
+          repoName={repoName}
+          nodesByPath={nodesByPath}
+          onBrowse={setToc}
+          onClose={() => setToc(null)}
+        />
+      )}
+    </div>
+  )
+}

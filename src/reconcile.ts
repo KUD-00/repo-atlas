@@ -1,23 +1,7 @@
 import { git } from './scan.js'
+import type { MoveRecord, NoteRecord, Orphan, ScanResult, StatusEntry } from './types.js'
 
-/**
- * Move detection: pair orphan notes (target path gone) with missing paths
- * (path exists, no note) so a rename/move shows up as ONE `moved` item
- * instead of an orphan + a missing.
- *
- * Two passes, cheapest first:
- *   1. exact — the orphan note's stamped blob hash equals a missing file's
- *      current blob hash (pure move, content untouched). No git calls.
- *   2. fuzzy — for orphans stamped with an `anchor` commit, ask git itself:
- *      `git diff -M <anchor>` against the worktree reports renames with a
- *      similarity score, uncommitted moves included.
- *
- * Directory notes are inferred from their children: when the file moves
- * under an orphaned dir agree on a target directory, the dir note follows.
- */
-
-/** Trailing path segments two paths share — the tie-breaker for exact-hash ambiguity. */
-function suffixScore(a, b) {
+function suffixScore(a: string, b: string): number {
   const as = a.split('/')
   const bs = b.split('/')
   let n = 0
@@ -25,29 +9,36 @@ function suffixScore(a, b) {
   return n
 }
 
-function pickBest(from, candidates) {
+function pickBest(from: string, candidates: string[]): string {
   return [...candidates].sort((a, b) =>
     suffixScore(from, b) - suffixScore(from, a) || (a < b ? -1 : 1))[0]
 }
 
-export function detectMoves(root, scanResult, entries, orphans, notes) {
+export function detectMoves(
+  root: string,
+  scanResult: ScanResult,
+  entries: StatusEntry[],
+  orphans: Orphan[],
+  notes: Map<string, NoteRecord>,
+): MoveRecord[] {
   const missingFiles = new Set(
-    entries.filter((e) => e.status === 'missing' && e.type === 'file').map((e) => e.path))
+    entries.filter((e) => e.status === 'missing' && e.type === 'file').map((e) => e.path),
+  )
   const missingDirs = new Set(
-    entries.filter((e) => e.status === 'missing' && e.type === 'dir').map((e) => e.path))
+    entries.filter((e) => e.status === 'missing' && e.type === 'dir').map((e) => e.path),
+  )
   const orphanFiles = orphans.filter((o) => o.type === 'file')
-  const moved = []
+  const moved: MoveRecord[] = []
   if (orphanFiles.length && missingFiles.size) {
-    const byBlob = new Map() // current blob hash -> missing paths with that content
+    const byBlob = new Map<string, string[]>()
     for (const p of missingFiles) {
-      const h = scanResult.files.get(p)
+      const h = scanResult.files.get(p)!
       if (!byBlob.has(h)) byBlob.set(h, [])
-      byBlob.get(h).push(p)
+      byBlob.get(h)!.push(p)
     }
-    const claimedTo = new Set()
-    const claimedFrom = new Set()
+    const claimedTo = new Set<string>()
+    const claimedFrom = new Set<string>()
 
-    // pass 1: exact content match via the stamped blob hash
     for (const o of orphanFiles) {
       const note = notes.get(o.path)
       if (!note?.hash) continue
@@ -59,21 +50,20 @@ export function detectMoves(root, scanResult, entries, orphans, notes) {
       claimedFrom.add(o.path)
     }
 
-    // pass 2: git rename detection from each orphan's anchor commit
-    const byAnchor = new Map()
+    const byAnchor = new Map<string, Set<string>>()
     for (const o of orphanFiles) {
       if (claimedFrom.has(o.path)) continue
       const anchor = notes.get(o.path)?.anchor
       if (!anchor) continue
       if (!byAnchor.has(anchor)) byAnchor.set(anchor, new Set())
-      byAnchor.get(anchor).add(o.path)
+      byAnchor.get(anchor)!.add(o.path)
     }
     for (const [anchor, fromPaths] of byAnchor) {
-      let out
+      let out: string
       try {
         out = git(root, ['diff', '-M', '--name-status', '--diff-filter=R', anchor])
       } catch {
-        continue // anchor commit unknown here (rebased away, shallow clone) — skip
+        continue
       }
       for (const line of out.split('\n')) {
         const m = line.match(/^R(\d+)\t([^\t]+)\t(.+)$/)
@@ -88,10 +78,9 @@ export function detectMoves(root, scanResult, entries, orphans, notes) {
     }
   }
 
-  // dir notes follow their children: vote over the file moves beneath each orphan dir
   const fileMoves = moved.filter((m) => m.type === 'file')
   for (const o of orphans.filter((x) => x.type === 'dir')) {
-    const votes = new Map()
+    const votes = new Map<string, number>()
     for (const m of fileMoves) {
       if (!m.from.startsWith(o.path + '/')) continue
       const rel = m.from.slice(o.path.length + 1)
@@ -111,33 +100,30 @@ export function detectMoves(root, scanResult, entries, orphans, notes) {
   return moved
 }
 
-/**
- * Per-note change size against its stamp anchor, for triaging `outdated`:
- * a +2/−2 is probably an import shuffle, a +180/−40 needs a real re-read.
- * One `git diff --numstat` per distinct anchor covers every note on it.
- * Mutates the passed entries (adds `delta: {added, removed, files}`).
- */
-export function attachDeltas(root, entries, notes) {
-  const byAnchor = new Map()
+export function attachDeltas(
+  root: string,
+  entries: StatusEntry[],
+  notes: Map<string, NoteRecord>,
+): void {
+  const byAnchor = new Map<string, StatusEntry[]>()
   for (const e of entries) {
     if (e.status !== 'outdated') continue
     const anchor = notes.get(e.path)?.anchor
     if (!anchor) continue
     if (!byAnchor.has(anchor)) byAnchor.set(anchor, [])
-    byAnchor.get(anchor).push(e)
+    byAnchor.get(anchor)!.push(e)
   }
   for (const [anchor, anchored] of byAnchor) {
-    let out
+    let out: string
     try {
       out = git(root, ['diff', '--numstat', '-M', anchor])
     } catch {
       continue
     }
-    const stat = new Map() // current path -> [added, removed]
+    const stat = new Map<string, [number, number]>()
     for (const line of out.split('\n')) {
       const m = line.match(/^(\d+|-)\t(\d+|-)\t(.+)$/)
       if (!m) continue
-      // rename forms: "a/{old => new}/c" or "old => new" — keep the new side
       const p = m[3].replace(/\{([^{}]*) => ([^{}]*)\}/g, '$2').replace(/^(.*) => (.*)$/, '$2')
         .replace(/\/\//g, '/')
       stat.set(p, [m[1] === '-' ? 0 : Number(m[1]), m[2] === '-' ? 0 : Number(m[2])])

@@ -4,8 +4,12 @@
   "description": "Incremental, agent-friendly codebase atlas: per-path descriptions with git-hash staleness tracking and a self-contained HTML viewer.",
   "type": "module",
   "bin": {
-    "repo-atlas": "./src/cli.js"
+    "repo-atlas": "./dist/cli.js"
   },
+  "files": [
+    "dist",
+    "src/vendor"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -14,14 +18,25 @@
     "picomatch": "^4.0.0"
   },
   "devDependencies": {
+    "@lingui/cli": "^6.4.0",
+    "@lingui/core": "^6.4.0",
+    "@lingui/react": "^6.4.0",
+    "@types/node": "^22.15.30",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.5",
     "esbuild": "^0.28.1",
+    "esbuild-plugin-lingui-macro": "^1.0.2",
     "highlight.js": "^11.11.1",
     "mermaid": "^11.16.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "typescript": "^5.8.3"
   },
   "scripts": {
-    "build:viewer": "esbuild viewer/main.jsx --bundle --minify --jsx=automatic --outfile=src/vendor/viewer.js",
-    "dev:viewer": "esbuild viewer/main.jsx --bundle --jsx=automatic --outfile=src/vendor/viewer.js --watch"
+    "build": "pnpm build:cli && pnpm build:viewer",
+    "build:cli": "tsc -p tsconfig.json",
+    "build:viewer": "esbuild viewer/main.tsx --bundle --minify --jsx=automatic --outfile=src/vendor/viewer.js",
+    "dev:viewer": "esbuild viewer/main.tsx --bundle --jsx=automatic --outfile=src/vendor/viewer.js --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.viewer.json"
   }
 }
