@@ -63,10 +63,29 @@
   @keyframes pv-mark-in {
     from { background: #2563eb40; }
   }
-
-  .chat-dock.closing {
-    animation: chat-out 0.16s ease forwards;
+  /* compact drawers: chat rises from the bottom edge, panel slides from the right */
+  @keyframes sheet-in {
+    from { transform: translateY(100%); }
   }
+  @keyframes sheet-out {
+    to { transform: translateY(100%); }
+  }
+  @keyframes drawer-in-right {
+    from { transform: translateX(100%); }
+  }
+  @keyframes drawer-out-right {
+    to { transform: translateX(100%); }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+  }
+  @keyframes fade-out {
+    to { opacity: 0; }
+  }
+
+  /* closing animations are applied as conditional utilities in JSX — a
+   * components-layer .closing rule would lose to the mount-animation utility
+   * (utilities layer wins the cascade regardless of specificity) */
   .chat-typing span {
     animation: chat-blink 1.2s infinite;
   }

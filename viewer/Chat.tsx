@@ -15,7 +15,7 @@ function SelectionAttach({ onAttach }: { onAttach: (text: string) => void }) {
   const textRef = useRef('')
   useEffect(() => {
     const onUp = (e: globalThis.MouseEvent) => {
-      if ((e.target as HTMLElement).closest?.('.chat-dock, .sel-attach')) return
+      if ((e.target as HTMLElement).closest?.('.chat-dock, .chat-sheet, .sel-attach')) return
       // anchor the button to the RELEASE POINT — a selection's bounding rect
       // can be far away (upward drags, multi-line, h-scrolled code)
       const x = e.clientX
@@ -175,13 +175,16 @@ export function ChatDock({ currentPath, compact }: { currentPath: string; compac
       body: JSON.stringify({ id: retractable.id }),
     }).catch(() => {})
 
+  // selections are only worth attaching when an agent is actually listening
+  const attachPill = connected ? <SelectionAttach onAttach={addAttachment} /> : null
+
   if (!live) return null
   if (!open) {
     // on compact the top bar is the launcher — only the selection pill floats
-    if (compact) return <SelectionAttach onAttach={addAttachment} />
+    if (compact) return attachPill
     return (
       <>
-        <SelectionAttach onAttach={addAttachment} />
+        {attachPill}
         <button
           className="fixed right-3 bottom-3 md:right-5 md:bottom-5 z-20 font-inherit text-[0.8rem] py-2 px-4 rounded-full border border-border bg-panel text-text cursor-pointer shadow-[0_2px_10px_#00000018] inline-flex items-center gap-[7px] origin-bottom-right animate-[chat-in_0.16s_ease] hover:border-accent hover:text-accent"
           onClick={() => setOpen(true)}
@@ -195,14 +198,25 @@ export function ChatDock({ currentPath, compact }: { currentPath: string; compac
   }
   return (
     <>
-    <SelectionAttach onAttach={addAttachment} />
+    {attachPill}
+    {compact && (
+      <div
+        className={
+          'fixed inset-0 z-20 bg-[#00000033] ' +
+          (closing ? 'animate-[fade-out_0.16s_ease_forwards]' : 'animate-[fade-in_0.2s_ease]')
+        }
+        onClick={() => setClosing(true)}
+        aria-hidden
+      />
+    )}
     <div
       className={
-        'chat-dock fixed z-20 flex flex-col bg-panel border border-border rounded-xl shadow-[0_6px_28px_#00000026] overflow-hidden origin-bottom-right animate-[chat-in_0.2s_ease] ' +
+        'fixed z-20 flex flex-col bg-panel overflow-hidden ' +
         (compact
-          ? 'inset-x-3 bottom-3 w-[calc(100vw-24px)] h-[min(480px,70dvh)] max-h-[calc(100dvh-24px)]'
-          : 'right-5 bottom-5 w-[380px] h-[480px] max-h-[calc(100dvh-40px)]') +
-        (closing ? ' closing' : '')
+          ? 'chat-sheet inset-x-0 bottom-0 w-full h-[min(560px,80dvh)] border-t border-border rounded-t-xl shadow-[0_-6px_28px_#00000026] ' +
+            (closing ? 'animate-[sheet-out_0.18s_ease_forwards]' : 'animate-[sheet-in_0.22s_ease]')
+          : 'chat-dock right-5 bottom-5 w-[380px] h-[480px] max-h-[calc(100dvh-40px)] border border-border rounded-xl shadow-[0_6px_28px_#00000026] origin-bottom-right ' +
+            (closing ? 'animate-[chat-out_0.16s_ease_forwards]' : 'animate-[chat-in_0.2s_ease]'))
       }
       onAnimationEnd={(e) => {
         if (closing && e.target === e.currentTarget) {

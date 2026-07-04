@@ -23,7 +23,7 @@ export interface CodeJump {
  * page — the source itself, what changed since the note's anchor, or the
  * contents of the book (base point) the page belongs to. */
 export function PanelPane({
-  node, nodesByPath, basePoints, repoName, mode, onMode, onCollapse, jump, overlay,
+  node, nodesByPath, basePoints, repoName, mode, onMode, onCollapse, jump, overlay, closing, onCloseEnd,
 }: {
   node: TreeNode
   nodesByPath: Map<string, TreeNode>
@@ -34,6 +34,8 @@ export function PanelPane({
   onCollapse: () => void
   jump: CodeJump | null
   overlay?: boolean
+  closing?: boolean
+  onCloseEnd?: () => void
 }) {
   const { i18n } = useLingui()
   const isDir = node.type === 'dir'
@@ -56,9 +58,15 @@ export function PanelPane({
     <section
       className={
         overlay
-          ? 'fixed inset-0 z-50 flex flex-col min-h-0 overflow-hidden bg-panel'
+          ? 'panel-drawer fixed inset-y-0 right-0 z-50 w-[min(480px,92vw)] flex flex-col min-h-0 overflow-hidden bg-panel border-l border-border shadow-[-4px_0_24px_#00000022] ' +
+            (closing
+              ? 'animate-[drawer-out-right_0.16s_ease_forwards]'
+              : 'animate-[drawer-in-right_0.22s_ease]')
           : 'border-l border-border bg-panel flex flex-col min-h-0 overflow-hidden'
       }
+      onAnimationEnd={(e) => {
+        if (closing && e.target === e.currentTarget) onCloseEnd?.()
+      }}
     >
       <div className="flex items-center gap-0.5 py-1.5 px-2 border-b border-border bg-bg">
         {tab('code', <Code />, t(i18n)`Code`)}

@@ -158,6 +158,20 @@ let lightboxScale = 1
 let lightboxPanX = 0
 let lightboxPanY = 0
 let lightboxDrag: { x: number; y: number; panX: number; panY: number } | null = null
+// live pointers on the viewport; two of them = pinch gesture
+const lightboxPointers = new Map<number, { x: number; y: number }>()
+let lightboxPinch: {
+  dist: number
+  midX: number
+  midY: number
+  scale: number
+  panX: number
+  panY: number
+} | null = null
+let lightboxMoved = false
+
+const LIGHTBOX_MIN_SCALE = 0.4
+const LIGHTBOX_MAX_SCALE = 5
 
 function applyLightboxTransform(): void {
   if (!lightboxTransform) return
@@ -175,6 +189,8 @@ function closeMermaidLightbox(): void {
   if (!lightboxEl || lightboxEl.hidden) return
   lightboxEl.hidden = true
   lightboxDrag = null
+  lightboxPinch = null
+  lightboxPointers.clear()
   const back = lightboxReturnFocus
   lightboxReturnFocus = null
   if (back?.isConnected) back.focus()
@@ -210,7 +226,9 @@ function mermaidLightbox(): HTMLDivElement {
   backdrop.addEventListener('click', closeMermaidLightbox)
   close.addEventListener('click', closeMermaidLightbox)
   viewport.addEventListener('click', (e) => {
-    if (e.target === viewport) closeMermaidLightbox()
+    // a drag or pinch that started on the background must not count as a
+    // "tap outside" — only a clean tap closes
+    if (e.target === viewport && !lightboxMoved) closeMermaidLightbox()
   })
 
   document.addEventListener('keydown', (e) => {
@@ -233,28 +251,85 @@ function mermaidLightbox(): HTMLDivElement {
     { passive: false },
   )
 
+  // one pointer pans; two pointers pinch-zoom around their midpoint. The
+  // midpoint math works in coordinates relative to the viewport centre,
+  // because the transform element is centred there and scales about itself:
+  // screen = centre + pan + scale * contentOffset.
+  const relToCenter = (x: number, y: number) => {
+    const r = viewport.getBoundingClientRect()
+    return { x: x - (r.left + r.width / 2), y: y - (r.top + r.height / 2) }
+  }
+  const startPinch = () => {
+    const [a, b] = [...lightboxPointers.values()]
+    const dist = Math.hypot(b.x - a.x, b.y - a.y)
+    const mid = relToCenter((a.x + b.x) / 2, (a.y + b.y) / 2)
+    lightboxPinch = {
+      dist: Math.max(dist, 1),
+      midX: mid.x,
+      midY: mid.y,
+      scale: lightboxScale,
+      panX: lightboxPanX,
+      panY: lightboxPanY,
+    }
+    lightboxDrag = null
+  }
+
   viewport.addEventListener('pointerdown', (e) => {
-    if (lightboxEl?.hidden || e.button !== 0) return
-    const t = e.target as Element
-    if (!transform.contains(t) && t !== transform) return
-    lightboxDrag = { x: e.clientX, y: e.clientY, panX: lightboxPanX, panY: lightboxPanY }
+    if (lightboxEl?.hidden || (e.pointerType === 'mouse' && e.button !== 0)) return
+    lightboxPointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
     viewport.setPointerCapture(e.pointerId)
-    viewport.classList.add('dragging')
+    if (lightboxPointers.size === 1) lightboxMoved = false
+    if (lightboxPointers.size === 2) {
+      startPinch()
+    } else if (lightboxPointers.size === 1) {
+      lightboxDrag = { x: e.clientX, y: e.clientY, panX: lightboxPanX, panY: lightboxPanY }
+      viewport.classList.add('dragging')
+    }
   })
   viewport.addEventListener('pointermove', (e) => {
-    if (!lightboxDrag) return
-    lightboxPanX = lightboxDrag.panX + (e.clientX - lightboxDrag.x)
-    lightboxPanY = lightboxDrag.panY + (e.clientY - lightboxDrag.y)
-    applyLightboxTransform()
+    const p = lightboxPointers.get(e.pointerId)
+    if (!p) return
+    p.x = e.clientX
+    p.y = e.clientY
+    if (lightboxPinch && lightboxPointers.size >= 2) {
+      const [a, b] = [...lightboxPointers.values()]
+      const dist = Math.max(Math.hypot(b.x - a.x, b.y - a.y), 1)
+      const mid = relToCenter((a.x + b.x) / 2, (a.y + b.y) / 2)
+      const next = Math.min(
+        LIGHTBOX_MAX_SCALE,
+        Math.max(LIGHTBOX_MIN_SCALE, lightboxPinch.scale * (dist / lightboxPinch.dist)),
+      )
+      // keep the content point under the (moving) midpoint pinned
+      const k = next / lightboxPinch.scale
+      lightboxScale = next
+      lightboxPanX = mid.x - k * (lightboxPinch.midX - lightboxPinch.panX)
+      lightboxPanY = mid.y - k * (lightboxPinch.midY - lightboxPinch.panY)
+      lightboxMoved = true
+      applyLightboxTransform()
+    } else if (lightboxDrag) {
+      lightboxPanX = lightboxDrag.panX + (e.clientX - lightboxDrag.x)
+      lightboxPanY = lightboxDrag.panY + (e.clientY - lightboxDrag.y)
+      if (Math.hypot(e.clientX - lightboxDrag.x, e.clientY - lightboxDrag.y) > 6) lightboxMoved = true
+      applyLightboxTransform()
+    }
   })
-  const endDrag = (e: PointerEvent) => {
-    if (!lightboxDrag) return
-    lightboxDrag = null
-    viewport.classList.remove('dragging')
+  const endPointer = (e: PointerEvent) => {
+    if (!lightboxPointers.delete(e.pointerId)) return
     try { viewport.releasePointerCapture(e.pointerId) } catch { /* already released */ }
+    if (lightboxPinch && lightboxPointers.size < 2) {
+      lightboxPinch = null
+      // hand off to a single-finger pan from the remaining pointer
+      const rest = [...lightboxPointers.values()][0]
+      lightboxDrag = rest
+        ? { x: rest.x, y: rest.y, panX: lightboxPanX, panY: lightboxPanY }
+        : null
+    } else if (lightboxPointers.size === 0) {
+      lightboxDrag = null
+    }
+    if (lightboxPointers.size === 0) viewport.classList.remove('dragging')
   }
-  viewport.addEventListener('pointerup', endDrag)
-  viewport.addEventListener('pointercancel', endDrag)
+  viewport.addEventListener('pointerup', endPointer)
+  viewport.addEventListener('pointercancel', endPointer)
 
   document.body.appendChild(el)
   lightboxEl = el

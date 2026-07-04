@@ -61,6 +61,7 @@ export function App({ data }: { data: AtlasPayload }) {
     () => !(typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches),
   )
   const [panelMode, setPanelMode] = useState<PanelMode>('code')
+  const [panelClosing, setPanelClosing] = useState(false)
   const [jump, setJump] = useState<CodeJump | null>(null)
   const jumpSeq = useRef(0)
 
@@ -74,6 +75,7 @@ export function App({ data }: { data: AtlasPayload }) {
   useEffect(() => {
     const onJump = (e: Event) => {
       const d = (e as CustomEvent<{ path: string; line: number; endLine?: number }>).detail
+      setPanelClosing(false)
       setPanelOpen(true)
       setPanelMode('code')
       setJump({ path: d.path, line: d.line, endLine: d.endLine ?? d.line, seq: ++jumpSeq.current })
@@ -113,6 +115,13 @@ export function App({ data }: { data: AtlasPayload }) {
       ? 'grid-cols-[minmax(0,1fr)_minmax(320px,45%)] min-[1100px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]'
       : 'grid-cols-[minmax(0,1fr)_auto]'
 
+  // compact closes through the slide-out animation; desktop collapses instantly
+  const closePanel = () => (compact ? setPanelClosing(true) : setPanelOpen(false))
+  const openPanel = () => {
+    setPanelClosing(false)
+    setPanelOpen(true)
+  }
+
   const panelProps = {
     node,
     nodesByPath,
@@ -120,7 +129,7 @@ export function App({ data }: { data: AtlasPayload }) {
     repoName: data.repoName,
     mode: panelMode,
     onMode: setPanelMode,
-    onCollapse: () => setPanelOpen(false),
+    onCollapse: closePanel,
     jump,
   }
 
@@ -143,7 +152,7 @@ export function App({ data }: { data: AtlasPayload }) {
               <MessageCircle />
             </button>
           )}
-          <button className={TOPBAR_ICON} title={t(i18n)`expand panel`} onClick={() => setPanelOpen(true)}>
+          <button className={TOPBAR_ICON} title={t(i18n)`expand panel`} onClick={openPanel}>
             <PanelRightOpen />
           </button>
         </header>
@@ -251,7 +260,7 @@ export function App({ data }: { data: AtlasPayload }) {
             rel={rel}
             glossary={data.glossary}
             onContents={() => {
-              setPanelOpen(true)
+              openPanel()
               setPanelMode('toc')
             }}
           />
@@ -265,7 +274,27 @@ export function App({ data }: { data: AtlasPayload }) {
           </div>
         )}
       </main>
-      {compact && panelOpen && <PanelPane {...panelProps} overlay />}
+      {compact && panelOpen && (
+        <div
+          className={
+            'fixed inset-0 z-40 bg-[#00000033] ' +
+            (panelClosing ? 'animate-[fade-out_0.16s_ease_forwards]' : 'animate-[fade-in_0.2s_ease]')
+          }
+          onClick={closePanel}
+          aria-hidden
+        />
+      )}
+      {compact && panelOpen && (
+        <PanelPane
+          {...panelProps}
+          overlay
+          closing={panelClosing}
+          onCloseEnd={() => {
+            setPanelClosing(false)
+            setPanelOpen(false)
+          }}
+        />
+      )}
       <ChatDock currentPath={path} compact={compact} />
       {settingsOpen && (
         <SettingsDialog
