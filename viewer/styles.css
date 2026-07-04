@@ -261,6 +261,7 @@
   }
   .prose a {
     color: var(--color-accent);
+    text-decoration: underline;
   }
   .prose a.pathlink {
     text-decoration: none;
