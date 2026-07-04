@@ -1,5 +1,5 @@
 import * as esbuild from 'esbuild'
-import { lingui } from 'esbuild-plugin-lingui-macro'
+import { pluginLinguiMacro } from 'esbuild-plugin-lingui-macro'
 
 const watch = process.argv.includes('--watch')
 
@@ -9,7 +9,7 @@ const opts = {
   jsx: 'automatic',
   outfile: 'src/vendor/viewer.js',
   minify: !watch,
-  plugins: [lingui()],
+  plugins: [pluginLinguiMacro()],
 }
 
 if (watch) {

@@ -13,13 +13,14 @@ const GEAR_ICON = (
 )
 
 export function SettingsButton({ onClick }: { onClick: () => void }) {
+  const { i18n } = useLingui()
   return (
     <button
       type="button"
       className="settings-btn"
       onClick={onClick}
-      title={t`Settings`}
-      aria-label={t`Settings`}
+      title={t(i18n)`Settings`}
+      aria-label={t(i18n)`Settings`}
     >
       {GEAR_ICON}
     </button>

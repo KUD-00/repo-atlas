@@ -1,4 +1,6 @@
 import { useEffect, useState, type ReactNode, type MouseEvent } from 'react'
+import { t } from '@lingui/core/macro'
+import { useLingui } from '@lingui/react/macro'
 import type { EntryStatus, TreeNode } from '../src/types'
 
 export function Collapse({ open, children }: { open: boolean; children: ReactNode }) {
@@ -44,6 +46,7 @@ function Row({
   onClick: () => void
   onTwist?: (e: MouseEvent) => void
 }) {
+  const { i18n } = useLingui()
   return (
     <div
       className={'row' + (selected ? ' sel' : '') + (node.status === 'ignored' ? ' ignored' : '')}
@@ -57,7 +60,7 @@ function Row({
       <span className={'name' + (node.type === 'dir' ? ' dir' : '')}>
         {(flat ? node.path : node.name) + (node.type === 'dir' ? '/' : '')}
       </span>
-      {rank !== undefined && <span className="ord" title="pinned reading order">{rank}</span>}
+      {rank !== undefined && <span className="ord" title={t(i18n)`pinned reading order`}>{rank}</span>}
       {node.type === 'dir' && node.agg && node.agg.outdated > 0 && (
         <span className="badge warn">{node.agg.outdated}</span>
       )}
@@ -165,7 +168,8 @@ export function Tree({
     if (hit && n.path !== '') matches.push(n)
     n.children.forEach(walk)
   })(root)
-  if (!matches.length) return <div className="empty" style={{ padding: '8px 12px' }}>no matches</div>
+  const { i18n } = useLingui()
+  if (!matches.length) return <div className="empty" style={{ padding: '8px 12px' }}>{t(i18n)`no matches`}</div>
   return matches.map((n) => (
     <Row
       key={n.path}

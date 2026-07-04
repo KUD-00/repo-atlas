@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
+import { t } from '@lingui/core/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
 import type { ChatMessage } from '../src/types'
 import { useLive } from './live'
 
 /** Floating "attach to chat" pill that appears when a text selection is
  * released anywhere outside the chat dock. */
 function SelectionAttach({ onAttach }: { onAttach: (text: string) => void }) {
+  const { i18n } = useLingui()
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
   const textRef = useRef('')
   useEffect(() => {
@@ -51,7 +54,7 @@ function SelectionAttach({ onAttach }: { onAttach: (text: string) => void }) {
         window.getSelection()?.removeAllRanges()
       }}
     >
-      ⤷ attach to chat
+      {t(i18n)`⤷ attach to chat`}
     </button>
   )
 }
@@ -63,6 +66,7 @@ interface Attachment {
 }
 
 export function ChatDock({ currentPath }: { currentPath: string }) {
+  const { i18n } = useLingui()
   const live = useLive()
   const [open, setOpen] = useState(() => sessionStorage.getItem('atlas-chat-open') === '1')
   const [closing, setClosing] = useState(false)
@@ -160,8 +164,8 @@ export function ChatDock({ currentPath }: { currentPath: string }) {
     return (
       <>
         <SelectionAttach onAttach={addAttachment} />
-        <button className="chat-fab" onClick={() => setOpen(true)} title="chat with the attached agent session">
-          chat{connected && <span className="chat-dot on" />}
+        <button className="chat-fab" onClick={() => setOpen(true)} title={t(i18n)`chat with the attached agent session`}>
+          {t(i18n)`chat`}{connected && <span className="chat-dot on" />}
         </button>
       </>
     )
@@ -180,21 +184,23 @@ export function ChatDock({ currentPath }: { currentPath: string }) {
     >
       <div className="chat-head">
         <span className={'chat-dot' + (connected ? ' on' : '')} />
-        <span className="chat-title">{connected ? 'agent connected' : 'no agent polling'}</span>
+        <span className="chat-title">{connected ? t(i18n)`agent connected` : t(i18n)`no agent polling`}</span>
         <button className="chat-x" onClick={() => setClosing(true)}>×</button>
       </div>
       <div className="chat-list" ref={listRef}>
         {messages.length === 0 && (
           <div className="chat-hint">
-            Messages go to whichever agent session is polling <code>/chat/poll</code>.
-            {!connected && ' None is right now — attach one first.'}
+            <Trans>
+              Messages go to whichever agent session is polling <code>/chat/poll</code>.
+            </Trans>
+            {!connected && ` ${t(i18n)`None is right now — attach one first.`}`}
           </div>
         )}
         {messages.map((m) => (
           <div key={m.id} className={'chat-msg ' + m.role + (m.cancelled ? ' cancelled' : '')}>
             {m.role === 'user' && m.context && <div className="chat-ctx">@ {m.context}</div>}
             <div className="chat-text">{m.text}</div>
-            {m.cancelled && <div className="chat-ctx">已撤回</div>}
+            {m.cancelled && <div className="chat-ctx">{t(i18n)`retracted`}</div>}
           </div>
         ))}
         {working && (
@@ -206,7 +212,9 @@ export function ChatDock({ currentPath }: { currentPath: string }) {
       </div>
       {retractable && (
         <div className="chat-retract">
-          <button className="btn" onClick={cancel}>撤回上一条{working ? '（agent 已在处理，将尽快停止）' : ''}</button>
+          <button className="btn" onClick={cancel}>
+            {working ? t(i18n)`retract last message (agent is already on it)` : t(i18n)`retract last message`}
+          </button>
         </div>
       )}
       {attachments.length > 0 && (
@@ -230,7 +238,7 @@ export function ChatDock({ currentPath }: { currentPath: string }) {
       <div className="chat-input">
         <textarea
           rows={2}
-          placeholder="message the agent… (⏎ send, ⇧⏎ newline)"
+          placeholder={t(i18n)`message the agent… (⏎ send, ⇧⏎ newline)`}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -242,7 +250,7 @@ export function ChatDock({ currentPath }: { currentPath: string }) {
             }
           }}
         />
-        <button className="btn primary" onClick={send} disabled={!text.trim() && !attachments.length}>send</button>
+        <button className="btn primary" onClick={send} disabled={!text.trim() && !attachments.length}>{t(i18n)`send`}</button>
       </div>
     </div>
     </>

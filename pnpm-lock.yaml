@@ -15,10 +15,16 @@ importers:
         specifier: ^4.0.0
         version: 4.0.4
     devDependencies:
+      '@lingui/babel-plugin-lingui-macro':
+        specifier: ^6.4.0
+        version: 6.4.0
       '@lingui/cli':
         specifier: ^6.4.0
         version: 6.4.0
       '@lingui/core':
+        specifier: ^6.4.0
+        version: 6.4.0
+      '@lingui/format-po':
         specifier: ^6.4.0
         version: 6.4.0
       '@lingui/react':

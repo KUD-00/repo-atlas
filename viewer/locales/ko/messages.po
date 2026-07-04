@@ -1,0 +1,233 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-07-04 13:49+0900\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: ko\n"
+
+#: viewer/Doc.tsx
+msgid "← prev"
+msgstr "← 이전"
+
+#: viewer/Doc.tsx
+msgid "← used by"
+msgstr "← 사용처"
+
+#: viewer/Doc.tsx
+msgid "+{hidden} more"
+msgstr "{hidden}개 더"
+
+#: viewer/Doc.tsx
+msgid "⌘⏎ save · esc cancel"
+msgstr "⌘⏎ 저장 · esc 취소"
+
+#: viewer/Chat.tsx
+msgid "⤷ attach to chat"
+msgstr "⤷ 채팅에 연결"
+
+#: viewer/Chat.tsx
+msgid "agent connected"
+msgstr "에이전트 연결됨"
+
+#: viewer/App.tsx
+msgid "also show config-excluded paths, greyed out"
+msgstr "설정에서 제외된 경로도 회색으로 표시"
+
+#: viewer/Preview.tsx
+msgid "binary file — no preview"
+msgstr "바이너리 파일 — 미리보기 없음"
+
+#: viewer/Doc.tsx
+msgid "cancel"
+msgstr "취소"
+
+#: viewer/Chat.tsx
+msgid "chat"
+msgstr "채팅"
+
+#: viewer/Chat.tsx
+msgid "chat with the attached agent session"
+msgstr "연결된 에이전트 세션과 채팅"
+
+#: viewer/Settings.tsx
+msgid "Close"
+msgstr "닫기"
+
+#: viewer/Doc.tsx
+msgid "contents"
+msgstr "목차"
+
+#: viewer/Doc.tsx
+msgid "directory"
+msgstr "디렉터리"
+
+#: viewer/Doc.tsx
+msgid "edit"
+msgstr "편집"
+
+#: viewer/Doc.tsx
+msgid "file"
+msgstr "파일"
+
+#: viewer/App.tsx
+msgid "filter paths…"
+msgstr "경로 필터…"
+
+#: viewer/App.tsx
+msgid "fresh"
+msgstr "최신"
+
+#: viewer/App.tsx
+msgid "ignored"
+msgstr "제외됨"
+
+#: viewer/Doc.tsx
+msgid "ignored — excluded by .atlas/config.json"
+msgstr "제외됨 — .atlas/config.json에서 제외됨"
+
+#: viewer/Settings.tsx
+msgid "Language"
+msgstr "언어"
+
+#: viewer/Preview.tsx
+msgid "lines"
+msgstr "줄"
+
+#: viewer/Preview.tsx
+msgid "loading…"
+msgstr "로딩 중…"
+
+#: viewer/Doc.tsx
+msgid "Markdown note for this path…"
+msgstr "이 경로의 Markdown 노트…"
+
+#: viewer/Chat.tsx
+msgid "message the agent… (⏎ send, ⇧⏎ newline)"
+msgstr "에이전트에 메시지… (⏎ 전송, ⇧⏎ 줄바꿈)"
+
+#: viewer/Chat.tsx
+msgid "Messages go to whichever agent session is polling <0>/chat/poll</0>."
+msgstr "메시지는 <0>/chat/poll</0>을 폴링하는 에이전트 세션으로 전송됩니다."
+
+#: viewer/App.tsx
+msgid "missing"
+msgstr "누락"
+
+#: viewer/Doc.tsx
+msgid "moved"
+msgstr "이동됨"
+
+#: viewer/Doc.tsx
+msgid "next →"
+msgstr "다음 →"
+
+#: viewer/Chat.tsx
+msgid "no agent polling"
+msgstr "폴링 중인 에이전트 없음"
+
+#: viewer/Doc.tsx
+msgid "no description yet"
+msgstr "설명 없음"
+
+#: viewer/Tree.tsx
+msgid "no matches"
+msgstr "일치 항목 없음"
+
+#. placeholder {0}: noteFileFor(node)
+#: viewer/Doc.tsx
+msgid "No note for this path. Write one at <0>{0}</0> and run <1>repo-atlas stamp</1>."
+msgstr "이 경로에 노트가 없습니다. <0>{0}</0>에 작성한 뒤 <1>repo-atlas stamp</1>를 실행하세요."
+
+#: viewer/Preview.tsx
+msgid "no preview — file contents are served by <0>repo-atlas serve</0>; the static build only carries descriptions"
+msgstr "미리보기 없음 — 파일 내용은 <0>repo-atlas serve</0>로 제공됩니다. 정적 빌드에는 설명만 포함됩니다"
+
+#: viewer/Chat.tsx
+msgid "None is right now — attach one first."
+msgstr "현재 연결된 것이 없습니다 — 먼저 연결하세요."
+
+#: viewer/Doc.tsx
+msgid "open this directory's page"
+msgstr "이 디렉터리 페이지 열기"
+
+#: viewer/App.tsx
+msgid "outdated"
+msgstr "오래됨"
+
+#: viewer/Doc.tsx
+msgid "outdated — code changed since this was written"
+msgstr "오래됨 — 작성 후 코드가 변경됨"
+
+#: viewer/Tree.tsx
+msgid "pinned reading order"
+msgstr "고정된 읽기 순서"
+
+#: viewer/Chat.tsx
+msgid "retract last message"
+msgstr "마지막 메시지 취소"
+
+#: viewer/Chat.tsx
+msgid "retract last message (agent is already on it)"
+msgstr "마지막 메시지 취소 (에이전트가 이미 처리 중)"
+
+#: viewer/Chat.tsx
+msgid "retracted"
+msgstr "취소됨"
+
+#: viewer/Doc.tsx
+msgid "save & stamp"
+msgstr "저장 및 스탬프"
+
+#: viewer/Doc.tsx
+msgid "saving…"
+msgstr "저장 중…"
+
+#: viewer/Chat.tsx
+msgid "send"
+msgstr "전송"
+
+#: viewer/Settings.tsx
+msgid "Settings"
+msgstr "설정"
+
+#: viewer/Doc.tsx
+msgid "show less"
+msgstr "간략히 보기"
+
+#: viewer/App.tsx
+msgid "sort: a–z"
+msgstr "정렬: a–z"
+
+#: viewer/App.tsx
+msgid "sort: reading"
+msgstr "정렬: 읽기 순서"
+
+#: viewer/Doc.tsx
+msgid "stamped"
+msgstr "스탬프됨"
+
+#: viewer/Doc.tsx
+msgid "start reading ↘"
+msgstr "읽기 시작 ↘"
+
+#: viewer/App.tsx
+msgid "tree layout: alphabetical or reading order"
+msgstr "트리 레이아웃: 알파벳 순서 또는 읽기 순서"
+
+#: viewer/Preview.tsx
+msgid "truncated"
+msgstr "잘림"
+
+#: viewer/Doc.tsx
+msgid "up to date"
+msgstr "최신"
+
+#: viewer/Doc.tsx
+msgid "uses →"
+msgstr "사용 대상 →"
+
+#: viewer/Doc.tsx
+msgid "write note"
+msgstr "노트 작성"

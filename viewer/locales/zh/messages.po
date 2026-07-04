@@ -1,0 +1,233 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-07-04 13:49+0900\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: zh\n"
+
+#: viewer/Doc.tsx
+msgid "← prev"
+msgstr "← 上一项"
+
+#: viewer/Doc.tsx
+msgid "← used by"
+msgstr "← 被使用于"
+
+#: viewer/Doc.tsx
+msgid "+{hidden} more"
+msgstr "还有 {hidden} 项"
+
+#: viewer/Doc.tsx
+msgid "⌘⏎ save · esc cancel"
+msgstr "⌘⏎ 保存 · esc 取消"
+
+#: viewer/Chat.tsx
+msgid "⤷ attach to chat"
+msgstr "⤷ 连接到聊天"
+
+#: viewer/Chat.tsx
+msgid "agent connected"
+msgstr "代理已连接"
+
+#: viewer/App.tsx
+msgid "also show config-excluded paths, greyed out"
+msgstr "同时显示配置中排除的路径（灰色显示）"
+
+#: viewer/Preview.tsx
+msgid "binary file — no preview"
+msgstr "二进制文件 — 无法预览"
+
+#: viewer/Doc.tsx
+msgid "cancel"
+msgstr "取消"
+
+#: viewer/Chat.tsx
+msgid "chat"
+msgstr "聊天"
+
+#: viewer/Chat.tsx
+msgid "chat with the attached agent session"
+msgstr "与已连接的代理会话聊天"
+
+#: viewer/Settings.tsx
+msgid "Close"
+msgstr "关闭"
+
+#: viewer/Doc.tsx
+msgid "contents"
+msgstr "目录"
+
+#: viewer/Doc.tsx
+msgid "directory"
+msgstr "目录"
+
+#: viewer/Doc.tsx
+msgid "edit"
+msgstr "编辑"
+
+#: viewer/Doc.tsx
+msgid "file"
+msgstr "文件"
+
+#: viewer/App.tsx
+msgid "filter paths…"
+msgstr "筛选路径…"
+
+#: viewer/App.tsx
+msgid "fresh"
+msgstr "最新"
+
+#: viewer/App.tsx
+msgid "ignored"
+msgstr "已忽略"
+
+#: viewer/Doc.tsx
+msgid "ignored — excluded by .atlas/config.json"
+msgstr "已忽略 — 被 .atlas/config.json 排除"
+
+#: viewer/Settings.tsx
+msgid "Language"
+msgstr "语言"
+
+#: viewer/Preview.tsx
+msgid "lines"
+msgstr "行"
+
+#: viewer/Preview.tsx
+msgid "loading…"
+msgstr "加载中…"
+
+#: viewer/Doc.tsx
+msgid "Markdown note for this path…"
+msgstr "为此路径编写 Markdown 笔记…"
+
+#: viewer/Chat.tsx
+msgid "message the agent… (⏎ send, ⇧⏎ newline)"
+msgstr "向代理发送消息… (⏎ 发送，⇧⏎ 换行)"
+
+#: viewer/Chat.tsx
+msgid "Messages go to whichever agent session is polling <0>/chat/poll</0>."
+msgstr "消息将发送到正在轮询 <0>/chat/poll</0> 的代理会话。"
+
+#: viewer/App.tsx
+msgid "missing"
+msgstr "缺失"
+
+#: viewer/Doc.tsx
+msgid "moved"
+msgstr "已移动"
+
+#: viewer/Doc.tsx
+msgid "next →"
+msgstr "下一项 →"
+
+#: viewer/Chat.tsx
+msgid "no agent polling"
+msgstr "没有代理在轮询"
+
+#: viewer/Doc.tsx
+msgid "no description yet"
+msgstr "尚无描述"
+
+#: viewer/Tree.tsx
+msgid "no matches"
+msgstr "无匹配项"
+
+#. placeholder {0}: noteFileFor(node)
+#: viewer/Doc.tsx
+msgid "No note for this path. Write one at <0>{0}</0> and run <1>repo-atlas stamp</1>."
+msgstr "此路径尚无笔记。请在 <0>{0}</0> 中编写，然后运行 <1>repo-atlas stamp</1>。"
+
+#: viewer/Preview.tsx
+msgid "no preview — file contents are served by <0>repo-atlas serve</0>; the static build only carries descriptions"
+msgstr "无法预览 — 文件内容由 <0>repo-atlas serve</0> 提供；静态构建仅包含描述"
+
+#: viewer/Chat.tsx
+msgid "None is right now — attach one first."
+msgstr "当前没有连接 — 请先连接一个。"
+
+#: viewer/Doc.tsx
+msgid "open this directory's page"
+msgstr "打开此目录页面"
+
+#: viewer/App.tsx
+msgid "outdated"
+msgstr "已过时"
+
+#: viewer/Doc.tsx
+msgid "outdated — code changed since this was written"
+msgstr "已过时 — 编写后代码已更改"
+
+#: viewer/Tree.tsx
+msgid "pinned reading order"
+msgstr "固定的阅读顺序"
+
+#: viewer/Chat.tsx
+msgid "retract last message"
+msgstr "撤回上一条消息"
+
+#: viewer/Chat.tsx
+msgid "retract last message (agent is already on it)"
+msgstr "撤回上一条消息（代理已在处理）"
+
+#: viewer/Chat.tsx
+msgid "retracted"
+msgstr "已撤回"
+
+#: viewer/Doc.tsx
+msgid "save & stamp"
+msgstr "保存并标记"
+
+#: viewer/Doc.tsx
+msgid "saving…"
+msgstr "保存中…"
+
+#: viewer/Chat.tsx
+msgid "send"
+msgstr "发送"
+
+#: viewer/Settings.tsx
+msgid "Settings"
+msgstr "设置"
+
+#: viewer/Doc.tsx
+msgid "show less"
+msgstr "显示更少"
+
+#: viewer/App.tsx
+msgid "sort: a–z"
+msgstr "排序: a–z"
+
+#: viewer/App.tsx
+msgid "sort: reading"
+msgstr "排序: 阅读顺序"
+
+#: viewer/Doc.tsx
+msgid "stamped"
+msgstr "已标记"
+
+#: viewer/Doc.tsx
+msgid "start reading ↘"
+msgstr "开始阅读 ↘"
+
+#: viewer/App.tsx
+msgid "tree layout: alphabetical or reading order"
+msgstr "树形布局：按字母顺序或阅读顺序"
+
+#: viewer/Preview.tsx
+msgid "truncated"
+msgstr "已截断"
+
+#: viewer/Doc.tsx
+msgid "up to date"
+msgstr "最新"
+
+#: viewer/Doc.tsx
+msgid "uses →"
+msgstr "使用 →"
+
+#: viewer/Doc.tsx
+msgid "write note"
+msgstr "编写笔记"

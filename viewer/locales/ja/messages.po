@@ -1,0 +1,233 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-07-04 13:49+0900\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: ja\n"
+
+#: viewer/Doc.tsx
+msgid "← prev"
+msgstr "← 前へ"
+
+#: viewer/Doc.tsx
+msgid "← used by"
+msgstr "← 使用元"
+
+#: viewer/Doc.tsx
+msgid "+{hidden} more"
+msgstr "他 {hidden} 件"
+
+#: viewer/Doc.tsx
+msgid "⌘⏎ save · esc cancel"
+msgstr "⌘⏎ 保存 · esc キャンセル"
+
+#: viewer/Chat.tsx
+msgid "⤷ attach to chat"
+msgstr "⤷ チャットに接続"
+
+#: viewer/Chat.tsx
+msgid "agent connected"
+msgstr "エージェント接続済み"
+
+#: viewer/App.tsx
+msgid "also show config-excluded paths, greyed out"
+msgstr "設定で除外されたパスもグレー表示で表示"
+
+#: viewer/Preview.tsx
+msgid "binary file — no preview"
+msgstr "バイナリファイル — プレビューなし"
+
+#: viewer/Doc.tsx
+msgid "cancel"
+msgstr "キャンセル"
+
+#: viewer/Chat.tsx
+msgid "chat"
+msgstr "チャット"
+
+#: viewer/Chat.tsx
+msgid "chat with the attached agent session"
+msgstr "接続したエージェントセッションとチャット"
+
+#: viewer/Settings.tsx
+msgid "Close"
+msgstr "閉じる"
+
+#: viewer/Doc.tsx
+msgid "contents"
+msgstr "目次"
+
+#: viewer/Doc.tsx
+msgid "directory"
+msgstr "ディレクトリ"
+
+#: viewer/Doc.tsx
+msgid "edit"
+msgstr "編集"
+
+#: viewer/Doc.tsx
+msgid "file"
+msgstr "ファイル"
+
+#: viewer/App.tsx
+msgid "filter paths…"
+msgstr "パスをフィルター…"
+
+#: viewer/App.tsx
+msgid "fresh"
+msgstr "最新"
+
+#: viewer/App.tsx
+msgid "ignored"
+msgstr "除外"
+
+#: viewer/Doc.tsx
+msgid "ignored — excluded by .atlas/config.json"
+msgstr "除外 — .atlas/config.json で除外されています"
+
+#: viewer/Settings.tsx
+msgid "Language"
+msgstr "言語"
+
+#: viewer/Preview.tsx
+msgid "lines"
+msgstr "行"
+
+#: viewer/Preview.tsx
+msgid "loading…"
+msgstr "読み込み中…"
+
+#: viewer/Doc.tsx
+msgid "Markdown note for this path…"
+msgstr "このパスの Markdown ノート…"
+
+#: viewer/Chat.tsx
+msgid "message the agent… (⏎ send, ⇧⏎ newline)"
+msgstr "エージェントにメッセージ… (⏎ 送信、⇧⏎ 改行)"
+
+#: viewer/Chat.tsx
+msgid "Messages go to whichever agent session is polling <0>/chat/poll</0>."
+msgstr "メッセージは <0>/chat/poll</0> をポーリングしているエージェントセッションに送信されます。"
+
+#: viewer/App.tsx
+msgid "missing"
+msgstr "欠落"
+
+#: viewer/Doc.tsx
+msgid "moved"
+msgstr "移動"
+
+#: viewer/Doc.tsx
+msgid "next →"
+msgstr "次へ →"
+
+#: viewer/Chat.tsx
+msgid "no agent polling"
+msgstr "ポーリング中のエージェントなし"
+
+#: viewer/Doc.tsx
+msgid "no description yet"
+msgstr "説明はまだありません"
+
+#: viewer/Tree.tsx
+msgid "no matches"
+msgstr "一致なし"
+
+#. placeholder {0}: noteFileFor(node)
+#: viewer/Doc.tsx
+msgid "No note for this path. Write one at <0>{0}</0> and run <1>repo-atlas stamp</1>."
+msgstr "このパスにノートがありません。<0>{0}</0> に書いて <1>repo-atlas stamp</1> を実行してください。"
+
+#: viewer/Preview.tsx
+msgid "no preview — file contents are served by <0>repo-atlas serve</0>; the static build only carries descriptions"
+msgstr "プレビューなし — ファイル内容は <0>repo-atlas serve</0> で提供されます。静的ビルドには説明のみ含まれます"
+
+#: viewer/Chat.tsx
+msgid "None is right now — attach one first."
+msgstr "現在接続されているものはありません — 先に接続してください。"
+
+#: viewer/Doc.tsx
+msgid "open this directory's page"
+msgstr "このディレクトリのページを開く"
+
+#: viewer/App.tsx
+msgid "outdated"
+msgstr "古い"
+
+#: viewer/Doc.tsx
+msgid "outdated — code changed since this was written"
+msgstr "古い — 書かれてからコードが変更されました"
+
+#: viewer/Tree.tsx
+msgid "pinned reading order"
+msgstr "固定された読み順"
+
+#: viewer/Chat.tsx
+msgid "retract last message"
+msgstr "最後のメッセージを取り消す"
+
+#: viewer/Chat.tsx
+msgid "retract last message (agent is already on it)"
+msgstr "最後のメッセージを取り消す（エージェントが既に処理中）"
+
+#: viewer/Chat.tsx
+msgid "retracted"
+msgstr "取り消し済み"
+
+#: viewer/Doc.tsx
+msgid "save & stamp"
+msgstr "保存してスタンプ"
+
+#: viewer/Doc.tsx
+msgid "saving…"
+msgstr "保存中…"
+
+#: viewer/Chat.tsx
+msgid "send"
+msgstr "送信"
+
+#: viewer/Settings.tsx
+msgid "Settings"
+msgstr "設定"
+
+#: viewer/Doc.tsx
+msgid "show less"
+msgstr "少なく表示"
+
+#: viewer/App.tsx
+msgid "sort: a–z"
+msgstr "並べ替え: a–z"
+
+#: viewer/App.tsx
+msgid "sort: reading"
+msgstr "並べ替え: 読み順"
+
+#: viewer/Doc.tsx
+msgid "stamped"
+msgstr "スタンプ済み"
+
+#: viewer/Doc.tsx
+msgid "start reading ↘"
+msgstr "読み始める ↘"
+
+#: viewer/App.tsx
+msgid "tree layout: alphabetical or reading order"
+msgstr "ツリーのレイアウト: アルファベット順または読み順"
+
+#: viewer/Preview.tsx
+msgid "truncated"
+msgstr "切り詰め"
+
+#: viewer/Doc.tsx
+msgid "up to date"
+msgstr "最新"
+
+#: viewer/Doc.tsx
+msgid "uses →"
+msgstr "使用先 →"
+
+#: viewer/Doc.tsx
+msgid "write note"
+msgstr "ノートを書く"

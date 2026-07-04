@@ -2,6 +2,8 @@ import {
   useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
   type CSSProperties, type KeyboardEvent,
 } from 'react'
+import { t } from '@lingui/core/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
 import type { EntryStatus, GlossaryEntry, TreeNode } from '../src/types'
 import {
   linkifyPaths, renderMermaidIn, noteFileFor, relationsFor, annotateGlossary,
@@ -10,12 +12,14 @@ import {
 import { useLive } from './live'
 import { Collapse } from './Tree'
 
-const STATE_LABELS: Record<EntryStatus, string> = {
-  fresh: 'up to date',
-  outdated: 'outdated — code changed since this was written',
-  missing: 'no description yet',
-  ignored: 'ignored — excluded by .atlas/config.json',
-  moved: 'moved',
+function stateLabel(status: EntryStatus, i18n: Parameters<typeof t>[0]): string {
+  switch (status) {
+    case 'fresh': return t(i18n)`up to date`
+    case 'outdated': return t(i18n)`outdated — code changed since this was written`
+    case 'missing': return t(i18n)`no description yet`
+    case 'ignored': return t(i18n)`ignored — excluded by .atlas/config.json`
+    case 'moved': return t(i18n)`moved`
+  }
 }
 
 function Breadcrumb({ node, repoName }: { node: TreeNode; repoName: string }) {
@@ -65,6 +69,7 @@ function measureChips(el: HTMLElement): { hidden: number; maxH: number } {
 }
 
 function RelationChips({ items }: { items: string[] }) {
+  const { i18n } = useLingui()
   const [expanded, setExpanded] = useState(false)
   const [hidden, setHidden] = useState(0)
   const [maxH, setMaxH] = useState(0)
@@ -104,7 +109,7 @@ function RelationChips({ items }: { items: string[] }) {
       </span>
       {hidden > 0 && (
         <button type="button" className="rel-more" onClick={() => setExpanded((e) => !e)}>
-          {expanded ? 'show less' : `+${hidden} more`}
+          {expanded ? t(i18n)`show less` : t(i18n)`+${hidden} more`}
         </button>
       )}
     </span>
@@ -122,14 +127,15 @@ function Relations({
     () => relationsFor(node, rel, nodesByPath),
     [node, rel, nodesByPath],
   )
+  const { i18n } = useLingui()
   if (!deps.length && !dependents.length) return null
   return (
     <div className="relations">
       {deps.length > 0 && (
-        <div className="rel-row"><span className="rel-label">uses →</span><RelationChips items={deps} /></div>
+        <div className="rel-row"><span className="rel-label">{t(i18n)`uses →`}</span><RelationChips items={deps} /></div>
       )}
       {dependents.length > 0 && (
-        <div className="rel-row"><span className="rel-label">← used by</span><RelationChips items={dependents} /></div>
+        <div className="rel-row"><span className="rel-label">{t(i18n)`← used by`}</span><RelationChips items={dependents} /></div>
       )}
     </div>
   )
@@ -166,6 +172,7 @@ function Prose({
 }
 
 function Editor({ node, onClose }: { node: TreeNode; onClose: () => void }) {
+  const { i18n } = useLingui()
   const [text, setText] = useState(node.source ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -196,16 +203,16 @@ function Editor({ node, onClose }: { node: TreeNode; onClose: () => void }) {
         autoFocus
         spellCheck={false}
         value={text}
-        placeholder="Markdown note for this path…"
+        placeholder={t(i18n)`Markdown note for this path…`}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKey}
       />
       <div className="editor-bar">
         <button className="btn primary" onClick={save} disabled={busy}>
-          {busy ? 'saving…' : 'save & stamp'}
+          {busy ? t(i18n)`saving…` : t(i18n)`save & stamp`}
         </button>
-        <button className="btn" onClick={onClose} disabled={busy}>cancel</button>
-        <span className="editor-hint">⌘⏎ save · esc cancel</span>
+        <button className="btn" onClick={onClose} disabled={busy}>{t(i18n)`cancel`}</button>
+        <span className="editor-hint">{t(i18n)`⌘⏎ save · esc cancel`}</span>
         {error && <span className="editor-error">{error}</span>}
       </div>
     </div>
@@ -234,6 +241,7 @@ function TocNode({
   onToggle: (p: string) => void
   goto: (p: string) => void
 }) {
+  const { i18n } = useLingui()
   if (node.status === 'ignored') return null
   const isDir = node.type === 'dir'
   const kids = isDir ? node.children.filter((c) => c.status !== 'ignored') : []
@@ -255,7 +263,7 @@ function TocNode({
         {isDir && (
           <button
             className="toc-goto"
-            title="open this directory's page"
+            title={t(i18n)`open this directory's page`}
             onClick={(e) => {
               e.stopPropagation()
               goto(node.path)
@@ -297,6 +305,7 @@ function TocDialog({
   onBrowse: (p: string) => void
   onClose: () => void
 }) {
+  const { i18n } = useLingui()
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
@@ -342,7 +351,7 @@ function TocDialog({
               )}
             </span>
           ))}
-          <button className="toc-open" title="open this directory's page" onClick={() => goto(path)}>↗</button>
+          <button className="toc-open" title={t(i18n)`open this directory's page`} onClick={() => goto(path)}>↗</button>
         </div>
         <div className="toc-list">
           {dir.children.filter((c) => c.status !== 'ignored').map((c) => (
@@ -372,6 +381,7 @@ export function DocPane({
   rel: ReturnType<typeof import('./lib').buildRelationIndex>
   glossary: GlossaryEntry[]
 }) {
+  const { i18n } = useLingui()
   const live = useLive()
   const [editing, setEditing] = useState(false)
   const [toc, setToc] = useState<string | null>(null)
@@ -399,22 +409,22 @@ export function DocPane({
   }, [prev, next, toc])
   return (
     <div className="doc">
-      <div className="crumb">{node.type === 'dir' ? 'directory' : 'file'}</div>
+      <div className="crumb">{node.type === 'dir' ? t(i18n)`directory` : t(i18n)`file`}</div>
       <Breadcrumb node={node} repoName={repoName} />
       <div className="state-row">
         <div className={'state ' + node.status}>
           <span className={'dot ' + node.status} />
-          {STATE_LABELS[node.status]}
-          {node.stamped ? ` · stamped ${new Date(node.stamped).toLocaleDateString()}` : ''}
+          {stateLabel(node.status, i18n)}
+          {node.stamped ? ` · ${t(i18n)`stamped`} ${new Date(node.stamped).toLocaleDateString(i18n.locale)}` : ''}
         </div>
         {dive && (
           <a className="btn start-read" href={'#' + encodeURI(dive)} title={dive}>
-            start reading ↘
+            {t(i18n)`start reading ↘`}
           </a>
         )}
         {live && !editing && node.status !== 'ignored' && (
           <button className="btn edit" onClick={() => setEditing(true)}>
-            {node.source ? 'edit' : 'write note'}
+            {node.source ? t(i18n)`edit` : t(i18n)`write note`}
           </button>
         )}
       </div>
@@ -425,15 +435,17 @@ export function DocPane({
         <Prose node={node} nodesByPath={nodesByPath} glossary={glossary} />
       ) : (
         <div className="empty">
-          No note for this path. Write one at <code>{noteFileFor(node)}</code> and run{' '}
-          <code>repo-atlas stamp</code>.
+          <Trans>
+            No note for this path. Write one at <code>{noteFileFor(node)}</code> and run{' '}
+            <code>repo-atlas stamp</code>.
+          </Trans>
         </div>
       )}
       {!editing && (prev !== null || next !== null) && (
         <nav className="read-nav">
           {prev !== null ? (
             <a className="read-link prev" href={'#' + encodeURI(prev)} title={prev || '(root)'}>
-              <span className="read-dir">← prev</span>
+              <span className="read-dir">{t(i18n)`← prev`}</span>
               <span className="read-target">{shortLabel(prev, repoName)}</span>
             </a>
           ) : <span className="read-spacer" />}
@@ -441,14 +453,14 @@ export function DocPane({
             className="read-link toc"
             onClick={() => setToc(node.type === 'dir' ? node.path : parentOf(node.path))}
           >
-            <span className="read-dir">contents</span>
+            <span className="read-dir">{t(i18n)`contents`}</span>
             <span className="read-target">
               {shortLabel(node.type === 'dir' ? node.path : parentOf(node.path), repoName)}
             </span>
           </button>
           {next !== null ? (
             <a className="read-link next" href={'#' + encodeURI(next)} title={next}>
-              <span className="read-dir">next →</span>
+              <span className="read-dir">{t(i18n)`next →`}</span>
               <span className="read-target">{shortLabel(next, repoName)}</span>
             </a>
           ) : <span className="read-spacer" />}

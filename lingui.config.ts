@@ -1,3 +1,4 @@
+import { formatter } from '@lingui/format-po'
 import type { LinguiConfig } from '@lingui/conf'
 
 const config: LinguiConfig = {
@@ -9,7 +10,8 @@ const config: LinguiConfig = {
       include: ['viewer'],
     },
   ],
-  format: 'po',
+  format: formatter({ lineNumbers: false }),
+  compileNamespace: 'ts',
 }
 
 export default config

@@ -18,8 +18,10 @@
     "picomatch": "^4.0.0"
   },
   "devDependencies": {
+    "@lingui/babel-plugin-lingui-macro": "^6.4.0",
     "@lingui/cli": "^6.4.0",
     "@lingui/core": "^6.4.0",
+    "@lingui/format-po": "^6.4.0",
     "@lingui/react": "^6.4.0",
     "@types/node": "^22.15.30",
     "@types/react": "^19.1.6",
@@ -35,8 +37,10 @@
   "scripts": {
     "build": "pnpm build:cli && pnpm build:viewer",
     "build:cli": "tsc -p tsconfig.json",
-    "build:viewer": "esbuild viewer/main.tsx --bundle --minify --jsx=automatic --outfile=src/vendor/viewer.js",
-    "dev:viewer": "esbuild viewer/main.tsx --bundle --jsx=automatic --outfile=src/vendor/viewer.js --watch",
+    "build:viewer": "lingui compile && node viewer/build.mjs",
+    "dev:viewer": "lingui compile && node viewer/build.mjs --watch",
+    "i18n:extract": "lingui extract",
+    "i18n:compile": "lingui compile",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.viewer.json"
   }
 }

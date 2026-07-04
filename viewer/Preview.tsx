@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { t } from '@lingui/core/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { languageFor } from './lib'
 
 type PreviewState =
@@ -8,18 +10,15 @@ type PreviewState =
   | { kind: 'text'; text: string; truncated: boolean }
 
 export function PreviewPane({ path }: { path: string }) {
+  const { i18n } = useLingui()
   const [state, setState] = useState<PreviewState>({ kind: 'loading' })
   const bodyRef = useRef<HTMLDivElement>(null)
 
-  // code anchors in the note dispatch this; scroll there and highlight the
-  // line/range persistently — the mark stays until the next jump (or the
-  // preview re-renders for another file)
   useEffect(() => {
     const jump = (line: number, endLine: number, retried = false) => {
       const body = bodyRef.current
       const pre = body?.querySelector('pre')
       if (!body || !pre) {
-        // preview may still be loading — one delayed retry
         if (!retried) setTimeout(() => jump(line, endLine, true), 400)
         return
       }
@@ -64,9 +63,9 @@ export function PreviewPane({ path }: { path: string }) {
   const lang = languageFor(path)
   const meta =
     state.kind === 'text'
-      ? `${state.text.split('\n').length} lines` +
-        (state.truncated ? ' · truncated' : '') +
-        (lang ? ' · ' + lang : '')
+      ? `${state.text.split('\n').length} ${t(i18n)`lines`}` +
+        (state.truncated ? ` · ${t(i18n)`truncated`}` : '') +
+        (lang ? ` · ${lang}` : '')
       : ''
 
   return (
@@ -76,12 +75,14 @@ export function PreviewPane({ path }: { path: string }) {
         <span className="pv-meta">{meta}</span>
       </div>
       <div className="pv-body" ref={bodyRef}>
-        {state.kind === 'loading' && <div className="empty">loading…</div>}
-        {state.kind === 'binary' && <div className="empty">binary file — no preview</div>}
+        {state.kind === 'loading' && <div className="empty">{t(i18n)`loading…`}</div>}
+        {state.kind === 'binary' && <div className="empty">{t(i18n)`binary file — no preview`}</div>}
         {state.kind === 'unavailable' && (
           <div className="empty">
-            no preview — file contents are served by <code>repo-atlas serve</code>; the static
-            build only carries descriptions
+            <Trans>
+              no preview — file contents are served by <code>repo-atlas serve</code>; the static
+              build only carries descriptions
+            </Trans>
           </div>
         )}
         {state.kind === 'text' && <Code text={state.text} lang={lang} />}
