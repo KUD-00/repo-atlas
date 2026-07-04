@@ -14,13 +14,36 @@ flagged for re-review. No full regeneration, no wasted tokens.
   - file `apps/daemon/x.ts` → `.atlas/notes/apps/daemon/x.ts.md`
   - repo root → `.atlas/notes/__dir__.md`
 
-  Each note has frontmatter (`hash`, `stamped`) managed by the tool; the body is yours.
+  Each note has frontmatter managed by the tool; the body is yours.
   Commit `.atlas/` — descriptions are versioned with the code.
+
+  - `hash` — git blob hash of the content the note was stamped against (the staleness predicate)
+  - `anchor` — HEAD commit at stamp time: the reference point for "what changed since",
+    powering rename detection and change-size triage
+  - `dirty: true` — the stamped content wasn't in `anchor` (uncommitted worktree state)
+  - `stamped` — timestamp, informational only
 
 - **Staleness** — a file's hash is its git blob hash. A directory's hash covers its
   *immediate children* (child file contents + child dir names), so editing a file flags the
   file and its direct parent; adding/removing/renaming entries flags the directory. Deep
   edits don't cascade to every ancestor.
+
+  "Outdated" is not one thing, so `status` splits it:
+
+  - **outdated** — content changed in place; shown with `(+a/-b)` diff size against the
+    note's anchor so an import shuffle is distinguishable from a rewrite at a glance.
+  - **moved** — the path is gone but its note's content turned up elsewhere: an orphan
+    note whose stamped blob hash equals a new path's current hash (pure move, zero git
+    calls), or a rename `git diff -M <anchor>` reports (edited moves, with a similarity
+    score, uncommitted moves included). Directory notes follow their children by vote.
+    `repo-atlas migrate --apply` relocates these notes: identical moves are re-stamped,
+    edited ones stay outdated for revision, and inline references to the old paths in
+    every note body are rewritten.
+  - **broken refs** — a note's prose references another path as inline code and that
+    path no longer resolves. The subject of the *referencing* note didn't change, so hash
+    staleness can never catch this; `status` re-runs the viewer's link resolution over all
+    note bodies and reports what stopped resolving, with a suggestion when the move map or
+    a unique basename identifies the new home. Heuristic by design — treat as warnings.
 
 - **Scan scope** — `git ls-files` (tracked + untracked-not-ignored), so `.gitignore` is
   respected for free; `.atlas/config.json` `exclude` patterns (picomatch) filter on top
@@ -31,11 +54,13 @@ flagged for re-review. No full regeneration, no wasted tokens.
 ```sh
 cd /path/to/some/repo
 repo-atlas init                # creates .atlas/ (config + notes dir)
-repo-atlas status              # what's missing / outdated / fresh
+repo-atlas status              # missing / outdated (+diff size) / moved / broken refs
 repo-atlas status --json       # machine-readable, for agents
+repo-atlas migrate             # print which notes would follow moved paths
+repo-atlas migrate --apply     # relocate them (and fix old-path refs in note prose)
 repo-atlas notepath apps/x.ts  # where to write the note for a path
 # ... write note bodies ...
-repo-atlas stamp               # stamp all notes with current hashes
+repo-atlas stamp               # stamp all notes with current hashes + HEAD anchor
 repo-atlas stamp apps/x.ts     # or stamp specific paths ("." = repo root)
 repo-atlas build               # write .atlas/atlas.html (open in a browser)
 repo-atlas serve               # dev server at http://localhost:4400 (-p to change)
@@ -122,14 +147,19 @@ forward transparently; data written by a NEWER tool fails with a clear
 This tool deliberately does **not** call an LLM. Description quality comes from letting a
 coding agent (Claude Code etc.) actually read the code:
 
-1. `repo-atlas status --json` → lists `missing` and `outdated` paths.
-2. Agent reads the code for each path, writes/updates the note body in `.atlas/notes/...`
-   (keep frontmatter lines if present; `stamp` rewrites them anyway).
-3. `repo-atlas stamp` → marks those notes current.
-4. `repo-atlas build` → refreshed HTML.
+1. `repo-atlas status --json` → lists `missing`, `outdated` (with diff size), `moved`,
+   and `brokenRefs`.
+2. `repo-atlas migrate --apply` → notes follow moved paths mechanically; only genuinely
+   changed content is left for reading.
+3. Agent reads the code for each remaining path, writes/updates the note body in
+   `.atlas/notes/...` (keep frontmatter lines if present; `stamp` rewrites them anyway).
+4. `repo-atlas stamp` → marks those notes current (recording the HEAD anchor).
+5. `repo-atlas build` → refreshed HTML.
 
-For an `outdated` path, the agent should diff what changed since `stamped` and revise the
-note rather than rewrite from scratch.
+For an `outdated` path, `git diff <anchor> -- <path>` (the anchor is in the note's
+frontmatter) shows exactly what changed since the note was written — revise against
+that rather than rewriting from scratch. Check `brokenRefs` after any reorganization:
+those notes' subjects didn't change, only their references to other paths did.
 
 Suggested note shape: 1–3 sentences of *what this is and why it exists*, then bullets for
 anything non-obvious (invariants, gotchas, who calls it). Directory notes describe the

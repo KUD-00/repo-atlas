@@ -30,11 +30,21 @@ function parseNote(raw) {
       if (kv) meta[kv[1]] = kv[2].trim()
     }
   }
-  return { hash: meta.hash ?? null, stamped: meta.stamped ?? null, body }
+  return {
+    hash: meta.hash ?? null,
+    anchor: meta.anchor || null,
+    dirty: meta.dirty === 'true',
+    stamped: meta.stamped ?? null,
+    body,
+  }
 }
 
 function serializeNote(note) {
-  return `---\nhash: ${note.hash ?? ''}\nstamped: ${note.stamped ?? ''}\n---\n${note.body}`
+  const lines = [`hash: ${note.hash ?? ''}`]
+  if (note.anchor) lines.push(`anchor: ${note.anchor}`)
+  if (note.dirty) lines.push('dirty: true')
+  lines.push(`stamped: ${note.stamped ?? ''}`)
+  return `---\n${lines.join('\n')}\n---\n${note.body}`
 }
 
 /**
@@ -68,10 +78,35 @@ export function loadNotes(root) {
   return notes
 }
 
-/** Rewrite a note's frontmatter with a new hash, preserving the body. */
-export function stampNote(file, hash) {
+/** Write a note's body (creating parent dirs on first write), stamped with the given hash. */
+export function writeNoteBody(root, relPath, type, body, hash, meta = {}) {
+  const file = noteFileFor(root, relPath, type)
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, serializeNote({
+    hash, anchor: meta.anchor, dirty: meta.dirty, stamped: new Date().toISOString(), body,
+  }))
+  return file
+}
+
+/**
+ * Rewrite a note's frontmatter with a new hash, preserving the body.
+ * meta.anchor is the commit the stamp was taken against (for later diffing /
+ * rename detection); meta.dirty marks that the stamped content was not in
+ * that commit (uncommitted worktree state).
+ */
+export function stampNote(file, hash, meta = {}) {
   const note = parseNote(fs.readFileSync(file, 'utf8'))
   note.hash = hash
+  note.anchor = meta.anchor ?? note.anchor
+  note.dirty = meta.anchor !== undefined ? Boolean(meta.dirty) : note.dirty
   note.stamped = new Date().toISOString()
   fs.writeFileSync(file, serializeNote(note))
+}
+
+/** Relocate a note file to the ledger slot for a new repo path, body untouched. */
+export function moveNoteFile(root, note, toPath, toType) {
+  const dest = noteFileFor(root, toPath, toType)
+  fs.mkdirSync(path.dirname(dest), { recursive: true })
+  fs.renameSync(note.file, dest)
+  return dest
 }

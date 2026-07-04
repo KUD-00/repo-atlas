@@ -6,7 +6,7 @@ import picomatch from 'picomatch'
 
 const MAX_BUFFER = 1024 * 1024 * 512
 
-function git(root, args, input) {
+export function git(root, args, input) {
   return execFileSync('git', args, {
     cwd: root,
     encoding: 'utf8',
@@ -29,6 +29,38 @@ export function headCommit(root) {
   } catch {
     return null
   }
+}
+
+/** Full HEAD sha — the stamp anchor. Null in a repo with no commits yet. */
+export function headCommitFull(root) {
+  try {
+    return git(root, ['rev-parse', 'HEAD']).trim()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Repo paths with uncommitted changes (staged or not, incl. untracked).
+ * Used to mark stamps taken against worktree state that HEAD doesn't contain.
+ */
+export function dirtyPaths(root) {
+  const out = new Set()
+  let raw
+  try {
+    raw = git(root, ['status', '--porcelain', '-z'])
+  } catch {
+    return out
+  }
+  const fields = raw.split('\0')
+  for (let i = 0; i < fields.length; i++) {
+    const f = fields[i]
+    if (!f || f.length < 4) continue
+    out.add(f.slice(3))
+    // renames carry the origin path as the NEXT NUL field
+    if (f[0] === 'R' || f[0] === 'C') out.add(fields[++i])
+  }
+  return out
 }
 
 export function atlasDir(root) {
