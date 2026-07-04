@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
-import { PanelLeftClose, PanelLeftOpen, PanelRightOpen } from 'lucide-react'
+import { MessageCircle, PanelLeftClose, PanelLeftOpen, PanelRightOpen } from 'lucide-react'
 import type { AtlasPayload } from '../src/types'
 import { activateLocale, type AppLocale, getStoredLocale } from './i18n'
 import { indexTree, ancestorsOf, buildRelationIndex, useCompact } from './lib'
+import { useLive } from './live'
 import { Tree } from './Tree'
 import { DocPane } from './Doc'
 import { PanelPane, type CodeJump, type PanelMode } from './Preview'
@@ -13,6 +14,8 @@ import { SettingsButton, SettingsDialog } from './Settings'
 
 const PV_ICON =
   'pv-icon flex items-center justify-center w-[26px] h-[26px] border-none rounded-md bg-transparent text-muted cursor-pointer p-0 shrink-0 hover:text-accent hover:bg-[#3d6b540d] [&_svg]:w-4 [&_svg]:h-4'
+const TOPBAR_ICON =
+  'flex items-center justify-center w-9 h-9 border-none rounded-md bg-transparent text-muted cursor-pointer p-0 shrink-0 hover:text-accent hover:bg-[#3d6b540d] [&_svg]:w-[18px] [&_svg]:h-[18px]'
 const CHIP =
   'chip text-[0.7rem] py-0.5 px-2 rounded-full border border-border bg-transparent text-muted cursor-pointer whitespace-nowrap'
 const CHIP_ON = 'border-accent text-accent bg-[#3d6b540f]'
@@ -40,6 +43,7 @@ function useRoute(nodesByPath: Map<string, { path: string }>) {
 export function App({ data }: { data: AtlasPayload }) {
   const { i18n } = useLingui()
   const compact = useCompact()
+  const live = useLive()
   const nodesByPath = useMemo(() => indexTree(data.tree), [data])
   const rel = useMemo(() => buildRelationIndex(data.graph), [data])
   const [path, navigate] = useRoute(nodesByPath)
@@ -122,7 +126,29 @@ export function App({ data }: { data: AtlasPayload }) {
 
   return (
     <>
-      {!sideOpen && (
+      {compact && (
+        <header className="flex items-center gap-1 h-11 px-1.5 border-b border-border bg-panel">
+          <button className={TOPBAR_ICON} title={t(i18n)`expand sidebar`} onClick={() => setSideOpen(true)}>
+            <PanelLeftOpen />
+          </button>
+          <span className="flex-1 min-w-0 text-[0.85rem] font-semibold text-center overflow-hidden text-ellipsis whitespace-nowrap">
+            {node.path ? node.path.split('/').pop() : data.repoName}
+          </span>
+          {live && (
+            <button
+              className={TOPBAR_ICON}
+              title={t(i18n)`chat with the attached agent session`}
+              onClick={() => window.dispatchEvent(new CustomEvent('atlas-chat-toggle'))}
+            >
+              <MessageCircle />
+            </button>
+          )}
+          <button className={TOPBAR_ICON} title={t(i18n)`expand panel`} onClick={() => setPanelOpen(true)}>
+            <PanelRightOpen />
+          </button>
+        </header>
+      )}
+      {!compact && !sideOpen && (
         <div className="flex flex-col items-center pt-2.5 bg-panel w-10 border-r border-border">
           <button className={PV_ICON} title={t(i18n)`expand sidebar`} onClick={() => setSideOpen(true)}>
             <PanelLeftOpen />
@@ -233,13 +259,6 @@ export function App({ data }: { data: AtlasPayload }) {
         {!compact && panelOpen && <PanelPane {...panelProps} />}
         {!compact && !panelOpen && (
           <div className="flex flex-col items-center pt-2.5 bg-panel w-10 border-l border-border">
-            <button className={PV_ICON} title={t(i18n)`expand panel`} onClick={() => setPanelOpen(true)}>
-              <PanelRightOpen />
-            </button>
-          </div>
-        )}
-        {compact && !panelOpen && (
-          <div className="fixed right-0 top-1/2 -translate-y-1/2 z-10 flex flex-col items-center pt-2.5 bg-panel w-10 border-l border-border rounded-l-lg shadow-[0_2px_8px_#00000012]">
             <button className={PV_ICON} title={t(i18n)`expand panel`} onClick={() => setPanelOpen(true)}>
               <PanelRightOpen />
             </button>

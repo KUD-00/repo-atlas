@@ -30,6 +30,13 @@
     grid-template-rows: 100dvh;
     @apply h-dvh;
   }
+  /* compact: in-flow children are the top bar + main (sidebar/panel float) */
+  @media (max-width: 768px) {
+    #root {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+  }
 }
 
 @layer components {

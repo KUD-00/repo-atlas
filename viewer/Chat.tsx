@@ -133,6 +133,16 @@ export function ChatDock({ currentPath, compact }: { currentPath: string; compac
     return () => es.close()
   }, [live])
 
+  // compact top bar owns the launcher; it toggles the dock through this event
+  useEffect(() => {
+    const onToggle = () => {
+      setClosing(false)
+      setOpen((o) => !o)
+    }
+    window.addEventListener('atlas-chat-toggle', onToggle)
+    return () => window.removeEventListener('atlas-chat-toggle', onToggle)
+  }, [])
+
   useEffect(() => sessionStorage.setItem('atlas-chat-open', open ? '1' : '0'), [open])
   useEffect(() => {
     listRef.current?.scrollTo(0, 1e9)
@@ -167,6 +177,8 @@ export function ChatDock({ currentPath, compact }: { currentPath: string; compac
 
   if (!live) return null
   if (!open) {
+    // on compact the top bar is the launcher — only the selection pill floats
+    if (compact) return <SelectionAttach onAttach={addAttachment} />
     return (
       <>
         <SelectionAttach onAttach={addAttachment} />
