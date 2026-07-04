@@ -1,4 +1,5 @@
 import type { EntryStatus, GlossaryEntry, ImportGraph, TreeAgg, TreeNode } from '../src/types'
+import { findLine as findLineInSource } from '../src/findLine'
 
 export function indexTree(root: TreeNode): Map<string, TreeNode> {
   const nodesByPath = new Map<string, TreeNode>()
@@ -94,8 +95,187 @@ export function linkifyPaths(
   }
 }
 
+const MERMAID_PREVIEW_MAX_H = 340
+const MERMAID_VIEWPORT_FRAC = 0.88 // leaves room for the lightbox card's padding
+
 let mermaidSeq = 0
 let mermaidReady = false
+
+function mermaidSvgBox(svg: SVGSVGElement): { w: number; h: number } {
+  const vb = svg.viewBox?.baseVal
+  if (vb?.width && vb.height) return { w: vb.width, h: vb.height }
+  const w = parseFloat(svg.getAttribute('width') ?? '')
+  const h = parseFloat(svg.getAttribute('height') ?? '')
+  if (w > 0 && h > 0) return { w, h }
+  try {
+    const b = svg.getBBox()
+    if (b.width > 0 && b.height > 0) return { w: b.width, h: b.height }
+  } catch { /* detached or zero-sized */ }
+  return { w: 800, h: 600 }
+}
+
+function clearMermaidSvgSize(svg: SVGSVGElement): void {
+  svg.removeAttribute('width')
+  svg.removeAttribute('height')
+  svg.style.width = ''
+  svg.style.height = ''
+}
+
+function fitMermaidPreview(svg: SVGSVGElement): void {
+  clearMermaidSvgSize(svg)
+  svg.style.display = 'block'
+  svg.style.maxHeight = MERMAID_PREVIEW_MAX_H + 'px'
+  svg.style.maxWidth = '100%'
+  svg.style.width = 'auto'
+  svg.style.height = 'auto'
+}
+
+let lightboxEl: HTMLDivElement | null = null
+let lightboxReturnFocus: HTMLElement | null = null
+let lightboxTransform: HTMLDivElement | null = null
+let lightboxScale = 1
+let lightboxPanX = 0
+let lightboxPanY = 0
+let lightboxDrag: { x: number; y: number; panX: number; panY: number } | null = null
+
+function applyLightboxTransform(): void {
+  if (!lightboxTransform) return
+  lightboxTransform.style.transform = `translate(${lightboxPanX}px, ${lightboxPanY}px) scale(${lightboxScale})`
+}
+
+function resetLightboxTransform(): void {
+  lightboxScale = 1
+  lightboxPanX = 0
+  lightboxPanY = 0
+  applyLightboxTransform()
+}
+
+function closeMermaidLightbox(): void {
+  if (!lightboxEl || lightboxEl.hidden) return
+  lightboxEl.hidden = true
+  lightboxDrag = null
+  const back = lightboxReturnFocus
+  lightboxReturnFocus = null
+  if (back?.isConnected) back.focus()
+}
+
+function mermaidLightbox(): HTMLDivElement {
+  if (lightboxEl) return lightboxEl
+  const el = document.createElement('div')
+  el.className = 'mermaid-lightbox'
+  el.hidden = true
+  el.setAttribute('role', 'dialog')
+  el.setAttribute('aria-modal', 'true')
+  el.setAttribute('aria-label', 'Diagram fullscreen')
+
+  const backdrop = document.createElement('div')
+  backdrop.className = 'mermaid-lightbox-backdrop'
+
+  const close = document.createElement('button')
+  close.type = 'button'
+  close.className = 'mermaid-lightbox-close'
+  close.setAttribute('aria-label', 'Close')
+  close.textContent = '\u00d7'
+
+  const viewport = document.createElement('div')
+  viewport.className = 'mermaid-lightbox-viewport'
+  const transform = document.createElement('div')
+  transform.className = 'mermaid-lightbox-transform'
+  viewport.appendChild(transform)
+  lightboxTransform = transform
+
+  el.append(backdrop, close, viewport)
+
+  backdrop.addEventListener('click', closeMermaidLightbox)
+  close.addEventListener('click', closeMermaidLightbox)
+  viewport.addEventListener('click', (e) => {
+    if (e.target === viewport) closeMermaidLightbox()
+  })
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && lightboxEl && !lightboxEl.hidden) {
+      e.preventDefault()
+      e.stopPropagation()
+      closeMermaidLightbox()
+    }
+  })
+
+  viewport.addEventListener(
+    'wheel',
+    (e) => {
+      if (lightboxEl?.hidden) return
+      e.preventDefault()
+      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1
+      lightboxScale = Math.min(5, Math.max(0.4, lightboxScale * factor))
+      applyLightboxTransform()
+    },
+    { passive: false },
+  )
+
+  viewport.addEventListener('pointerdown', (e) => {
+    if (lightboxEl?.hidden || e.button !== 0) return
+    const t = e.target as Element
+    if (!transform.contains(t) && t !== transform) return
+    lightboxDrag = { x: e.clientX, y: e.clientY, panX: lightboxPanX, panY: lightboxPanY }
+    viewport.setPointerCapture(e.pointerId)
+    viewport.classList.add('dragging')
+  })
+  viewport.addEventListener('pointermove', (e) => {
+    if (!lightboxDrag) return
+    lightboxPanX = lightboxDrag.panX + (e.clientX - lightboxDrag.x)
+    lightboxPanY = lightboxDrag.panY + (e.clientY - lightboxDrag.y)
+    applyLightboxTransform()
+  })
+  const endDrag = (e: PointerEvent) => {
+    if (!lightboxDrag) return
+    lightboxDrag = null
+    viewport.classList.remove('dragging')
+    try { viewport.releasePointerCapture(e.pointerId) } catch { /* already released */ }
+  }
+  viewport.addEventListener('pointerup', endDrag)
+  viewport.addEventListener('pointercancel', endDrag)
+
+  document.body.appendChild(el)
+  lightboxEl = el
+  return el
+}
+
+function openMermaidLightbox(svg: SVGSVGElement, trigger: HTMLElement): void {
+  const lb = mermaidLightbox()
+  const clone = svg.cloneNode(true) as SVGSVGElement
+  clearMermaidSvgSize(clone)
+  const { w, h } = mermaidSvgBox(svg)
+  const maxW = window.innerWidth * MERMAID_VIEWPORT_FRAC
+  const maxH = window.innerHeight * MERMAID_VIEWPORT_FRAC
+  const fit = Math.min(maxW / w, maxH / h)
+  clone.style.width = w * fit + 'px'
+  clone.style.height = h * fit + 'px'
+  clone.style.maxWidth = 'none'
+  clone.style.maxHeight = 'none'
+  clone.style.display = 'block'
+  clone.style.pointerEvents = 'none'
+
+  lightboxTransform!.replaceChildren(clone)
+  resetLightboxTransform()
+  lightboxReturnFocus = trigger
+  lb.hidden = false
+  lb.querySelector<HTMLButtonElement>('.mermaid-lightbox-close')?.focus()
+}
+
+function wireMermaidDiagram(holder: HTMLElement, svg: SVGSVGElement): void {
+  holder.classList.add('mermaid-diagram-zoomable')
+  holder.setAttribute('role', 'button')
+  holder.tabIndex = 0
+  holder.setAttribute('aria-label', 'Open diagram fullscreen')
+  const open = () => openMermaidLightbox(svg, holder)
+  holder.addEventListener('click', open)
+  holder.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      open()
+    }
+  })
+}
 
 export async function renderMermaidIn(container: HTMLElement): Promise<void> {
   if (!window.mermaid) return
@@ -113,6 +293,11 @@ export async function renderMermaidIn(container: HTMLElement): Promise<void> {
     try {
       const { svg } = await window.mermaid.render('mmd-' + ++mermaidSeq, src)
       holder.innerHTML = svg
+      const el = holder.querySelector('svg')
+      if (el) {
+        fitMermaidPreview(el)
+        wireMermaidDiagram(holder, el)
+      }
     } catch (err: unknown) {
       const pre = document.createElement('pre')
       pre.className = 'mermaid-error'
@@ -195,6 +380,96 @@ const JUMP_ICON =
   'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 12H3"/><path d="m11 18 6-6-6-6"/><path d="M21 5v14"/></svg>'
 
 /**
+ * From startLine (1-based), if the code opens a bracket, run until it
+ * balances back out — "the whole block". A bare line stays one line.
+ * Heuristic (ignores brackets in strings/comments) but self-correcting:
+ * embeds re-resolve on every render, so a bad guess never persists.
+ */
+export function blockEndFor(lines: string[], startLine: number, maxLines = 200): number {
+  let depth = 0
+  let opened = false
+  const last = Math.min(lines.length, startLine - 1 + maxLines)
+  for (let i = startLine - 1; i < last; i++) {
+    for (const ch of lines[i]) {
+      if (ch === '{' || ch === '(' || ch === '[') { depth++; opened = true }
+      else if (ch === '}' || ch === ')' || ch === ']') depth--
+    }
+    if (opened && depth <= 0) return i + 1
+  }
+  return opened ? last : startLine
+}
+
+const EMBED_COLLAPSE_LINES = 32
+
+function degradeEmbed(img: HTMLImageElement): void {
+  img.replaceWith(document.createTextNode(img.getAttribute('alt') ?? ''))
+}
+
+/** Static build (or unreadable source): no code to slice, drop embeds to their labels. */
+export function degradeCodeEmbeds(container: HTMLElement): void {
+  for (const img of container.querySelectorAll<HTMLImageElement>('img[src^="code:"]')) degradeEmbed(img)
+}
+
+function buildCodeEmbed(
+  img: HTMLImageElement,
+  path: string,
+  lines: string[],
+  line: number,
+  endLine: number,
+): void {
+  const slice = lines.slice(line - 1, endLine).join('\n')
+  const fig = document.createElement('figure')
+  fig.className = 'code-embed'
+
+  const head = document.createElement('figcaption')
+  head.className = 'code-embed-head'
+  const label = document.createElement('span')
+  label.className = 'code-embed-label'
+  label.textContent = img.getAttribute('alt') ?? ''
+  const loc = document.createElement('a')
+  loc.className = 'code-embed-loc'
+  loc.textContent = endLine > line ? `L${line}–${endLine}` : `L${line}`
+  loc.title = 'jump to source in preview'
+  loc.insertAdjacentHTML('beforeend', JUMP_ICON)
+  loc.addEventListener('click', (e) => {
+    e.preventDefault()
+    window.dispatchEvent(new CustomEvent('atlas-code-jump', { detail: { path, line, endLine } }))
+  })
+  head.append(label, loc)
+
+  const pre = document.createElement('pre')
+  const code = document.createElement('code')
+  code.className = 'hljs'
+  const lang = languageFor(path)
+  if (lang && window.hljs?.getLanguage(lang)) {
+    code.innerHTML = window.hljs.highlight(slice, { language: lang, ignoreIllegals: true }).value
+  } else {
+    code.textContent = slice
+  }
+  pre.appendChild(code)
+  fig.append(head, pre)
+
+  const total = endLine - line + 1
+  if (total > EMBED_COLLAPSE_LINES) {
+    fig.classList.add('collapsed')
+    const more = document.createElement('button')
+    more.type = 'button'
+    more.className = 'code-embed-more'
+    more.textContent = `show all ${total} lines`
+    more.addEventListener('click', () => {
+      fig.classList.remove('collapsed')
+      more.remove()
+    })
+    fig.appendChild(more)
+  }
+
+  // markdown wraps a lone image in a <p>; block content can't live inside it
+  const p = img.parentElement
+  if (p?.tagName === 'P' && p.childNodes.length === 1) p.replaceWith(fig)
+  else img.replaceWith(fig)
+}
+
+/**
  * Code anchors: on a FILE page, an inline `code` naming something that occurs
  * in the file becomes a jump link — click scrolls the preview pane to it.
  *
@@ -206,21 +481,7 @@ const JUMP_ICON =
  */
 export function annotateCodeAnchors(container: HTMLElement, path: string, source: string): void {
   const lines = source.split('\n')
-  const findLine = (name: string): number | null => {
-    const def = new RegExp(
-      `\\b(?:function|class|interface|type|enum|const|let|var|def|fn)\\s+${escapeReg(name)}\\b`,
-    )
-    const word = new RegExp(`\\b${escapeReg(name)}\\b`)
-    let firstWord: number | null = null
-    let firstRaw: number | null = null
-    for (let i = 0; i < lines.length; i++) {
-      if (def.test(lines[i])) return i + 1
-      if (/^\s*import\b/.test(lines[i])) continue // an import mention is never the interesting site
-      if (firstWord === null && word.test(lines[i])) firstWord = i + 1
-      if (firstRaw === null && lines[i].includes(name)) firstRaw = i + 1
-    }
-    return firstWord ?? firstRaw
-  }
+  const findLine = (name: string): number | null => findLineInSource(lines, name)
   const wire = (a: HTMLElement, line: number, endLine: number, implicit = false) => {
     a.className = 'code-anchor' + (implicit ? ' implicit' : '')
     a.title = endLine > line ? `jump to lines ${line}–${endLine}` : `jump to line ${line}`
@@ -229,6 +490,24 @@ export function annotateCodeAnchors(container: HTMLElement, path: string, source
       e.preventDefault()
       window.dispatchEvent(new CustomEvent('atlas-code-jump', { detail: { path, line, endLine } }))
     })
+  }
+
+  // embedded code: ![label](code:startMarker..endMarker) — same markers as the
+  // link form, but rendered in place as a highlighted slice of the CURRENT
+  // source (transclusion, never a stored copy — it can't go stale). A single
+  // marker embeds its whole brace-balanced block. Unresolved → label text.
+  for (const img of container.querySelectorAll<HTMLImageElement>('img[src^="code:"]')) {
+    const spec = decodeURIComponent(img.getAttribute('src')!.slice('code:'.length))
+    const [startMarker, endMarker] = spec.split('..')
+    const line = startMarker ? findLine(startMarker.trim()) : null
+    if (line === null) {
+      degradeEmbed(img)
+      continue
+    }
+    const e = endMarker?.trim() ? findLine(endMarker.trim()) : null
+    // rotted end marker falls back to the block — still useful, and `check` flags the rot
+    const endLine = e !== null && e > line ? e - 1 : blockEndFor(lines, line)
+    buildCodeEmbed(img, path, lines, line, endLine)
   }
 
   // explicit anchors: [label](code:startMarker..endMarker) — both markers are

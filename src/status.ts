@@ -18,6 +18,7 @@ export function computeStatus(
       type,
       status: (note.hash === hash ? 'fresh' : 'outdated') as EntryStatus,
       stamped: note.stamped,
+      anchor: note.anchor,
       body: note.body,
       noteFile: note.file,
       order: note.order,

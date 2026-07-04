@@ -13,6 +13,7 @@ export function computeStatus(root, scanResult, opts = {}) {
             type,
             status: (note.hash === hash ? 'fresh' : 'outdated'),
             stamped: note.stamped,
+            anchor: note.anchor,
             body: note.body,
             noteFile: note.file,
             order: note.order,

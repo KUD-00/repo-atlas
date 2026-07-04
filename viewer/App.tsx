@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
+import { PanelLeftClose, PanelLeftOpen, PanelRightOpen } from 'lucide-react'
 import type { AtlasPayload } from '../src/types'
 import { activateLocale, type AppLocale, getStoredLocale } from './i18n'
 import { indexTree, ancestorsOf, buildRelationIndex } from './lib'
 import { Tree } from './Tree'
 import { DocPane } from './Doc'
-import { PreviewPane } from './Preview'
+import { PanelPane, type CodeJump, type PanelMode } from './Preview'
 import { ChatDock } from './Chat'
 import { SettingsButton, SettingsDialog } from './Settings'
 
@@ -42,6 +43,24 @@ export function App({ data }: { data: AtlasPayload }) {
   const [sortMode, setSortMode] = useState<'az' | 'read'>('az')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [locale, setLocale] = useState<AppLocale>(getStoredLocale)
+  const [sideOpen, setSideOpen] = useState(true)
+  const [panelOpen, setPanelOpen] = useState(true)
+  const [panelMode, setPanelMode] = useState<PanelMode>('code')
+  const [jump, setJump] = useState<CodeJump | null>(null)
+  const jumpSeq = useRef(0)
+
+  // single entry point for code-anchor jumps: reveal the panel, force code
+  // mode, then hand the jump to CodeView as data (it may not be mounted yet)
+  useEffect(() => {
+    const onJump = (e: Event) => {
+      const d = (e as CustomEvent<{ path: string; line: number; endLine?: number }>).detail
+      setPanelOpen(true)
+      setPanelMode('code')
+      setJump({ path: d.path, line: d.line, endLine: d.endLine ?? d.line, seq: ++jumpSeq.current })
+    }
+    window.addEventListener('atlas-code-jump', onJump)
+    return () => window.removeEventListener('atlas-code-jump', onJump)
+  }, [])
 
   useEffect(() => {
     setExpanded((prev) => {
@@ -70,9 +89,21 @@ export function App({ data }: { data: AtlasPayload }) {
 
   return (
     <>
-      <aside>
+      {!sideOpen && (
+        <div className="side-rail">
+          <button className="pv-icon" title={t(i18n)`expand sidebar`} onClick={() => setSideOpen(true)}>
+            <PanelLeftOpen />
+          </button>
+        </div>
+      )}
+      <aside hidden={!sideOpen}>
         <div className="side-head">
-          <h1>{data.repoName}</h1>
+          <div className="side-title">
+            <h1>{data.repoName}</h1>
+            <button className="pv-icon" title={t(i18n)`collapse sidebar`} onClick={() => setSideOpen(false)}>
+              <PanelLeftClose />
+            </button>
+          </div>
           <div className="meta">
             {data.commit ? `@ ${data.commit} · ` : ''}
             {new Date(data.generatedAt).toLocaleString(i18n.locale)}
@@ -136,7 +167,7 @@ export function App({ data }: { data: AtlasPayload }) {
           />
         </nav>
       </aside>
-      <main className={node.type === 'file' ? 'with-preview' : ''}>
+      <main className={panelOpen ? 'with-preview' : 'panel-collapsed'}>
         <div className="pane">
           <DocPane
             node={node}
@@ -144,9 +175,30 @@ export function App({ data }: { data: AtlasPayload }) {
             nodesByPath={nodesByPath}
             rel={rel}
             glossary={data.glossary}
+            onContents={() => {
+              setPanelOpen(true)
+              setPanelMode('toc')
+            }}
           />
         </div>
-        {node.type === 'file' && <PreviewPane path={node.path} />}
+        {panelOpen ? (
+          <PanelPane
+            node={node}
+            nodesByPath={nodesByPath}
+            basePoints={data.basePoints ?? []}
+            repoName={data.repoName}
+            mode={panelMode}
+            onMode={setPanelMode}
+            onCollapse={() => setPanelOpen(false)}
+            jump={jump}
+          />
+        ) : (
+          <div className="pv-rail">
+            <button className="pv-icon" title={t(i18n)`expand panel`} onClick={() => setPanelOpen(true)}>
+              <PanelRightOpen />
+            </button>
+          </div>
+        )}
       </main>
       <ChatDock currentPath={path} />
       {settingsOpen && (

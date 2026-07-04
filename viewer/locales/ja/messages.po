@@ -6,6 +6,12 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "X-Generator: @lingui/cli\n"
 "Language: ja\n"
+"Project-Id-Version: \n"
+"Report-Msgid-Bugs-To: \n"
+"PO-Revision-Date: \n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Plural-Forms: \n"
 
 #: viewer/Doc.tsx
 msgid "← prev"
@@ -43,6 +49,10 @@ msgstr "バイナリファイル — プレビューなし"
 msgid "cancel"
 msgstr "キャンセル"
 
+#: viewer/Preview.tsx
+msgid "Changes"
+msgstr "変更"
+
 #: viewer/Chat.tsx
 msgid "chat"
 msgstr "チャット"
@@ -55,8 +65,28 @@ msgstr "接続したエージェントセッションとチャット"
 msgid "Close"
 msgstr "閉じる"
 
+#: viewer/Preview.tsx
+msgid "Code"
+msgstr "コード"
+
+#: viewer/Preview.tsx
+msgid "collapse panel"
+msgstr "パネルを折りたたむ"
+
+#: viewer/App.tsx
+msgid "collapse sidebar"
+msgstr "サイドバーを折りたたむ"
+
+#: viewer/Preview.tsx
+msgid "content hash changed but git shows no diff against the anchor"
+msgstr "内容ハッシュは変わったが、anchor に対する git の差分はない"
+
 #: viewer/Doc.tsx
 msgid "contents"
+msgstr "目次"
+
+#: viewer/Preview.tsx
+msgid "Contents"
 msgstr "目次"
 
 #: viewer/Doc.tsx
@@ -66,6 +96,14 @@ msgstr "ディレクトリ"
 #: viewer/Doc.tsx
 msgid "edit"
 msgstr "編集"
+
+#: viewer/App.tsx
+msgid "expand panel"
+msgstr "パネルを開く"
+
+#: viewer/App.tsx
+msgid "expand sidebar"
+msgstr "サイドバーを開く"
 
 #: viewer/Doc.tsx
 msgid "file"
@@ -127,9 +165,21 @@ msgstr "次へ →"
 msgid "no agent polling"
 msgstr "ポーリング中のエージェントなし"
 
+#: viewer/Preview.tsx
+msgid "no anchor — this note has never been stamped"
+msgstr "anchor なし——このノートは一度も stamp されていない"
+
+#: viewer/Preview.tsx
+msgid "no changes since the note was stamped"
+msgstr "ノートの stamp 以降、変更なし"
+
 #: viewer/Doc.tsx
 msgid "no description yet"
 msgstr "説明はまだありません"
+
+#: viewer/Preview.tsx
+msgid "no diff — change review needs <0>repo-atlas serve</0> (the static build has no git access)"
+msgstr "diff なし——変更レビューには <0>repo-atlas serve</0> が必要（静的ビルドは git にアクセスできない）"
 
 #: viewer/Tree.tsx
 msgid "no matches"
@@ -149,8 +199,8 @@ msgid "None is right now — attach one first."
 msgstr "現在接続されているものはありません — 先に接続してください。"
 
 #: viewer/Doc.tsx
-msgid "open this directory's page"
-msgstr "このディレクトリのページを開く"
+#~ msgid "open this directory's page"
+#~ msgstr "このディレクトリのページを開く"
 
 #: viewer/App.tsx
 msgid "outdated"
@@ -163,6 +213,10 @@ msgstr "古い — 書かれてからコードが変更されました"
 #: viewer/Tree.tsx
 msgid "pinned reading order"
 msgstr "固定された読み順"
+
+#: viewer/Preview.tsx
+msgid "reading order"
+msgstr "読む順"
 
 #: viewer/Chat.tsx
 msgid "retract last message"
@@ -196,6 +250,11 @@ msgstr "設定"
 msgid "show less"
 msgstr "少なく表示"
 
+#. placeholder {0}: state.anchor
+#: viewer/Preview.tsx
+msgid "since {0} (note's anchor)"
+msgstr "{0}（ノートの anchor）以降"
+
 #: viewer/App.tsx
 msgid "sort: a–z"
 msgstr "並べ替え: a–z"
@@ -223,6 +282,10 @@ msgstr "切り詰め"
 #: viewer/Doc.tsx
 msgid "up to date"
 msgstr "最新"
+
+#: viewer/Toc.tsx
+msgid "up to the enclosing tree"
+msgstr "外側のツリーへ"
 
 #: viewer/Doc.tsx
 msgid "uses →"

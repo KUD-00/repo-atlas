@@ -7,10 +7,9 @@ import { Trans, useLingui } from '@lingui/react/macro'
 import type { EntryStatus, GlossaryEntry, TreeNode } from '../src/types'
 import {
   linkifyPaths, renderMermaidIn, noteFileFor, relationsFor, annotateGlossary,
-  annotateCodeAnchors, readingSequence, firstFileWithin,
+  annotateCodeAnchors, degradeCodeEmbeds, readingSequence, firstFileWithin,
 } from './lib'
 import { useLive } from './live'
-import { Collapse } from './Tree'
 
 function stateLabel(status: EntryStatus, i18n: Parameters<typeof t>[0]): string {
   switch (status) {
@@ -158,14 +157,19 @@ function Prose({
     renderMermaidIn(el)
     // code anchors need the file's current source — fetched, so they resolve
     // against what the code looks like NOW, not when the note was written
-    if (node.type !== 'file') return
+    if (node.type !== 'file') {
+      degradeCodeEmbeds(el)
+      return
+    }
     let alive = true
     fetch('raw?p=' + encodeURIComponent(node.path))
       .then((res) => (res.ok && !res.headers.get('x-atlas-binary') ? res.text() : null))
+      .catch(() => null)
       .then((src) => {
-        if (alive && src && ref.current === el) annotateCodeAnchors(el, node.path, src)
+        if (!alive || ref.current !== el) return
+        if (src) annotateCodeAnchors(el, node.path, src)
+        else degradeCodeEmbeds(el) // static build / unreadable source
       })
-      .catch(() => {})
     return () => { alive = false }
   }, [node, nodesByPath, glossary])
   return <div className="prose" ref={ref} />
@@ -227,167 +231,21 @@ function shortLabel(p: string, repoName: string): string {
   return p.split('/').slice(-2).join('/')
 }
 
-/** One row of the contents dialog — a collapsible mini-tree in reading order.
- * Dir rows expand/collapse in place (↗ opens their page); file rows navigate
- * and close the dialog. */
-function TocNode({
-  node, depth, rank, current, expanded, onToggle, goto,
-}: {
-  node: TreeNode
-  depth: number
-  rank?: number
-  current: string
-  expanded: Set<string>
-  onToggle: (p: string) => void
-  goto: (p: string) => void
-}) {
-  const { i18n } = useLingui()
-  if (node.status === 'ignored') return null
-  const isDir = node.type === 'dir'
-  const kids = isDir ? node.children.filter((c) => c.status !== 'ignored') : []
-  const open = expanded.has(node.path)
-  const rankOf = new Map((node.order ?? []).map((name, i) => [name, i + 1]))
-  return (
-    <>
-      <div
-        className={'row toc-row' + (node.path === current ? ' sel' : '')}
-        style={{ paddingLeft: depth * 14 }}
-        onClick={() => (isDir ? onToggle(node.path) : goto(node.path))}
-      >
-        <span className={'twist' + (open ? ' open' : '')}>
-          {kids.length > 0 ? '▸' : ''}
-        </span>
-        <span className={'dot ' + node.status} />
-        <span className={'name' + (isDir ? ' dir' : '')}>{node.name + (isDir ? '/' : '')}</span>
-        {rank !== undefined && <span className="ord">{rank}</span>}
-        {isDir && (
-          <button
-            className="toc-goto"
-            title={t(i18n)`open this directory's page`}
-            onClick={(e) => {
-              e.stopPropagation()
-              goto(node.path)
-            }}
-          >
-            ↗
-          </button>
-        )}
-      </div>
-      {kids.length > 0 && (
-        <Collapse open={open}>
-          {kids.map((c) => (
-            <TocNode
-              key={c.path}
-              node={c}
-              depth={depth + 1}
-              rank={rankOf.get(c.name)}
-              current={current}
-              expanded={expanded}
-              onToggle={onToggle}
-              goto={goto}
-            />
-          ))}
-        </Collapse>
-      )}
-    </>
-  )
-}
-
-/** "Contents" dialog: a collapsible mini-tree over the reading order, rooted
- * at the current page's directory. Breadcrumb re-roots upward. */
-function TocDialog({
-  path, current, repoName, nodesByPath, onBrowse, onClose,
-}: {
-  path: string
-  current: string
-  repoName: string
-  nodesByPath: Map<string, TreeNode>
-  onBrowse: (p: string) => void
-  onClose: () => void
-}) {
-  const { i18n } = useLingui()
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
-  useEffect(() => {
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [onClose])
-  const dir = nodesByPath.get(path)
-  if (!dir) return null
-  const segs = path === '' ? [] : path.split('/')
-  const crumbs = [{ label: repoName, path: '' }]
-  let acc = ''
-  for (const s of segs) {
-    acc = acc ? acc + '/' + s : s
-    crumbs.push({ label: s, path: acc })
-  }
-  const rankOf = new Map((dir.order ?? []).map((name, i) => [name, i + 1]))
-  const goto = (p: string) => {
-    location.hash = '#' + encodeURI(p)
-    onClose()
-  }
-  const toggle = (p: string) =>
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      next.has(p) ? next.delete(p) : next.add(p)
-      return next
-    })
-  return (
-    <div className="toc-overlay" onClick={onClose}>
-      <div className="toc-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="toc-head">
-          {crumbs.map((c, i) => (
-            <span key={c.path}>
-              {i > 0 && <span className="toc-sep">/</span>}
-              {i === crumbs.length - 1 ? (
-                <b>{c.label}</b>
-              ) : (
-                <button className="toc-crumb" onClick={() => onBrowse(c.path)}>{c.label}</button>
-              )}
-            </span>
-          ))}
-          <button className="toc-open" title={t(i18n)`open this directory's page`} onClick={() => goto(path)}>↗</button>
-        </div>
-        <div className="toc-list">
-          {dir.children.filter((c) => c.status !== 'ignored').map((c) => (
-            <TocNode
-              key={c.path}
-              node={c}
-              depth={0}
-              rank={rankOf.get(c.name)}
-              current={current}
-              expanded={expanded}
-              onToggle={toggle}
-              goto={goto}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export function DocPane({
-  node, repoName, nodesByPath, rel, glossary,
+  node, repoName, nodesByPath, rel, glossary, onContents,
 }: {
   node: TreeNode
   repoName: string
   nodesByPath: Map<string, TreeNode>
   rel: ReturnType<typeof import('./lib').buildRelationIndex>
   glossary: GlossaryEntry[]
+  onContents: () => void
 }) {
   const { i18n } = useLingui()
   const live = useLive()
   const [editing, setEditing] = useState(false)
-  const [toc, setToc] = useState<string | null>(null)
   useEffect(() => {
     setEditing(false)
-    setToc(null)
   }, [node])
   const seq = useMemo(() => readingSequence(nodesByPath.get('')!), [nodesByPath])
   const seqAt = seq.indexOf(node.path)
@@ -397,7 +255,6 @@ export function DocPane({
   // ← / → page through the reading order (unless focus is in an input)
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (toc !== null) return // the contents dialog owns the keyboard
       if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
       const t = e.target as HTMLElement | null
       if (t?.closest('input, textarea, [contenteditable]')) return
@@ -406,7 +263,7 @@ export function DocPane({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [prev, next, toc])
+  }, [prev, next])
   return (
     <div className="doc">
       <div className="crumb">{node.type === 'dir' ? t(i18n)`directory` : t(i18n)`file`}</div>
@@ -449,10 +306,7 @@ export function DocPane({
               <span className="read-target">{shortLabel(prev, repoName)}</span>
             </a>
           ) : <span className="read-spacer" />}
-          <button
-            className="read-link toc"
-            onClick={() => setToc(node.type === 'dir' ? node.path : parentOf(node.path))}
-          >
+          <button className="read-link toc" onClick={onContents}>
             <span className="read-dir">{t(i18n)`contents`}</span>
             <span className="read-target">
               {shortLabel(node.type === 'dir' ? node.path : parentOf(node.path), repoName)}
@@ -465,16 +319,6 @@ export function DocPane({
             </a>
           ) : <span className="read-spacer" />}
         </nav>
-      )}
-      {toc !== null && (
-        <TocDialog
-          path={toc}
-          current={node.path}
-          repoName={repoName}
-          nodesByPath={nodesByPath}
-          onBrowse={setToc}
-          onClose={() => setToc(null)}
-        />
       )}
     </div>
   )

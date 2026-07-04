@@ -63,6 +63,7 @@ repo-atlas notepath apps/x.ts  # where to write the note for a path
 repo-atlas stamp               # stamp all notes with current hashes + HEAD anchor
 repo-atlas stamp apps/x.ts     # or stamp specific paths ("." = repo root)
 repo-atlas build               # write .atlas/atlas.html (open in a browser)
+repo-atlas check               # validate code: anchors (links + embeds) in note bodies
 repo-atlas serve               # dev server at http://localhost:4400 (-p to change)
 ```
 
@@ -78,6 +79,48 @@ resolves to a scanned path — absolute (`packages/kernel/core`), relative to th
 note's directory (`core`, `src/queue.ts`), or with a `/`/`*` tail — renders as
 a link to that path's page. Notes stay plain markdown; linking is view-side.
 
+On a file page, notes can also anchor into the file's own source. Both forms
+take content markers (symbol names), resolved against the CURRENT source at
+render time — they follow the code as it moves, and there are no stored line
+numbers or copied code to rot:
+
+- `[label](code:StartMarker..EndMarker)` — a jump link: click scrolls +
+  highlights the range in the preview pane. A single marker is a one-line
+  anchor; the range runs from the start marker up to just before the end
+  marker's line.
+- `![label](code:StartMarker..EndMarker)` — an embed: the slice is transcluded
+  in place as a highlighted code block (with a jump-to-preview affordance).
+  A single marker embeds its whole brace-balanced block. Long embeds collapse
+  behind a "show all" toggle.
+
+Use links for big clusters the preview pane should own, embeds only where the
+code's shape IS the point being made. A marker that no longer resolves
+degrades to plain text (`repo-atlas check` reports the rot); the static
+`build` output has no source to slice, so embeds degrade there too.
+
+## Raw HTML in notes
+
+Notes are markdown, and raw HTML (including inline styles) passes through —
+when a concept is clearer drawn than told and mermaid's rigid layouts can't
+express it, free-form HTML is encouraged: byte/memory layout diagrams,
+annotated timelines, color-coded comparison matrices, nested-box topology.
+The bar is conceptual gain — layout should carry meaning, not decorate.
+
+Three ready-made classes come styled by the viewer, for when you don't want
+to hand-roll styles:
+
+- `<div class="callout"> … </div>` — highlighted aside (deep-dive details,
+  warnings).
+- `<details><summary>label</summary> … </details>` — collapsible section for
+  material most readers should skip.
+- `<div class="cols"><div>…</div><div>…</div></div>` — side-by-side columns
+  (each child `<div>` is one column; stacks on narrow screens).
+
+Custom layouts should inline their styles (the viewer theme is light:
+`#fbfbfa` background, `#e7e5e1` borders, `#3d6b54` accent). Gotcha: markdown
+inside a block-level HTML tag only renders if a BLANK LINE separates it from
+the tag — `<div class="callout">`, blank line, markdown, blank line, `</div>`.
+
 Two things are derived from the code, not written in notes: **import
 relations** — every page shows "imports → / ← imported by" chips (exact files
 for a file, grouped to package roots for a directory), resolved from relative
@@ -87,11 +130,18 @@ fast. And the **glossary** — define project jargon once in
 every occurrence in note prose gets a dotted underline with a hover popover,
 so terminology can't drift between notes.
 
-Selecting a file splits the right side into description + source preview
-(syntax-highlighted). Contents come from the server's `/raw` endpoint — only
-paths inside the scan are served, never arbitrary disk paths — so the preview
-pane works under `serve`; the static `build` output carries descriptions only
-and shows a hint instead.
+Selecting a path splits the right side into description + a multi-mode panel
+with three tabs. **Code** — the source, syntax-highlighted (served from
+`/raw`; only paths inside the scan, never arbitrary disk paths). **Changes**
+— `git diff` from the note's anchor commit to the working tree: what happened
+to this file since the note was written, i.e. the review that decides whether
+the note is still trustworthy. **Contents** — the reading tree of the "book"
+the page belongs to: `basePoints` in `.atlas/config.json` lists self-contained
+subtrees (e.g. `apps/daemon`), and the contents view roots at the nearest one
+rather than the file's immediate parent; it shows pure reading structure (no
+staleness dots — those are the maintainer's concern, the sidebar keeps them).
+Both the sidebar and the panel collapse to thin rails. The static `build`
+output carries descriptions only — code and diff show a hint instead.
 
 ## Viewer
 
@@ -158,7 +208,11 @@ coding agent (Claude Code etc.) actually read the code:
 
 For an `outdated` path, `git diff <anchor> -- <path>` (the anchor is in the note's
 frontmatter) shows exactly what changed since the note was written — revise against
-that rather than rewriting from scratch. Check `brokenRefs` after any reorganization:
+that rather than rewriting from scratch. Note bodies talk about the CODE, never
+about the atlas itself — no viewer-manual prose ("click the heading", "jumps
+the preview pane", "check will flag the rot"); anchors and embeds are invisible
+infrastructure, so write labels that still read as plain prose if the link
+never renders. Check `brokenRefs` after any reorganization:
 those notes' subjects didn't change, only their references to other paths did.
 
 Suggested note shape: 1–3 sentences of *what this is and why it exists*, then bullets for

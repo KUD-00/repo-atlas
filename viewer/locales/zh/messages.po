@@ -6,6 +6,12 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "X-Generator: @lingui/cli\n"
 "Language: zh\n"
+"Project-Id-Version: \n"
+"Report-Msgid-Bugs-To: \n"
+"PO-Revision-Date: \n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Plural-Forms: \n"
 
 #: viewer/Doc.tsx
 msgid "← prev"
@@ -43,6 +49,10 @@ msgstr "二进制文件 — 无法预览"
 msgid "cancel"
 msgstr "取消"
 
+#: viewer/Preview.tsx
+msgid "Changes"
+msgstr "变更"
+
 #: viewer/Chat.tsx
 msgid "chat"
 msgstr "聊天"
@@ -55,8 +65,28 @@ msgstr "与已连接的代理会话聊天"
 msgid "Close"
 msgstr "关闭"
 
+#: viewer/Preview.tsx
+msgid "Code"
+msgstr "代码"
+
+#: viewer/Preview.tsx
+msgid "collapse panel"
+msgstr "收起面板"
+
+#: viewer/App.tsx
+msgid "collapse sidebar"
+msgstr "收起侧栏"
+
+#: viewer/Preview.tsx
+msgid "content hash changed but git shows no diff against the anchor"
+msgstr "内容哈希变了，但 git 相对 anchor 没有差异"
+
 #: viewer/Doc.tsx
 msgid "contents"
+msgstr "目录"
+
+#: viewer/Preview.tsx
+msgid "Contents"
 msgstr "目录"
 
 #: viewer/Doc.tsx
@@ -66,6 +96,14 @@ msgstr "目录"
 #: viewer/Doc.tsx
 msgid "edit"
 msgstr "编辑"
+
+#: viewer/App.tsx
+msgid "expand panel"
+msgstr "展开面板"
+
+#: viewer/App.tsx
+msgid "expand sidebar"
+msgstr "展开侧栏"
 
 #: viewer/Doc.tsx
 msgid "file"
@@ -127,9 +165,21 @@ msgstr "下一项 →"
 msgid "no agent polling"
 msgstr "没有代理在轮询"
 
+#: viewer/Preview.tsx
+msgid "no anchor — this note has never been stamped"
+msgstr "没有 anchor——这篇笔记从未 stamp 过"
+
+#: viewer/Preview.tsx
+msgid "no changes since the note was stamped"
+msgstr "笔记 stamp 之后代码没有变更"
+
 #: viewer/Doc.tsx
 msgid "no description yet"
 msgstr "尚无描述"
+
+#: viewer/Preview.tsx
+msgid "no diff — change review needs <0>repo-atlas serve</0> (the static build has no git access)"
+msgstr "没有 diff——变更审阅需要 <0>repo-atlas serve</0>（静态构建没有 git 访问）"
 
 #: viewer/Tree.tsx
 msgid "no matches"
@@ -149,8 +199,8 @@ msgid "None is right now — attach one first."
 msgstr "当前没有连接 — 请先连接一个。"
 
 #: viewer/Doc.tsx
-msgid "open this directory's page"
-msgstr "打开此目录页面"
+#~ msgid "open this directory's page"
+#~ msgstr "打开此目录页面"
 
 #: viewer/App.tsx
 msgid "outdated"
@@ -163,6 +213,10 @@ msgstr "已过时 — 编写后代码已更改"
 #: viewer/Tree.tsx
 msgid "pinned reading order"
 msgstr "固定的阅读顺序"
+
+#: viewer/Preview.tsx
+msgid "reading order"
+msgstr "阅读顺序"
 
 #: viewer/Chat.tsx
 msgid "retract last message"
@@ -196,6 +250,11 @@ msgstr "设置"
 msgid "show less"
 msgstr "显示更少"
 
+#. placeholder {0}: state.anchor
+#: viewer/Preview.tsx
+msgid "since {0} (note's anchor)"
+msgstr "自 {0}（笔记 anchor）起"
+
 #: viewer/App.tsx
 msgid "sort: a–z"
 msgstr "排序: a–z"
@@ -223,6 +282,10 @@ msgstr "已截断"
 #: viewer/Doc.tsx
 msgid "up to date"
 msgstr "最新"
+
+#: viewer/Toc.tsx
+msgid "up to the enclosing tree"
+msgstr "回到上层的树"
 
 #: viewer/Doc.tsx
 msgid "uses →"

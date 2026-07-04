@@ -6,6 +6,12 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "X-Generator: @lingui/cli\n"
 "Language: ko\n"
+"Project-Id-Version: \n"
+"Report-Msgid-Bugs-To: \n"
+"PO-Revision-Date: \n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Plural-Forms: \n"
 
 #: viewer/Doc.tsx
 msgid "← prev"
@@ -43,6 +49,10 @@ msgstr "바이너리 파일 — 미리보기 없음"
 msgid "cancel"
 msgstr "취소"
 
+#: viewer/Preview.tsx
+msgid "Changes"
+msgstr "변경"
+
 #: viewer/Chat.tsx
 msgid "chat"
 msgstr "채팅"
@@ -55,8 +65,28 @@ msgstr "연결된 에이전트 세션과 채팅"
 msgid "Close"
 msgstr "닫기"
 
+#: viewer/Preview.tsx
+msgid "Code"
+msgstr "코드"
+
+#: viewer/Preview.tsx
+msgid "collapse panel"
+msgstr "패널 접기"
+
+#: viewer/App.tsx
+msgid "collapse sidebar"
+msgstr "사이드바 접기"
+
+#: viewer/Preview.tsx
+msgid "content hash changed but git shows no diff against the anchor"
+msgstr "내용 해시는 바뀌었지만 anchor 대비 git 차이가 없습니다"
+
 #: viewer/Doc.tsx
 msgid "contents"
+msgstr "목차"
+
+#: viewer/Preview.tsx
+msgid "Contents"
 msgstr "목차"
 
 #: viewer/Doc.tsx
@@ -66,6 +96,14 @@ msgstr "디렉터리"
 #: viewer/Doc.tsx
 msgid "edit"
 msgstr "편집"
+
+#: viewer/App.tsx
+msgid "expand panel"
+msgstr "패널 펼치기"
+
+#: viewer/App.tsx
+msgid "expand sidebar"
+msgstr "사이드바 펼치기"
 
 #: viewer/Doc.tsx
 msgid "file"
@@ -127,9 +165,21 @@ msgstr "다음 →"
 msgid "no agent polling"
 msgstr "폴링 중인 에이전트 없음"
 
+#: viewer/Preview.tsx
+msgid "no anchor — this note has never been stamped"
+msgstr "anchor 없음 — 이 노트는 한 번도 stamp되지 않았습니다"
+
+#: viewer/Preview.tsx
+msgid "no changes since the note was stamped"
+msgstr "노트 stamp 이후 변경 없음"
+
 #: viewer/Doc.tsx
 msgid "no description yet"
 msgstr "설명 없음"
+
+#: viewer/Preview.tsx
+msgid "no diff — change review needs <0>repo-atlas serve</0> (the static build has no git access)"
+msgstr "diff 없음 — 변경 검토에는 <0>repo-atlas serve</0>가 필요합니다(정적 빌드는 git에 접근할 수 없음)"
 
 #: viewer/Tree.tsx
 msgid "no matches"
@@ -149,8 +199,8 @@ msgid "None is right now — attach one first."
 msgstr "현재 연결된 것이 없습니다 — 먼저 연결하세요."
 
 #: viewer/Doc.tsx
-msgid "open this directory's page"
-msgstr "이 디렉터리 페이지 열기"
+#~ msgid "open this directory's page"
+#~ msgstr "이 디렉터리 페이지 열기"
 
 #: viewer/App.tsx
 msgid "outdated"
@@ -163,6 +213,10 @@ msgstr "오래됨 — 작성 후 코드가 변경됨"
 #: viewer/Tree.tsx
 msgid "pinned reading order"
 msgstr "고정된 읽기 순서"
+
+#: viewer/Preview.tsx
+msgid "reading order"
+msgstr "읽기 순서"
 
 #: viewer/Chat.tsx
 msgid "retract last message"
@@ -196,6 +250,11 @@ msgstr "설정"
 msgid "show less"
 msgstr "간략히 보기"
 
+#. placeholder {0}: state.anchor
+#: viewer/Preview.tsx
+msgid "since {0} (note's anchor)"
+msgstr "{0}(노트 anchor) 이후"
+
 #: viewer/App.tsx
 msgid "sort: a–z"
 msgstr "정렬: a–z"
@@ -223,6 +282,10 @@ msgstr "잘림"
 #: viewer/Doc.tsx
 msgid "up to date"
 msgstr "최신"
+
+#: viewer/Toc.tsx
+msgid "up to the enclosing tree"
+msgstr "바깥 트리로"
 
 #: viewer/Doc.tsx
 msgid "uses →"

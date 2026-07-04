@@ -6,6 +6,12 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "X-Generator: @lingui/cli\n"
 "Language: en\n"
+"Project-Id-Version: \n"
+"Report-Msgid-Bugs-To: \n"
+"PO-Revision-Date: \n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Plural-Forms: \n"
 
 #: viewer/Doc.tsx
 msgid "← prev"
@@ -43,6 +49,10 @@ msgstr "binary file — no preview"
 msgid "cancel"
 msgstr "cancel"
 
+#: viewer/Preview.tsx
+msgid "Changes"
+msgstr "Changes"
+
 #: viewer/Chat.tsx
 msgid "chat"
 msgstr "chat"
@@ -55,9 +65,29 @@ msgstr "chat with the attached agent session"
 msgid "Close"
 msgstr "Close"
 
+#: viewer/Preview.tsx
+msgid "Code"
+msgstr "Code"
+
+#: viewer/Preview.tsx
+msgid "collapse panel"
+msgstr "collapse panel"
+
+#: viewer/App.tsx
+msgid "collapse sidebar"
+msgstr "collapse sidebar"
+
+#: viewer/Preview.tsx
+msgid "content hash changed but git shows no diff against the anchor"
+msgstr "content hash changed but git shows no diff against the anchor"
+
 #: viewer/Doc.tsx
 msgid "contents"
 msgstr "contents"
+
+#: viewer/Preview.tsx
+msgid "Contents"
+msgstr "Contents"
 
 #: viewer/Doc.tsx
 msgid "directory"
@@ -66,6 +96,14 @@ msgstr "directory"
 #: viewer/Doc.tsx
 msgid "edit"
 msgstr "edit"
+
+#: viewer/App.tsx
+msgid "expand panel"
+msgstr "expand panel"
+
+#: viewer/App.tsx
+msgid "expand sidebar"
+msgstr "expand sidebar"
 
 #: viewer/Doc.tsx
 msgid "file"
@@ -127,9 +165,21 @@ msgstr "next →"
 msgid "no agent polling"
 msgstr "no agent polling"
 
+#: viewer/Preview.tsx
+msgid "no anchor — this note has never been stamped"
+msgstr "no anchor — this note has never been stamped"
+
+#: viewer/Preview.tsx
+msgid "no changes since the note was stamped"
+msgstr "no changes since the note was stamped"
+
 #: viewer/Doc.tsx
 msgid "no description yet"
 msgstr "no description yet"
+
+#: viewer/Preview.tsx
+msgid "no diff — change review needs <0>repo-atlas serve</0> (the static build has no git access)"
+msgstr "no diff — change review needs <0>repo-atlas serve</0> (the static build has no git access)"
 
 #: viewer/Tree.tsx
 msgid "no matches"
@@ -149,8 +199,8 @@ msgid "None is right now — attach one first."
 msgstr "None is right now — attach one first."
 
 #: viewer/Doc.tsx
-msgid "open this directory's page"
-msgstr "open this directory's page"
+#~ msgid "open this directory's page"
+#~ msgstr "open this directory's page"
 
 #: viewer/App.tsx
 msgid "outdated"
@@ -163,6 +213,10 @@ msgstr "outdated — code changed since this was written"
 #: viewer/Tree.tsx
 msgid "pinned reading order"
 msgstr "pinned reading order"
+
+#: viewer/Preview.tsx
+msgid "reading order"
+msgstr "reading order"
 
 #: viewer/Chat.tsx
 msgid "retract last message"
@@ -196,6 +250,11 @@ msgstr "Settings"
 msgid "show less"
 msgstr "show less"
 
+#. placeholder {0}: state.anchor
+#: viewer/Preview.tsx
+msgid "since {0} (note's anchor)"
+msgstr "since {0} (note's anchor)"
+
 #: viewer/App.tsx
 msgid "sort: a–z"
 msgstr "sort: a–z"
@@ -223,6 +282,10 @@ msgstr "truncated"
 #: viewer/Doc.tsx
 msgid "up to date"
 msgstr "up to date"
+
+#: viewer/Toc.tsx
+msgid "up to the enclosing tree"
+msgstr "up to the enclosing tree"
 
 #: viewer/Doc.tsx
 msgid "uses →"

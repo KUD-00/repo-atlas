@@ -34,12 +34,14 @@ export function buildHtml({
   status,
   graph = null,
   glossary = [],
+  basePoints = [],
 }: {
   repoName: string
   commit: string | null
   status: ComputeStatusResult
   graph?: ImportGraph | null
   glossary?: GlossaryEntry[]
+  basePoints?: string[]
 }): string {
   const byPath = new Map(status.entries.map((e) => [e.path, e]))
 
@@ -51,6 +53,7 @@ export function buildHtml({
       type: e.type,
       status: e.status,
       stamped: e.stamped ?? null,
+      anchor: e.anchor ?? null,
       html: e.body ? String(marked.parse(e.body)) : null,
       source: e.body ?? null,
       order: e.type === 'dir' ? e.order ?? null : null,
@@ -80,6 +83,7 @@ export function buildHtml({
     orphans: status.orphans.map((o) => o.path),
     graph,
     glossary,
+    basePoints,
   }
   const json = JSON.stringify(data).replace(/</g, '\\u003c')
   const usesMermaid = status.entries.some((e) => e.body?.includes('```mermaid'))

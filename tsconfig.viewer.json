@@ -8,5 +8,5 @@
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["viewer/**/*.ts", "viewer/**/*.tsx", "viewer/locales/**/*.ts", "src/types.ts"]
+  "include": ["viewer/**/*.ts", "viewer/**/*.tsx", "viewer/locales/**/*.ts", "src/types.ts", "src/findLine.ts"]
 }

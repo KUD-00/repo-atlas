@@ -18,7 +18,7 @@ let mermaidJs = null;
 function loadMermaid() {
     return (mermaidJs ??= fs.readFileSync(path.join(VENDOR, 'mermaid.js'), 'utf8'));
 }
-export function buildHtml({ repoName, commit, status, graph = null, glossary = [], }) {
+export function buildHtml({ repoName, commit, status, graph = null, glossary = [], basePoints = [], }) {
     const byPath = new Map(status.entries.map((e) => [e.path, e]));
     const makeNode = (p) => {
         const e = byPath.get(p);
@@ -28,6 +28,7 @@ export function buildHtml({ repoName, commit, status, graph = null, glossary = [
             type: e.type,
             status: e.status,
             stamped: e.stamped ?? null,
+            anchor: e.anchor ?? null,
             html: e.body ? String(marked.parse(e.body)) : null,
             source: e.body ?? null,
             order: e.type === 'dir' ? e.order ?? null : null,
@@ -58,6 +59,7 @@ export function buildHtml({ repoName, commit, status, graph = null, glossary = [
         orphans: status.orphans.map((o) => o.path),
         graph,
         glossary,
+        basePoints,
     };
     const json = JSON.stringify(data).replace(/</g, '\\u003c');
     const usesMermaid = status.entries.some((e) => e.body?.includes('```mermaid'));

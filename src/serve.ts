@@ -4,8 +4,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
+import { spawnSync } from 'node:child_process'
 import { scan, headCommit, hashFor } from './scan.js'
-import { writeNoteBody } from './notes.js'
+import { loadNotes, writeNoteBody } from './notes.js'
 import { computeStatus } from './status.js'
 import { buildHtml } from './build.js'
 import { buildImportGraph } from './deps.js'
@@ -46,6 +47,7 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
       status,
       graph: buildImportGraph(root, scanResult),
       glossary: parseGlossary(glossaryRaw),
+      basePoints: config.basePoints ?? [],
     })
     const digest = createHash('sha1')
       .update(JSON.stringify(status.entries) + JSON.stringify(status.orphans) + glossaryRaw)
@@ -247,6 +249,41 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
       } catch (err) {
         res.writeHead(500, { 'content-type': 'text/plain' }).end(String(err instanceof Error ? err.message : err))
       }
+      return
+    }
+    if (url.pathname === '/diff') {
+      // change-review mode: what happened to this file since the note's anchor
+      // commit (= HEAD at stamp time). Working tree included — the review is
+      // "note vs code as it is NOW".
+      const p = url.searchParams.get('p') ?? ''
+      if (!lastScan) render()
+      if (!lastScan!.files.has(p)) {
+        res.writeHead(404, { 'content-type': 'text/plain' }).end('not in scan')
+        return
+      }
+      const anchor = loadNotes(root).get(p)?.anchor ?? null
+      if (!anchor) {
+        res.writeHead(200, {
+          'content-type': 'text/plain; charset=utf-8',
+          'cache-control': 'no-store',
+          'x-atlas-no-anchor': '1',
+        }).end('')
+        return
+      }
+      const git = spawnSync(
+        'git',
+        ['diff', '--no-color', '--no-ext-diff', anchor, '--', p],
+        { cwd: root, encoding: 'utf8', maxBuffer: 8_000_000 },
+      )
+      if (git.status !== 0) {
+        res.writeHead(500, { 'content-type': 'text/plain' }).end(git.stderr || 'git diff failed')
+        return
+      }
+      res.writeHead(200, {
+        'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'no-store',
+        'x-atlas-anchor': anchor.slice(0, 10),
+      }).end(git.stdout)
       return
     }
     if (url.pathname === '/live') {

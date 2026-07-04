@@ -11,6 +11,7 @@ import { buildHtml, writeAtlas } from './build.js'
 import { serve } from './serve.js'
 import { buildImportGraph } from './deps.js'
 import { loadGlossaryRaw, parseGlossary } from './glossary.js'
+import { computeCheck, type CheckFinding } from './check.js'
 import type { AtlasConfig, PathType } from './types.js'
 
 const USAGE = `repo-atlas — incremental codebase atlas with staleness tracking
@@ -25,6 +26,7 @@ usage: repo-atlas <command> [args]
   migrate [--apply]        relocate notes whose targets moved (dry-run by default);
                            also rewrites references to the old paths in note prose
   build [-o <file>]        generate the self-contained HTML atlas (default .atlas/atlas.html)
+  check [--json]           validate code: anchors — links and ![embeds] (parse + marker rot)
   serve [-p <port>] [--host [addr]]
                            dev server with auto-reload (default 127.0.0.1:4400;
                            --host with no addr binds 0.0.0.0 for LAN access)
@@ -55,6 +57,7 @@ function dispatch(cmd: string | undefined, args: string[]) {
     case 'stamp': return stamp(root!, args)
     case 'migrate': return migrate(root!, args)
     case 'build': return build(root!, args)
+    case 'check': return check(root!, args)
     case 'serve': {
       const pIdx = args.indexOf('-p')
       const hIdx = args.indexOf('--host')
@@ -262,6 +265,48 @@ function pruneEmptyDirs(dir: string) {
   if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir)
 }
 
+function check(root: string, args: string[]) {
+  requireConfig(root)
+  const result = computeCheck(root)
+  const { summary } = result
+  if (args.includes('--json')) {
+    const pick = <K extends CheckFinding['kind']>(k: K) =>
+      result.findings.filter((f): f is Extract<typeof f, { kind: K }> => f.kind === k)
+    console.log(JSON.stringify({
+      summary,
+      parseFailures: pick('parse'),
+      rotMarkers: pick('rot'),
+      missingSources: pick('missing-source'),
+    }, null, 2))
+  } else {
+    if (!summary.total) {
+      console.log('check: clean — no anchor issues')
+    } else {
+      console.log(`check: ${summary.total} finding(s) · ${summary.parseFailures} parse · ` +
+        `${summary.rotMarkers} rot · ${summary.missingSources} missing source`)
+      const rel = (f: string) => path.relative(root, f) || f
+      const show = (label: string, list: typeof result.findings, max = 20) => {
+        if (!list.length) return
+        console.log(`\n${label}:`)
+        for (const f of list.slice(0, max)) {
+          if (f.kind === 'parse') {
+            console.log(`  ${rel(f.noteFile)}:${f.line}  ${f.anchor}`)
+          } else if (f.kind === 'rot') {
+            console.log(`  ${rel(f.noteFile)}:${f.line}  marker=${f.marker}  ${f.anchor}`)
+          } else {
+            console.log(`  ${f.note || '(root)'}  (${rel(f.noteFile)})`)
+          }
+        }
+        if (list.length > max) console.log(`  … and ${list.length - max} more (use --json for the full list)`)
+      }
+      show('解析失败', result.findings.filter((f) => f.kind === 'parse'))
+      show('标记失效', result.findings.filter((f) => f.kind === 'rot'))
+      show('源文件缺失', result.findings.filter((f) => f.kind === 'missing-source'))
+    }
+  }
+  if (summary.total) process.exitCode = 1
+}
+
 function build(root: string, args: string[]) {
   const config = requireConfig(root)
   const oIdx = args.indexOf('-o')
@@ -274,6 +319,7 @@ function build(root: string, args: string[]) {
     status,
     graph: buildImportGraph(root, scanResult),
     glossary: parseGlossary(loadGlossaryRaw(root)),
+    basePoints: config.basePoints ?? [],
   })
   const target = writeAtlas(root, outFile, html)
   const sum = summarize(status)

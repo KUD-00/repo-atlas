@@ -2,6 +2,9 @@ export interface AtlasConfig {
   formatVersion?: number
   exclude?: string[]
   output?: string
+  /** Self-contained subtrees ("books"): the contents view roots at the nearest
+   * one instead of the file's immediate parent. Repo root is the implicit fallback. */
+  basePoints?: string[]
 }
 
 export interface ScanResult {
@@ -41,6 +44,7 @@ export interface StatusEntry {
   type: PathType
   status: EntryStatus
   stamped?: string | null
+  anchor?: string | null
   body?: string
   noteFile?: string
   movedFrom?: string
@@ -102,6 +106,8 @@ export interface TreeNode {
   type: PathType
   status: EntryStatus
   stamped: string | null
+  /** Commit the note was stamped against — the base for "changes since" review. */
+  anchor: string | null
   html: string | null
   source: string | null
   /** Dir nodes: explicit reading-order head (child names), for ①② badges. */
@@ -118,6 +124,7 @@ export interface AtlasPayload {
   orphans: string[]
   graph: ImportGraph | null
   glossary: GlossaryEntry[]
+  basePoints: string[]
 }
 
 export interface ChatMessage {
