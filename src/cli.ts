@@ -12,6 +12,7 @@ import { serve } from './serve.js'
 import { buildImportGraph } from './deps.js'
 import { loadGlossaryRaw, parseGlossary } from './glossary.js'
 import { computeCheck, type CheckFinding } from './check.js'
+import { concepts } from './concepts.js'
 import type { AtlasConfig, PathType } from './types.js'
 
 const USAGE = `repo-atlas — incremental codebase atlas with staleness tracking
@@ -27,6 +28,10 @@ usage: repo-atlas <command> [args]
                            also rewrites references to the old paths in note prose
   build [-o <file>]        generate the self-contained HTML atlas (default .atlas/atlas.html)
   check [--json]           validate code: anchors — links and ![embeds] (parse + marker rot)
+  concepts [--min N] [--json]
+                           find cross-cutting concepts (terms bolded across many
+                           notes) + glossary gaps: candidates for one canonical
+                           home note + a glossary essence (no-LLM, default min 4)
   serve [-p <port>] [--host [addr]]
                            dev server with auto-reload (default 127.0.0.1:4400;
                            --host with no addr binds 0.0.0.0 for LAN access)
@@ -58,6 +63,7 @@ function dispatch(cmd: string | undefined, args: string[]) {
     case 'migrate': return migrate(root!, args)
     case 'build': return build(root!, args)
     case 'check': return check(root!, args)
+    case 'concepts': return concepts(root!, args)
     case 'serve': {
       const pIdx = args.indexOf('-p')
       const hIdx = args.indexOf('--host')
