@@ -40,10 +40,32 @@ function useRoute(nodesByPath: Map<string, { path: string }>) {
   return [path, navigate] as const
 }
 
-export function App({ data }: { data: AtlasPayload }) {
+export function App({ data: initialData }: { data: AtlasPayload }) {
   const { i18n } = useLingui()
   const compact = useCompact()
   const live = useLive()
+  const [data, setData] = useState(initialData)
+
+  // live refresh, in place: when anything in the scan changes, serve emits a
+  // change event and we swap in a fresh payload via setState. React re-renders
+  // what differs — the page itself never reloads, so scroll position, panel
+  // mode and tree state survive changes to unrelated files.
+  useEffect(() => {
+    if (!live) return
+    const es = new EventSource('events')
+    let cancelled = false
+    es.addEventListener('reload', () => {
+      fetch('data')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => d && !cancelled && setData(d))
+        .catch(() => {})
+    })
+    return () => {
+      cancelled = true
+      es.close()
+    }
+  }, [live])
+
   const nodesByPath = useMemo(() => indexTree(data.tree), [data])
   const rel = useMemo(() => buildRelationIndex(data.graph), [data])
   const [path, navigate] = useRoute(nodesByPath)
@@ -91,6 +113,13 @@ export function App({ data }: { data: AtlasPayload }) {
       return next
     })
     document.querySelector('.row.sel')?.scrollIntoView({ block: 'nearest' })
+  }, [path])
+
+  // a page turn (prev/next, tree click, link) starts reading the NEW page from
+  // its top — without this the doc pane keeps the previous page's scrollTop
+  const docRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    docRef.current?.scrollTo({ top: 0 })
   }, [path])
 
   const node = nodesByPath.get(path) ?? data.tree
@@ -252,7 +281,7 @@ export function App({ data }: { data: AtlasPayload }) {
         </nav>
       </aside>
       <main className={'min-w-0 min-h-0 grid overflow-hidden ' + mainCols}>
-        <div className="overflow-auto min-w-0">
+        <div className="overflow-auto min-w-0" ref={docRef}>
           <DocPane
             node={node}
             repoName={data.repoName}

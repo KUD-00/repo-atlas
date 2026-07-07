@@ -40,13 +40,15 @@
 }
 
 @layer components {
-  /* grid 0fr→1fr collapse: animates to auto height without measuring */
-  .collapse {
+  /* grid 0fr→1fr fold: animates to auto height without measuring.
+   * Named "fold", NOT "collapse" — Tailwind's collapse utility
+   * (visibility: collapse) sits in the utilities layer and would win. */
+  .fold {
     display: grid;
     grid-template-rows: 0fr;
     transition: grid-template-rows 0.16s ease;
   }
-  .collapse.open {
+  .fold.open {
     grid-template-rows: 1fr;
   }
 

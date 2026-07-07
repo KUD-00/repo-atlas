@@ -18,7 +18,9 @@ let mermaidJs = null;
 function loadMermaid() {
     return (mermaidJs ??= fs.readFileSync(path.join(VENDOR, 'mermaid.js'), 'utf8'));
 }
-export function buildHtml({ repoName, commit, status, graph = null, glossary = [], basePoints = [], }) {
+/** The data the viewer runs on — also served as JSON by `serve`'s /data so
+ * open pages can refresh in place instead of reloading. */
+export function buildPayload({ repoName, commit, status, graph = null, glossary = [], basePoints = [], }) {
     const byPath = new Map(status.entries.map((e) => [e.path, e]));
     const makeNode = (p) => {
         const e = byPath.get(p);
@@ -51,7 +53,7 @@ export function buildHtml({ repoName, commit, status, graph = null, glossary = [
         n.children.forEach(sortChildren);
     };
     sortChildren(root);
-    const data = {
+    return {
         repoName,
         commit,
         generatedAt: new Date().toISOString(),
@@ -61,9 +63,12 @@ export function buildHtml({ repoName, commit, status, graph = null, glossary = [
         glossary,
         basePoints,
     };
+}
+export function buildHtml(input) {
+    const data = input.payload ?? buildPayload(input);
     const json = JSON.stringify(data).replace(/</g, '\\u003c');
-    const usesMermaid = status.entries.some((e) => e.body?.includes('```mermaid'));
-    return TEMPLATE.replace('__TITLE__', () => escapeHtml(repoName))
+    const usesMermaid = input.status.entries.some((e) => e.body?.includes('```mermaid'));
+    return TEMPLATE.replace('__TITLE__', () => escapeHtml(data.repoName))
         .replace('/*__VIEWER_CSS__*/', () => readVendor('viewer.css'))
         .replace('/*__HLJS_CSS__*/', () => hljsCss)
         .replace('"__DATA__"', () => json)

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
-import { ArrowUpLeft, CornerDownRight } from 'lucide-react'
+import { ArrowUpLeft, ChevronRight, CornerDownRight } from 'lucide-react'
 import type { TreeNode } from '../src/types'
 import { ancestorsOf } from './lib'
 import { Collapse } from './Tree'
@@ -52,11 +52,11 @@ function TocRow({
       >
         <span
           className={
-            'w-4 shrink-0 text-center text-muted text-[0.65rem] transition-transform duration-[160ms] ease-[ease]' +
+            'w-4 shrink-0 flex items-center justify-center text-muted transition-transform duration-[160ms] ease-[ease] [&_svg]:w-3.5 [&_svg]:h-3.5' +
             (open ? ' open rotate-90' : '')
           }
         >
-          {kids.length > 0 ? '▸' : ''}
+          {kids.length > 0 ? <ChevronRight /> : null}
         </span>
         <span className={'overflow-hidden text-ellipsis' + (isDir ? ' font-[550]' : '')}>
           {node.name + (isDir ? '/' : '')}

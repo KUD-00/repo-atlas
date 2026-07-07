@@ -187,9 +187,16 @@ function Prose({
   glossary: GlossaryEntry[]
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  const last = useRef<string | null>(null)
   useEffect(() => {
     const el = ref.current
     if (!el) return
+    // live data refreshes hand us a NEW node object every time anything in the
+    // repo changes — but if THIS page's html is byte-identical, rebuilding the
+    // DOM (and re-running mermaid) would just flash the reader for nothing.
+    const key = node.path + '\0' + (node.html ?? '')
+    if (last.current === key) return
+    last.current = key
     el.innerHTML = node.html ?? ''
     linkifyPaths(el, node, nodesByPath)
     annotateGlossary(el, glossary)

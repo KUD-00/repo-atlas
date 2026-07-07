@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode, type MouseEvent } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
+import { ChevronRight } from 'lucide-react'
 import type { EntryStatus, TreeNode } from '../src/types'
 
 const ROW =
@@ -22,9 +23,12 @@ export function Collapse({ open, children }: { open: boolean; children: ReactNod
     }
   }, [mounted, open])
   if (!mounted) return null
+  // class is "fold", NOT "collapse" — that's a Tailwind visibility utility (the
+  // scanner picks the word up from unrelated strings like "collapse panel") and
+  // utilities outrank the components layer, hiding every row under the wrapper
   return (
     <div
-      className={'collapse' + (expanded ? ' open' : '')}
+      className={'fold' + (expanded ? ' open' : '')}
       onTransitionEnd={(e) => {
         if (e.target === e.currentTarget && !open) setMounted(false)
       }}
@@ -76,12 +80,12 @@ function Row({
     >
       <span
         className={
-          'w-4 shrink-0 text-center text-muted text-[0.65rem] transition-transform duration-[160ms] ease-[ease]' +
+          'w-4 shrink-0 flex items-center justify-center text-muted transition-transform duration-[160ms] ease-[ease] [&_svg]:w-3.5 [&_svg]:h-3.5' +
           (open ? ' open rotate-90' : '')
         }
         onClick={onTwist}
       >
-        {expandable ? '▸' : ''}
+        {expandable ? <ChevronRight /> : null}
       </span>
       <Dot status={node.status} />
       <span className={'overflow-hidden text-ellipsis' + (node.type === 'dir' ? ' font-[550]' : '')}>

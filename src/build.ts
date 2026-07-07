@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { marked } from 'marked'
 import type {
+  AtlasPayload,
   ComputeStatusResult,
   GlossaryEntry,
   ImportGraph,
@@ -28,21 +29,25 @@ function loadMermaid(): string {
   return (mermaidJs ??= fs.readFileSync(path.join(VENDOR, 'mermaid.js'), 'utf8'))
 }
 
-export function buildHtml({
-  repoName,
-  commit,
-  status,
-  graph = null,
-  glossary = [],
-  basePoints = [],
-}: {
+export interface BuildInput {
   repoName: string
   commit: string | null
   status: ComputeStatusResult
   graph?: ImportGraph | null
   glossary?: GlossaryEntry[]
   basePoints?: string[]
-}): string {
+}
+
+/** The data the viewer runs on — also served as JSON by `serve`'s /data so
+ * open pages can refresh in place instead of reloading. */
+export function buildPayload({
+  repoName,
+  commit,
+  status,
+  graph = null,
+  glossary = [],
+  basePoints = [],
+}: BuildInput): AtlasPayload {
   const byPath = new Map(status.entries.map((e) => [e.path, e]))
 
   const makeNode = (p: string): TreeNode => {
@@ -75,7 +80,7 @@ export function buildHtml({
   }
   sortChildren(root)
 
-  const data = {
+  return {
     repoName,
     commit,
     generatedAt: new Date().toISOString(),
@@ -85,10 +90,14 @@ export function buildHtml({
     glossary,
     basePoints,
   }
-  const json = JSON.stringify(data).replace(/</g, '\\u003c')
-  const usesMermaid = status.entries.some((e) => e.body?.includes('```mermaid'))
+}
 
-  return TEMPLATE.replace('__TITLE__', () => escapeHtml(repoName))
+export function buildHtml(input: BuildInput & { payload?: AtlasPayload }): string {
+  const data = input.payload ?? buildPayload(input)
+  const json = JSON.stringify(data).replace(/</g, '\\u003c')
+  const usesMermaid = input.status.entries.some((e) => e.body?.includes('```mermaid'))
+
+  return TEMPLATE.replace('__TITLE__', () => escapeHtml(data.repoName))
     .replace('/*__VIEWER_CSS__*/', () => readVendor('viewer.css'))
     .replace('/*__HLJS_CSS__*/', () => hljsCss)
     .replace('"__DATA__"', () => json)

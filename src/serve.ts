@@ -8,14 +8,10 @@ import { spawnSync } from 'node:child_process'
 import { scan, headCommit, hashFor } from './scan.js'
 import { loadNotes, writeNoteBody } from './notes.js'
 import { computeStatus } from './status.js'
-import { buildHtml } from './build.js'
+import { buildHtml, buildPayload } from './build.js'
 import { buildImportGraph } from './deps.js'
 import { loadGlossaryRaw, parseGlossary } from './glossary.js'
 import type { AtlasConfig, ChatMessage, ScanResult } from './types.js'
-
-const LIVE_SNIPPET = `<script>
-new EventSource('/events').addEventListener('reload', () => location.reload());
-</script>`
 
 const POLL_MS = 1500
 
@@ -41,19 +37,20 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
     lastScan = scanResult
     const status = computeStatus(root, scanResult)
     const glossaryRaw = loadGlossaryRaw(root)
-    const html = buildHtml({
+    const input = {
       repoName: path.basename(root),
       commit: headCommit(root),
       status,
       graph: buildImportGraph(root, scanResult),
       glossary: parseGlossary(glossaryRaw),
       basePoints: config.basePoints ?? [],
-    })
+    }
+    const payload = buildPayload(input)
+    const html = buildHtml({ ...input, payload })
     const digest = createHash('sha1')
       .update(JSON.stringify(status.entries) + JSON.stringify(status.orphans) + glossaryRaw)
       .digest('hex')
-    const at = html.lastIndexOf('</body>')
-    return { html: html.slice(0, at) + LIVE_SNIPPET + html.slice(at), digest }
+    return { html, digest, payloadJson: JSON.stringify(payload) }
   }
 
   const clients = new Set<ServerResponse>()
@@ -246,6 +243,18 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
           headers['x-atlas-truncated'] = '1'
         }
         res.writeHead(200, headers).end(text)
+      } catch (err) {
+        res.writeHead(500, { 'content-type': 'text/plain' }).end(String(err instanceof Error ? err.message : err))
+      }
+      return
+    }
+    if (url.pathname === '/data') {
+      // fresh payload for in-place refresh — open pages re-render on change
+      // events instead of reloading (scroll, panel modes, tree state survive)
+      try {
+        const { digest, payloadJson } = render()
+        lastDigest = digest
+        res.writeHead(200, json).end(payloadJson)
       } catch (err) {
         res.writeHead(500, { 'content-type': 'text/plain' }).end(String(err instanceof Error ? err.message : err))
       }
