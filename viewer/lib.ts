@@ -690,6 +690,16 @@ function placePopover(anchor: HTMLElement): void {
   popoverEl!.style.top = r.bottom + 6 + 'px'
 }
 
+// A hash link to a note path; clicking navigates and dismisses a pinned popover.
+function conceptLink(repoPath: string): HTMLAnchorElement {
+  const a = document.createElement('a')
+  a.href = '#' + encodeURI(repoPath)
+  a.className = 'pathlink'
+  a.textContent = repoPath
+  a.addEventListener('click', () => unpin())
+  return a
+}
+
 function showPopover(anchor: HTMLElement, entry: GlossaryEntry): void {
   const pop = popover()
   pop.textContent = ''
@@ -698,6 +708,28 @@ function showPopover(anchor: HTMLElement, entry: GlossaryEntry): void {
   const def = document.createElement('div')
   def.textContent = entry.def
   pop.append(term, def)
+
+  // Canonical home + reverse index turn a flat glossary into a concept graph:
+  // from any mention, jump to where the concept is defined or everywhere it's used.
+  if (entry.home) {
+    const row = document.createElement('div')
+    row.className = 'glossary-home'
+    row.append(document.createTextNode('canonical home  '), conceptLink(entry.home))
+    pop.appendChild(row)
+  }
+  if (entry.refs?.length) {
+    const box = document.createElement('div')
+    box.className = 'glossary-refs'
+    const head = document.createElement('div')
+    head.className = 'glossary-refs-head'
+    head.textContent = `referenced in ${entry.refs.length} note${entry.refs.length > 1 ? 's' : ''}`
+    const list = document.createElement('div')
+    list.className = 'glossary-refs-list'
+    for (const r of entry.refs) list.appendChild(conceptLink(r))
+    box.append(head, list)
+    pop.appendChild(box)
+  }
+
   pop.hidden = false
   placePopover(anchor)
 }

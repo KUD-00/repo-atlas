@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { marked } from 'marked';
+import { fillGlossaryRefs } from './glossary.js';
 const VENDOR = path.join(path.dirname(fileURLToPath(import.meta.url)), '../src/vendor');
 function readVendor(name) {
     const file = path.join(VENDOR, name);
@@ -53,6 +54,9 @@ export function buildPayload({ repoName, commit, status, graph = null, glossary 
         n.children.forEach(sortChildren);
     };
     sortChildren(root);
+    // Fill each glossary term's reverse index (which notes reference it) from the
+    // note bodies we already have. `home` was parsed from glossary.md upstream.
+    fillGlossaryRefs(glossary, status.entries.map((e) => ({ path: e.path, body: e.body })));
     return {
         repoName,
         commit,

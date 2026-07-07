@@ -49,6 +49,10 @@ msgstr "바이너리 파일 — 미리보기 없음"
 msgid "cancel"
 msgstr "취소"
 
+#: viewer/Doc.tsx
+msgid "canonical home for"
+msgstr ""
+
 #: viewer/Preview.tsx
 msgid "Changes"
 msgstr "변경"
@@ -57,6 +61,7 @@ msgstr "변경"
 msgid "chat"
 msgstr "채팅"
 
+#: viewer/App.tsx
 #: viewer/Chat.tsx
 msgid "chat with the attached agent session"
 msgstr "연결된 에이전트 세션과 채팅"
@@ -217,6 +222,11 @@ msgstr "고정된 읽기 순서"
 #: viewer/Preview.tsx
 msgid "reading order"
 msgstr "읽기 순서"
+
+#. placeholder {0}: g.refs.length
+#: viewer/Doc.tsx
+msgid "referenced in {0} notes"
+msgstr ""
 
 #: viewer/Chat.tsx
 msgid "retract last message"

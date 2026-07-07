@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { marked } from 'marked'
+import { fillGlossaryRefs } from './glossary.js'
 import type {
   AtlasPayload,
   ComputeStatusResult,
@@ -79,6 +80,10 @@ export function buildPayload({
     n.children.forEach(sortChildren)
   }
   sortChildren(root)
+
+  // Fill each glossary term's reverse index (which notes reference it) from the
+  // note bodies we already have. `home` was parsed from glossary.md upstream.
+  fillGlossaryRefs(glossary, status.entries.map((e) => ({ path: e.path, body: e.body })))
 
   return {
     repoName,

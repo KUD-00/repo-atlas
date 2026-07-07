@@ -49,6 +49,10 @@ msgstr "binary file — no preview"
 msgid "cancel"
 msgstr "cancel"
 
+#: viewer/Doc.tsx
+msgid "canonical home for"
+msgstr "canonical home for"
+
 #: viewer/Preview.tsx
 msgid "Changes"
 msgstr "Changes"
@@ -57,6 +61,7 @@ msgstr "Changes"
 msgid "chat"
 msgstr "chat"
 
+#: viewer/App.tsx
 #: viewer/Chat.tsx
 msgid "chat with the attached agent session"
 msgstr "chat with the attached agent session"
@@ -217,6 +222,11 @@ msgstr "pinned reading order"
 #: viewer/Preview.tsx
 msgid "reading order"
 msgstr "reading order"
+
+#. placeholder {0}: g.refs.length
+#: viewer/Doc.tsx
+msgid "referenced in {0} notes"
+msgstr "referenced in {0} notes"
 
 #: viewer/Chat.tsx
 msgid "retract last message"

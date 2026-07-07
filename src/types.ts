@@ -91,6 +91,10 @@ export interface GlossaryEntry {
   term: string
   aliases: string[]
   def: string
+  /** Canonical home note for this concept (a repo path), declared via `归属:`/`home:`. */
+  home?: string
+  /** Repo paths of notes whose prose references this term/alias — filled at build time. */
+  refs?: string[]
 }
 
 export interface TreeAgg {

@@ -345,6 +345,23 @@ export function DocPane({
           </button>
         )}
       </div>
+      {glossary.some((g) => g.home === node.path) && (
+        <div className="text-[0.75rem] text-muted mb-4 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-accent">{t(i18n)`canonical home for`}</span>
+          {glossary
+            .filter((g) => g.home === node.path)
+            .map((g) => (
+              <span
+                key={g.term}
+                className="inline-flex items-center gap-1 border border-border rounded-md py-[2px] px-2 bg-panel"
+                title={g.refs?.length ? t(i18n)`referenced in ${g.refs.length} notes` : undefined}
+              >
+                {g.term}
+                {g.refs?.length ? <span className="text-muted"> · {g.refs.length}</span> : null}
+              </span>
+            ))}
+        </div>
+      )}
       <Relations node={node} rel={rel} nodesByPath={nodesByPath} />
       {editing ? (
         <Editor node={node} onClose={() => setEditing(false)} />
