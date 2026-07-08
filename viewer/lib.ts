@@ -502,67 +502,22 @@ function degradeEmbed(img: HTMLImageElement): void {
 }
 
 /**
- * Progressive disclosure for a note: fold each #### section (click heading to
- * collapse), collapse the 进阶细节 callout by default, and prepend an
- * "on this page" section nav. Turns a long note from a wall into a map you can
- * scan, jump around, and fold what you've read. Runs after the HTML is in place.
+ * Prepend an "on this page" section nav (the note's #### headings) — shape at a
+ * glance + click to jump. No folding: sections and the callout render in full;
+ * nothing collapses. Runs after the HTML is in place.
  */
 export function enhanceSections(container: HTMLElement): void {
-  const kids = [...container.children] as HTMLElement[]
-  const nav: { text: string; head: HTMLElement; body: HTMLElement }[] = []
-
-  for (let i = 0; i < kids.length; i++) {
-    const h = kids[i]
-    if (h.tagName !== 'H4') continue
-    const body = document.createElement('div')
-    body.className = 'section-body'
-    let j = i + 1
-    while (j < kids.length) {
-      const k = kids[j]
-      if (k.tagName === 'H4' || k.classList?.contains('callout')) break
-      body.appendChild(k) // moves k out of container into body
-      j++
-    }
-    h.after(body)
-    h.classList.add('foldable')
-    h.addEventListener('click', (e) => {
-      if ((e.target as Element).closest('a')) return // let code-anchor links work
-      const folded = h.classList.toggle('folded')
-      body.classList.toggle('folded', folded)
-    })
-    nav.push({ text: h.textContent ?? '', head: h, body })
+  const heads = [...container.querySelectorAll('h4')] as HTMLElement[]
+  if (heads.length < 2) return
+  const nav = document.createElement('nav')
+  nav.className = 'section-nav'
+  for (const h of heads) {
+    const a = document.createElement('a')
+    a.textContent = (h.textContent ?? '').trim()
+    a.addEventListener('click', () => h.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    nav.appendChild(a)
   }
-
-  // 进阶细节 callout: deep detail, collapsed by default with its own toggle.
-  const callout = container.querySelector('.callout') as HTMLElement | null
-  if (callout) {
-    const toggle = document.createElement('div')
-    toggle.className = 'callout-toggle folded'
-    toggle.textContent = '💡 进阶细节'
-    callout.classList.add('foldable-callout', 'folded')
-    callout.before(toggle)
-    toggle.addEventListener('click', () => {
-      const folded = toggle.classList.toggle('folded')
-      callout.classList.toggle('folded', folded)
-    })
-    nav.push({ text: '进阶细节', head: toggle, body: callout })
-  }
-
-  if (nav.length >= 2) {
-    const el = document.createElement('nav')
-    el.className = 'section-nav'
-    for (const n of nav) {
-      const a = document.createElement('a')
-      a.textContent = n.text.replace(/^💡\s*/u, '').trim()
-      a.addEventListener('click', () => {
-        n.head.classList.remove('folded')
-        n.body.classList.remove('folded')
-        n.head.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      })
-      el.appendChild(a)
-    }
-    container.prepend(el)
-  }
+  container.prepend(nav)
 }
 
 /** Static build (or unreadable source): no code to slice, drop embeds to their labels. */

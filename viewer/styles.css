@@ -593,7 +593,7 @@
     text-decoration: underline;
   }
 
-  /* progressive disclosure: section nav + foldable sections + collapsed callout */
+  /* "on this page" section nav — shape at a glance + jump. No folding. */
   .prose .section-nav {
     display: flex;
     flex-wrap: wrap;
@@ -612,32 +612,6 @@
   }
   .prose .section-nav a:hover {
     text-decoration: underline;
-  }
-  .prose h4.foldable,
-  .prose .callout-toggle {
-    cursor: pointer;
-    user-select: none;
-  }
-  .prose h4.foldable::before,
-  .prose .callout-toggle::before {
-    content: '▾';
-    display: inline-block;
-    width: 1em;
-    color: var(--color-muted);
-    transition: transform 0.12s ease;
-  }
-  .prose h4.foldable.folded::before,
-  .prose .callout-toggle.folded::before {
-    transform: rotate(-90deg);
-  }
-  .prose .section-body.folded,
-  .prose .callout.folded {
-    display: none;
-  }
-  .prose .callout-toggle {
-    margin-top: 16px;
-    font-weight: 600;
-    color: var(--color-accent);
   }
 
   @media (max-width: 768px) {
