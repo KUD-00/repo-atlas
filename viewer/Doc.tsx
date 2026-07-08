@@ -7,7 +7,7 @@ import { Trans, useLingui } from '@lingui/react/macro'
 import type { EntryStatus, GlossaryEntry, TreeNode } from '../src/types'
 import {
   linkifyPaths, renderMermaidIn, noteFileFor, relationsFor, annotateGlossary,
-  annotateCodeAnchors, degradeCodeEmbeds, readingSequence, firstFileWithin,
+  annotateCodeAnchors, degradeCodeEmbeds, readingSequence, firstFileWithin, enhanceSections,
 } from './lib'
 import { useLive } from './live'
 
@@ -201,6 +201,7 @@ function Prose({
     linkifyPaths(el, node, nodesByPath)
     annotateGlossary(el, glossary)
     renderMermaidIn(el)
+    enhanceSections(el) // fold sections + collapse callout + section nav
     // code anchors need the file's current source — fetched, so they resolve
     // against what the code looks like NOW, not when the note was written
     if (node.type !== 'file') {
