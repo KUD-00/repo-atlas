@@ -501,25 +501,6 @@ function degradeEmbed(img: HTMLImageElement): void {
   img.replaceWith(document.createTextNode(img.getAttribute('alt') ?? ''))
 }
 
-/**
- * Prepend an "on this page" section nav (the note's #### headings) — shape at a
- * glance + click to jump. No folding: sections and the callout render in full;
- * nothing collapses. Runs after the HTML is in place.
- */
-export function enhanceSections(container: HTMLElement): void {
-  const heads = [...container.querySelectorAll('h4')] as HTMLElement[]
-  if (heads.length < 2) return
-  const nav = document.createElement('nav')
-  nav.className = 'section-nav'
-  for (const h of heads) {
-    const a = document.createElement('a')
-    a.textContent = (h.textContent ?? '').trim()
-    a.addEventListener('click', () => h.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-    nav.appendChild(a)
-  }
-  container.prepend(nav)
-}
-
 /** Static build (or unreadable source): no code to slice, drop embeds to their labels. */
 export function degradeCodeEmbeds(container: HTMLElement): void {
   for (const img of container.querySelectorAll<HTMLImageElement>('img[src^="code:"]')) degradeEmbed(img)

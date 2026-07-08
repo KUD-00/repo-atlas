@@ -19,6 +19,51 @@ export interface CodeJump {
   seq: number
 }
 
+/** This-page outline: the current note's own headings (## / ### / ####) + the
+ * 进阶细节 callout, so you can see the page's structure at a glance and jump.
+ * Clicking scrolls the main `.prose` doc to that heading. */
+function PageOutline({ node }: { node: TreeNode }) {
+  const src = node.source ?? ''
+  const items: { depth: number; text: string }[] = []
+  for (const line of src.split('\n')) {
+    const m = /^(#{2,4})\s+(.+)$/.exec(line)
+    if (m) {
+      const text = m[2].replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[*`]/g, '').trim()
+      if (text) items.push({ depth: m[1].length, text })
+    } else if (line.includes('class="callout"')) {
+      items.push({ depth: 4, text: '进阶细节' })
+    }
+  }
+  if (items.length < 2) return null
+  const jump = (text: string) => {
+    const prose = document.querySelector('.prose')
+    if (!prose) return
+    const key = text.slice(0, 12)
+    for (const h of prose.querySelectorAll('h1,h2,h3,h4,.callout-toggle')) {
+      if ((h.textContent ?? '').replace(/^💡\s*/u, '').trim().startsWith(key)) {
+        h.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
+    }
+    if (text === '进阶细节') prose.querySelector('.callout')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+  return (
+    <div className="border-b border-border py-2 shrink-0 max-h-[45%] overflow-auto">
+      <div className="text-[0.72rem] text-muted px-4 pb-1">本页大纲</div>
+      {items.map((it, i) => (
+        <button
+          key={i}
+          className="block w-full text-left text-[0.8rem] py-[3px] px-4 bg-transparent border-none cursor-pointer text-text hover:text-accent hover:bg-[#3d6b540d] truncate"
+          style={{ paddingLeft: `${16 + (it.depth - 2) * 12}px` }}
+          onClick={() => jump(it.text)}
+        >
+          {it.text}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /** The right-hand panel: one surface, three ways of looking at the current
  * page — the source itself, what changed since the note's anchor, or the
  * contents of the book (base point) the page belongs to. */
@@ -81,6 +126,7 @@ export function PanelPane({
       {effective === 'diff' && <DiffView path={node.path} status={node.status} />}
       {effective === 'toc' && (
         <>
+          <PageOutline node={node} />
           <div className="flex items-baseline gap-2.5 py-2.5 px-4 border-b border-border text-[0.78rem] shrink-0">
             <span className="font-semibold overflow-hidden text-ellipsis whitespace-nowrap">{base || repoName}</span>
             <span className="text-muted shrink-0 ml-auto text-[0.72rem]">{t(i18n)`reading order`}</span>
