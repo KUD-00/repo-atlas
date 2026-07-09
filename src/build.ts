@@ -129,22 +129,29 @@ function orderChildren(n: TreeNode, edges: Map<string, Set<string>> | undefined)
   const rest = n.children.filter((c) => !placed.has(c))
 
   // imported-by counts among the remaining siblings; entry points have zero.
-  // Tests also have zero (nobody imports a test) — the isTest flag keeps them
-  // from posing as entry points, and out-degree ranks the child that pulls in
-  // the most siblings (the real composition root) first among the rest.
-  const isTest = (c: TreeNode) => /\.(test|spec)\.|^tests?$|^__tests__$|fixtures/.test(c.name)
+  // Auxiliary children (tests, build scripts, tools, migrations) also have zero
+  // in-degree — nobody imports them — but they are NOT entry points: a build
+  // script imports INTO src, which would otherwise (a) make the script pose as
+  // the entry point and read first, and (b) mark src as a mere "dependency" and
+  // sink it. So aux children neither contribute in-degree (they don't block real
+  // source) nor rank as entry points (isAux sinks them in `better`). Out-degree
+  // then ranks the child that pulls in the most siblings (the real composition
+  // root) first among what remains.
+  const isAux = (c: TreeNode) =>
+    /\.(test|spec)\.|^tests?$|^__tests__$|fixtures|^test-(helpers|fixtures|utils)$|^scripts?$|^bin$|^tools?$|^examples?$|^benchmarks?$|^drizzle$|^migrations?$/.test(c.name)
   const inDeg = new Map<string, number>(rest.map((c) => [c.name, 0]))
   const outDeg = new Map<string, number>(rest.map((c) => [c.name, 0]))
   if (edges) {
     for (const [from, tos] of edges) {
       if (!inDeg.has(from)) continue
+      if (isAux(byName.get(from)!)) continue // aux consumers don't block real source
       let n = 0
       for (const to of tos) if (inDeg.has(to) && from !== to) { inDeg.set(to, inDeg.get(to)! + 1); n++ }
       outDeg.set(from, n)
     }
   }
   const better = (a: TreeNode, b: TreeNode) => {
-    if (isTest(a) !== isTest(b)) return !isTest(a)
+    if (isAux(a) !== isAux(b)) return !isAux(a)
     const ao = outDeg.get(a.name) ?? 0
     const bo = outDeg.get(b.name) ?? 0
     if (ao !== bo) return ao > bo
@@ -167,7 +174,9 @@ function orderChildren(n: TreeNode, edges: Map<string, Set<string>> | undefined)
     }
     remaining.delete(pick!)
     out.push(pick!)
-    const tos = edges?.get(pick!.name)
+    // aux picks never counted toward in-degree, so they must not decrement it
+    // either (that would prematurely unblock a target imported by real source).
+    const tos = isAux(pick!) ? undefined : edges?.get(pick!.name)
     if (tos) for (const to of tos) if (inDeg.has(to)) inDeg.set(to, Math.max(0, inDeg.get(to)! - 1))
   }
   return out
