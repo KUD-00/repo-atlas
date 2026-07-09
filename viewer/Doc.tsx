@@ -13,6 +13,11 @@ import { useLive } from './live'
 
 const BTN =
   'btn font-inherit text-[0.75rem] py-[5px] px-3 rounded-lg border border-border bg-panel text-text cursor-pointer whitespace-nowrap hover:border-accent hover:text-accent disabled:opacity-50 disabled:cursor-default'
+
+// filled primary — its own class so it does NOT inherit BTN's hover:text-accent,
+// which on an accent background would tint the label to match it and vanish
+const BTN_PRIMARY =
+  'btn font-inherit text-[0.75rem] py-[5px] px-3 rounded-lg border border-accent bg-accent text-white cursor-pointer whitespace-nowrap hover:opacity-90 disabled:opacity-50 disabled:cursor-default'
 const EMPTY =
   'text-muted text-[0.9rem] mt-2 [&_code]:bg-[#00000009] [&_code]:py-[0.1em] [&_code]:px-[0.4em] [&_code]:rounded [&_code]:text-[0.85em]'
 
@@ -226,13 +231,13 @@ function Editor({ node, onClose }: { node: TreeNode; onClose: () => void }) {
   const [text, setText] = useState(node.source ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const save = () => {
+  const save = (stamp: boolean) => {
     setBusy(true)
     setError(null)
     fetch('note', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ path: node.path, body: text }),
+      body: JSON.stringify({ path: node.path, body: text, stamp }),
     })
       .then(async (res) => {
         if (!res.ok) throw new Error(await res.text())
@@ -243,7 +248,8 @@ function Editor({ node, onClose }: { node: TreeNode; onClose: () => void }) {
       })
   }
   const onKey = (e: KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') save()
+    // ⌘⏎ fires the default action — a plain save, no stamp
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') save(false)
     if (e.key === 'Escape' && !busy) onClose()
   }
   return (
@@ -261,9 +267,10 @@ function Editor({ node, onClose }: { node: TreeNode; onClose: () => void }) {
         onKeyDown={onKey}
       />
       <div className="flex items-center gap-2">
-        <button className={BTN + ' bg-accent border-accent text-white hover:opacity-90'} onClick={save} disabled={busy}>
-          {busy ? t(i18n)`saving…` : t(i18n)`save & stamp`}
+        <button className={BTN_PRIMARY} onClick={() => save(false)} disabled={busy}>
+          {busy ? t(i18n)`saving…` : t(i18n)`save`}
         </button>
+        <button className={BTN} onClick={() => save(true)} disabled={busy}>{t(i18n)`save & stamp`}</button>
         <button className={BTN} onClick={onClose} disabled={busy}>{t(i18n)`cancel`}</button>
         <span className="text-[0.7rem] text-muted">{t(i18n)`⌘⏎ save · esc cancel`}</span>
         {error && <span className="text-[0.75rem] text-[#c4222e]">{error}</span>}
@@ -293,14 +300,35 @@ export function DocPane({
   const { i18n } = useLingui()
   const live = useLive()
   const [editing, setEditing] = useState(false)
+  const [frameOpen, setFrameOpen] = useState(false)
   useEffect(() => {
     setEditing(false)
+    setFrameOpen(false)
   }, [node])
+  useEffect(() => {
+    if (!frameOpen) return
+    const onKey = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape') setFrameOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [frameOpen])
   const seq = useMemo(() => readingSequence(nodesByPath.get('')!), [nodesByPath])
   const seqAt = seq.indexOf(node.path)
   const prev = seqAt > 0 ? seq[seqAt - 1] : null
   const next = seqAt >= 0 && seqAt < seq.length - 1 ? seq[seqAt + 1] : null
   const dive = useMemo(() => firstFileWithin(node, seq, nodesByPath), [node, seq, nodesByPath])
+  // Ancestor __dir__ notes (immediate parent → root) — the frame this page is written within.
+  const ancestors = useMemo(() => {
+    if (node.path === '') return [] as TreeNode[]
+    const out: TreeNode[] = []
+    let p = parentOf(node.path)
+    while (true) {
+      const a = nodesByPath.get(p)
+      if (a?.html) out.push(a)
+      if (p === '') break
+      p = parentOf(p)
+    }
+    return out
+  }, [node, nodesByPath])
   // ← / → page through the reading order (unless focus is in an input)
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
@@ -342,6 +370,15 @@ export function DocPane({
         {live && !editing && node.status !== 'ignored' && (
           <button className={BTN + ' text-muted hover:text-accent'} onClick={() => setEditing(true)}>
             {node.source ? t(i18n)`edit` : t(i18n)`write note`}
+          </button>
+        )}
+        {ancestors.length > 0 && (
+          <button
+            className={BTN + ' text-muted hover:text-accent'}
+            onClick={() => setFrameOpen(true)}
+            title={t(i18n)`directory notes above this page`}
+          >
+            {t(i18n)`▸ frame`}
           </button>
         )}
       </div>
@@ -411,6 +448,30 @@ export function DocPane({
             </a>
           ) : <span className="flex-1 min-w-0" />}
         </nav>
+      )}
+      {frameOpen && ancestors.length > 0 && (
+        <div className="fixed inset-0 z-50 bg-black/25 flex justify-end" onClick={() => setFrameOpen(false)}>
+          <div
+            className="w-[min(560px,94vw)] h-full overflow-y-auto bg-panel border-l border-border shadow-[-4px_0_24px_#00000022] p-6 max-md:w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-[0.9rem] font-[650]">{t(i18n)`directory frame`}</div>
+              <button className={BTN + ' text-muted hover:text-accent'} onClick={() => setFrameOpen(false)}>{t(i18n)`close`}</button>
+            </div>
+            <div className="text-[0.75rem] text-muted mb-6">{t(i18n)`the directory notes above this page — the frame it is written within`}</div>
+            {ancestors.map((a) => (
+              <section key={a.path} className="mb-9">
+                <h3 className="mb-2 break-all">
+                  <a className="text-accent no-underline hover:underline font-mono text-[0.8rem]" href={'#' + encodeURI(a.path)}>
+                    {a.path || repoName}
+                  </a>
+                </h3>
+                <Prose node={a} nodesByPath={nodesByPath} glossary={glossary} />
+              </section>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   )
