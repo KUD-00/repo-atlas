@@ -113,6 +113,7 @@ bun $QA/sweep.ts --file .atlas/qa/outdated.txt --fresh
 | `sweep.ts` | 批量驱动：多轮迭代、resume-skip、全过/零进展停、日志落 `.atlas/qa/_sweep/` |
 | `count-passed.ts` | 按清单统计 finalPass 分布 |
 | `order.ts` | 目录页阅读顺序提案：读子项概览 → agent 按"先懂什么"排 order → 写 frontmatter（`--dry` 先看） |
+| `concept.ts` | 概念页生产线：按 `.atlas/pipeline/concept-pages.json` 让 agent 从 sources 写概念页 → audience persona 盲读 ×3 + 只对 sources 的事实核查 + 可视化/AI 腔机械硬门 → stamp |
 | `extract.ts` | 概念抽取：跨切概念收敛成"归属页讲全 + glossary 一行本质 + 别处瘦身指路" |
 | `prompts/` | 五阶段出厂 prompt（可被仓库覆盖/追加） |
 | `schemas/` | 盲读/核查的输出 JSON schema |
