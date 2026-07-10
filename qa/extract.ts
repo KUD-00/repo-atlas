@@ -12,6 +12,7 @@
  * 不 import repo-atlas 内核（只 CLI + 目录约定）。
  */
 import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync, appendFileSync } from "node:fs";
+import { assertOnlyAtlasWrites } from "./lib";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 
@@ -75,7 +76,7 @@ function lenient(g: any): any | null {
   if (s < 0 || e <= s) return null;
   try { return JSON.parse(t.slice(s, e + 1)); } catch { return null; }
 }
-const DISALLOW_NOTEONLY = "Delete,EditNotebook,GenerateImage"; // 允许 Read/Grep/Write/StrReplace（写受 git 守卫约束在 .atlas 内）
+const DISALLOW_NOTEONLY = "run_terminal_cmd"; // 禁终端(grok 真名)——写入全走 write/search_replace,transcript 可归因
 
 // ---------- glossary 读写 ----------
 function glossaryTerms(): Set<string> {
@@ -160,8 +161,7 @@ ${scattered.slice(0, 6000)}
 
   const before = dirtyPaths();
   const out = await runGrok(prompt, { schema: CONSOLIDATE_SCHEMA, maxTurns: 60, disallowed: DISALLOW_NOTEONLY, timeoutMs: 1_200_000 });
-  const extra = newDirtyOutsideAtlas(before);
-  if (extra.length) throw new Error(`Stage1 越界改了 .atlas 外路径：${extra.join(" | ")}`);
+  assertOnlyAtlasWrites(REPO, REPO, out?.sessionId, before, `Stage1(${concept.id})`);
   const parsed = lenient(out);
   if (!parsed?.glossary) throw new Error("Stage1 输出解析失败");
   return parsed;
@@ -195,8 +195,7 @@ async function thin(concept: any, r: { file: string; repoPath: string }): Promis
 
   const before = dirtyPaths();
   const out = await runGrok(prompt, { schema: THIN_SCHEMA, maxTurns: 40, disallowed: DISALLOW_NOTEONLY, timeoutMs: 900_000 });
-  const extra = newDirtyOutsideAtlas(before);
-  if (extra.length) throw new Error(`Stage2 越界改了 .atlas 外路径（${r.repoPath}）：${extra.join(" | ")}`);
+  assertOnlyAtlasWrites(REPO, REPO, out?.sessionId, before, `Stage2(${concept.id}→${r.repoPath})`);
   const parsed = lenient(out) ?? { changed: false, summary: "解析失败" };
   return parsed;
 }

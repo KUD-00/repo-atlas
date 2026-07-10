@@ -106,7 +106,13 @@ export function newDirtyOutsideAtlas(repo: string, before: Set<string>): string[
 // "这个 agent 自己写了哪些文件"。终端命令无法按路径归因，调用方应对无需终端的阶段
 // 直接 disallow Shell，让全部写入可归因。
 const WRITE_TOOLS = new Set(["write", "search_replace", "edit_file", "create_file", "apply_patch", "str_replace"]);
-const SHELL_TOOLS = new Set(["run_terminal_command", "bash", "shell", "terminal"]);
+const SHELL_TOOLS = new Set(["run_terminal_command", "run_terminal_cmd", "bash", "shell", "terminal"]);
+
+// grok --disallowed-tools 的**真实**工具名（实测：喂错名会被静默忽略——"Shell,Write,StrReplace"
+// 这类 Claude Code 名字从来没拦住过任何东西）。探针验证 2026-07-10：
+//   run_terminal_cmd → 终端；write/search_replace/create_file/edit_file/apply_patch → 写文件。
+export const DENY_TERMINAL = "run_terminal_cmd";
+export const DENY_ALL_WRITES = "run_terminal_cmd,write,search_replace,create_file,edit_file,apply_patch";
 export function agentWrites(cwd: string, sessionId: string): { files: string[]; shells: string[] } | null {
   const home = process.env.HOME || "";
   const f = join(home, ".grok/sessions", encodeURIComponent(cwd), sessionId, "chat_history.jsonl");

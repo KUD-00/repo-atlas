@@ -23,7 +23,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findRepoRoot, runAgent as libRunAgent, lenientParse as lenient, dirtyPaths as libDirty, assertOnlyAtlasWrites, lintBannedPhrases, countVisuals as libVisuals, longParagraphs, listCandidates, flatStructure, loadPrompt, median } from "./lib";
+import { findRepoRoot, runAgent as libRunAgent, lenientParse as lenient, dirtyPaths as libDirty, assertOnlyAtlasWrites, lintBannedPhrases, countVisuals as libVisuals, longParagraphs, listCandidates, flatStructure, loadPrompt, median, DENY_TERMINAL, DENY_ALL_WRITES } from "./lib";
 
 const REPO = findRepoRoot();
 const QA = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
@@ -72,8 +72,9 @@ if (!wanted.length) { console.error("usage: bun concept.ts <slug...>|--all [--co
 const dirtyPaths = () => libDirty(REPO);
 const runAgent = (prompt: string, o: { cwd?: string; schema?: string; maxTurns: number; disallowed?: string; timeoutMs: number }) =>
   libRunAgent(prompt, { ...o, cwd: o.cwd ?? REPO });
-// 禁掉终端（写路径全部可 transcript 归因）——writer/factcheck 只需 read/grep/list + write。
-const DISALLOW_NOTEONLY = "Delete,EditNotebook,GenerateImage,Shell,AwaitShell";
+// 禁掉终端（写路径全部可 transcript 归因）——writer 只需 read/grep/list + write。
+// 注意必须用 grok 的真实工具名（lib.DENY_*）；错名会被静默忽略。
+const DISALLOW_NOTEONLY = DENY_TERMINAL;
 
 // ---------- 机械硬门（共通核 qa/lib.ts：禁令句式单一来源 + 可视化计数） ----------
 function countVisuals(body: string): { html: number; mermaid: number } {
@@ -194,7 +195,7 @@ ${body}
 
 只输出 JSON：{"unsupported":[{"claim":"...","why":"..."}],"summary":"..."}\n${loadPrompt(QA, REPO, "concept-factcheck")}`;
   const before = dirtyPaths();
-  const out = await runAgent(prompt, { schema: FACT_SCHEMA, maxTurns: 30, disallowed: DISALLOW_NOTEONLY + ",Write,StrReplace,Edit", timeoutMs: 900_000 });
+  const out = await runAgent(prompt, { schema: FACT_SCHEMA, maxTurns: 30, disallowed: DENY_ALL_WRITES, timeoutMs: 900_000 });
   assertOnlyAtlasWrites(REPO, REPO, out?.sessionId, before, `factcheck(${page.slug})`);
   return lenient(out) ?? { unsupported: [], summary: "解析失败(视为通过存疑)" };
 }

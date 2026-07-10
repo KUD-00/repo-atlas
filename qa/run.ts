@@ -21,6 +21,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
+import { assertOnlyAtlasWrites, DENY_TERMINAL, DENY_ALL_WRITES } from "./lib";
 
 // 仓库根 = 从 cwd 向上第一个含 .atlas/ 的目录（引擎住在工具仓，不假设与目标仓的相对位置）。
 function findRepoRoot(): string {
@@ -395,8 +396,11 @@ function evaluate(readers: any[], factcheck: any, body = ""): GateResult {
 }
 
 // ---------- 各阶段 ----------
-const DISALLOW_RO = "Shell,AwaitShell,Delete,StrReplace,Write,EditNotebook,GenerateImage";
-const DISALLOW_REVISE = "Shell,AwaitShell,Delete,EditNotebook,GenerateImage";
+// 必须用 grok 的真实工具名（lib.DENY_*）——旧的 "Shell,Write,StrReplace…" 是 Claude Code
+// 名字，grok 静默忽略，等于从没拦过（2026-07-10 探针实证后修正）。
+// 生产阶段禁终端 → 所有写入必经 write/search_replace → transcript 可精确归因。
+const DISALLOW_RO = DENY_ALL_WRITES;
+const DISALLOW_REVISE = DENY_TERMINAL;
 
 async function runReaders(repoPath: string, body: string): Promise<any[]> {
   const input = `${readerPrompt}\n## 术语表（glossary，可随时查阅）\n\n${relevantGlossary(body)}\n\n${frameForReader(repoPath)}\n\n## 笔记正文（这篇笔记描述的路径：${repoPath}）\n\n${body}`;
@@ -414,8 +418,7 @@ async function runFactcheck(repoPath: string, body: string, reader: any): Promis
   const input = `${factcheckPrompt}\n## 目标路径\n\n${repoPath}（仓库根：${REPO}）\n\n## 笔记正文\n\n${body}\n\n## 盲读者复述（请核对）\n\n${retell}`;
   const before = dirtyPaths();
   const out = await runGrok(input, { cwd: REPO, schema: factcheckSchema, maxTurns: 40, disallowed: DISALLOW_RO, approve: true, timeoutMs: 900_000 });
-  const extra = newDirtyOutsideAtlas(before);
-  if (extra.length) throw new Error(`事实核查会话弄脏了 .atlas 之外的路径：${extra.join(" | ")}，中止。`);
+  assertOnlyAtlasWrites(REPO, REPO, out?.sessionId, before, `事实核查(${repoPath})`);
   const parsed = lenientParse(out);
   if (!parsed?.claims) throw new Error("事实核查输出解析失败");
   return parsed;
@@ -454,10 +457,8 @@ async function runReviser(repoPath: string, noteFile: string, gate: GateResult, 
   const before = dirtyPaths();
   const beforeNote = readFileSync(noteFile, "utf8");
   const out = await runGrok(input, { cwd: REPO, maxTurns: 60, disallowed: DISALLOW_REVISE, approve: true, timeoutMs: 1_200_000 });
-  // 守卫：会话不许弄脏 .atlas 之外的任何路径（越界改源码/别人的活）
   const rel = noteFile.slice(REPO.length + 1);
-  const extra = newDirtyOutsideAtlas(before);
-  if (extra.length) throw new Error(`修订会话弄脏了 .atlas 之外的路径：${extra.join(" | ")}（笔记可能已改，请人工检查）`);
+  assertOnlyAtlasWrites(REPO, REPO, out?.sessionId, before, `修订(${repoPath})`);
   if (readFileSync(noteFile, "utf8") === beforeNote) console.warn(`  ⚠ 修订会话没有改动 ${rel}`);
   return out?.text ?? "";
 }
@@ -470,8 +471,7 @@ async function runWriter(repoPath: string, noteFile: string): Promise<string> {
   const before = dirtyPaths();
   mkdirSync(dirname(noteFile), { recursive: true });
   const out = await runGrok(input, { cwd: REPO, maxTurns: 60, disallowed: DISALLOW_REVISE, approve: true, timeoutMs: 1_200_000 });
-  const extra = newDirtyOutsideAtlas(before);
-  if (extra.length) throw new Error(`写作会话弄脏了 .atlas 之外的路径：${extra.join(" | ")}`);
+  assertOnlyAtlasWrites(REPO, REPO, out?.sessionId, before, `写作(${repoPath})`);
   return out?.text ?? "";
 }
 
@@ -481,8 +481,7 @@ async function runMapify(repoPath: string, noteFile: string): Promise<string> {
   const input = `${mapifyPrompt}\n## 目标\n\n描述的仓库路径：\`${repoPath}\`\n要改写的笔记文件：\`${noteFile.slice(REPO.length + 1)}\`\n\n## 当前笔记正文（这堵墙）\n\n${body}\n\n## 术语表（用术语点到，别重讲）\n\n${relevantGlossary(body)}\n\n${frameForProducer(repoPath)}`;
   const before = dirtyPaths();
   const out = await runGrok(input, { cwd: REPO, maxTurns: 60, disallowed: DISALLOW_REVISE, approve: true, timeoutMs: 1_200_000 });
-  const extra = newDirtyOutsideAtlas(before);
-  if (extra.length) throw new Error(`地图化会话弄脏了 .atlas 之外的路径：${extra.join(" | ")}`);
+  assertOnlyAtlasWrites(REPO, REPO, out?.sessionId, before, `地图化(${repoPath})`);
   return out?.text ?? "";
 }
 
@@ -510,9 +509,8 @@ async function runWriterBatch(dir: string, repoPaths: string[]): Promise<void> {
   const input = `${writerPrompt}\n## 目标（一次新建同目录下多篇缺失笔记）\n\n下面是同一目录 \`${dir}\` 下需要**从零新建**的笔记。**逐个**读对应源码、各写一篇，用 Write 工具**分别落盘每个笔记文件**。共享上下文（模板/规范/术语表/目录框架）只给一次，但每篇要各自完整、独立成篇。\n\n${targets}\n\n## 模板\n\n${template.slice(0, 3500)}\n\n## 规范\n\n${conventions.slice(0, 2500)}\n\n## 术语表\n\n${glossary}\n\n${frameForProducer(repoPaths[0])}`;
   const before = dirtyPaths();
   for (const rp of repoPaths) mkdirSync(dirname(notePathFor(rp)), { recursive: true });
-  await runGrok(input, { cwd: REPO, maxTurns: 120, disallowed: DISALLOW_REVISE, approve: true, timeoutMs: 1_800_000 });
-  const extra = newDirtyOutsideAtlas(before);
-  if (extra.length) throw new Error(`批量写作会话弄脏了 .atlas 之外的路径：${extra.join(" | ")}`);
+  const out = await runGrok(input, { cwd: REPO, maxTurns: 120, disallowed: DISALLOW_REVISE, approve: true, timeoutMs: 1_800_000 });
+  assertOnlyAtlasWrites(REPO, REPO, out?.sessionId, before, `批量写作(${dir})`);
 }
 
 async function processPath(repoPath: string) {
