@@ -75,6 +75,7 @@ bun $QA/sweep.ts --file .atlas/qa/outdated.txt --fresh
 | `reader-schema.json` / `factcheck-schema.json` | 整体替换出厂 schema |
 | `concepts.json` | `extract.ts` 的概念清单（含 `includeRoots` 搜索范围），纯仓库内容 |
 | `concept-pages.json` | `concept.ts` 的概念页清单（slug/title/audience/sources/brief），纯仓库内容 |
+| `distill.json` | `distill.ts` 的蒸馏配置(defaults: 时长/画幅/风格/旁白与 prompt 语言;targets: slug/时长/侧重),纯仓库内容 |
 | `concept-<writer\|reader\|factcheck>.md` / `.extra.md` | 概念页三阶段的 prompt 覆盖/追加（与路径笔记同一契约） |
 
 仓库自有内容（不属于引擎）：`.atlas/glossary.md`、`.atlas/CONVENTIONS.md`、`.atlas/templates/default.md`、`.atlas/qa/` 档案。
@@ -126,6 +127,7 @@ bun $QA/sweep.ts --file .atlas/qa/outdated.txt --fresh
 | `count-passed.ts` | 按清单统计 finalPass 分布 |
 | `order.ts` | 目录页阅读顺序提案：读子项概览 → agent 按"先懂什么"排 order → 写 frontmatter（`--dry` 先看） |
 | `concept.ts` | 概念页生产线：按 `.atlas/pipeline/concept-pages.json` 让 agent 从 sources 写概念页 → audience persona 盲读 ×3 + 只对 sources 的事实核查 + 可视化/AI 腔机械硬门 → stamp |
+| `distill.ts` | 概念页 → 视频分镜蒸馏：core_message + 逐场景旁白/画面 prompt/叠字/时长,旁白逐场景溯源;门=语速/时长机械校验+忠实度核查(不许引入新事实) |
 | `extract.ts` | 概念抽取：跨切概念收敛成"归属页讲全 + glossary 一行本质 + 别处瘦身指路" |
 | `prompts/` | 五阶段出厂 prompt（可被仓库覆盖/追加） |
 | `schemas/` | 盲读/核查的输出 JSON schema |
