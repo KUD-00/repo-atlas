@@ -47,9 +47,13 @@ bun $QA/run.ts <好的路径> <差的路径> --readers 3
 # 2. 批量生成 + 验收 + 修订 + stamp（可整夜跑；断了重跑同一命令即续）
 bun $QA/sweep.ts --file .atlas/qa/missing.txt --concurrency 12
 
-# 3. 人审概念主页（必做，见下"门的边界"）
+# 3. 阅读顺序：给子项 ≥3 的目录页排 ①② 徽标（agent 提案 → 人扫一眼理由）
+bun $QA/order.ts --dry          # 先看提案与理由
+bun $QA/order.ts                # 认可后写入 frontmatter 的 order:（stamp 会保序）
 
-# 4. 代码演进后：只重扫过时的
+# 4. 人审概念主页（必做，见下"门的边界"）
+
+# 5. 代码演进后：只重扫过时的
 repo-atlas status --json | jq -r '.outdated[].path' > .atlas/qa/outdated.txt
 bun $QA/sweep.ts --file .atlas/qa/outdated.txt --fresh
 ```
@@ -103,6 +107,7 @@ bun $QA/sweep.ts --file .atlas/qa/outdated.txt --fresh
 | `run.ts` | 单篇引擎：writer/mapify/轻路径/盲读/核查/门/修订/keep-best/档案/stamp |
 | `sweep.ts` | 批量驱动：多轮迭代、resume-skip、全过/零进展停、日志落 `.atlas/qa/_sweep/` |
 | `count-passed.ts` | 按清单统计 finalPass 分布 |
+| `order.ts` | 目录页阅读顺序提案：读子项概览 → agent 按"先懂什么"排 order → 写 frontmatter（`--dry` 先看） |
 | `extract.ts` | 概念抽取：跨切概念收敛成"归属页讲全 + glossary 一行本质 + 别处瘦身指路" |
 | `prompts/` | 五阶段出厂 prompt（可被仓库覆盖/追加） |
 | `schemas/` | 盲读/核查的输出 JSON schema |
