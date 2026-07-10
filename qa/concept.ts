@@ -23,7 +23,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findRepoRoot, runAgent as libRunAgent, lenientParse as lenient, dirtyPaths as libDirty, newDirtyOutsideAtlas as libGuard, lintBannedPhrases, countVisuals as libVisuals, longParagraphs, listCandidates, flatStructure, loadPrompt, median } from "./lib";
+import { findRepoRoot, runAgent as libRunAgent, lenientParse as lenient, dirtyPaths as libDirty, assertOnlyAtlasWrites, lintBannedPhrases, countVisuals as libVisuals, longParagraphs, listCandidates, flatStructure, loadPrompt, median } from "./lib";
 
 const REPO = findRepoRoot();
 const QA = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
@@ -70,10 +70,10 @@ const wanted: string[] = (flag("all") ? spec.pages.map((p: any) => p.slug)
 if (!wanted.length) { console.error("usage: bun concept.ts <slug...>|--all [--concurrency N] [--force]"); process.exit(2); }
 
 const dirtyPaths = () => libDirty(REPO);
-const newDirtyOutsideAtlas = (before: Set<string>) => libGuard(REPO, before);
 const runAgent = (prompt: string, o: { cwd?: string; schema?: string; maxTurns: number; disallowed?: string; timeoutMs: number }) =>
   libRunAgent(prompt, { ...o, cwd: o.cwd ?? REPO });
-const DISALLOW_NOTEONLY = "Delete,EditNotebook,GenerateImage";
+// 禁掉终端（写路径全部可 transcript 归因）——writer/factcheck 只需 read/grep/list + write。
+const DISALLOW_NOTEONLY = "Delete,EditNotebook,GenerateImage,Shell,AwaitShell";
 
 // ---------- 机械硬门（共通核 qa/lib.ts：禁令句式单一来源 + 可视化计数） ----------
 function countVisuals(body: string): { html: number; mermaid: number } {
@@ -140,9 +140,8 @@ order: ${(curIndex.get(page.slug) ?? 0) + 1}
 
 硬边界：只允许写这一个文件；不许改源码/别的笔记/glossary；sources_hash 等字段不要写（由 stamp 管）。\n${loadPrompt(QA, REPO, "concept-writer")}`;
   const before = dirtyPaths();
-  await runAgent(prompt, { maxTurns: 80, disallowed: DISALLOW_NOTEONLY, timeoutMs: 1_500_000 });
-  const extra = newDirtyOutsideAtlas(before);
-  if (extra.length) throw new Error(`writer 越界改了 .atlas 外路径：${extra.join(" | ")}`);
+  const out = await runAgent(prompt, { maxTurns: 80, disallowed: DISALLOW_NOTEONLY, timeoutMs: 1_500_000 });
+  assertOnlyAtlasWrites(REPO, REPO, out?.sessionId, before, `writer(${page.slug})`);
   if (!existsSync(pageFile(page.slug))) throw new Error("writer 没有写出页面文件");
 }
 
@@ -196,8 +195,7 @@ ${body}
 只输出 JSON：{"unsupported":[{"claim":"...","why":"..."}],"summary":"..."}\n${loadPrompt(QA, REPO, "concept-factcheck")}`;
   const before = dirtyPaths();
   const out = await runAgent(prompt, { schema: FACT_SCHEMA, maxTurns: 30, disallowed: DISALLOW_NOTEONLY + ",Write,StrReplace,Edit", timeoutMs: 900_000 });
-  const extra = newDirtyOutsideAtlas(before);
-  if (extra.length) throw new Error(`核查越界改了路径：${extra.join(" | ")}`);
+  assertOnlyAtlasWrites(REPO, REPO, out?.sessionId, before, `factcheck(${page.slug})`);
   return lenient(out) ?? { unsupported: [], summary: "解析失败(视为通过存疑)" };
 }
 
@@ -211,6 +209,10 @@ async function runPage(slug: string): Promise<{ slug: string; pass: boolean; rea
   }
   const record: any = { slug, rounds: [], finalPass: false };
   let feedback: string | null = null;
+  // keep-best：修订可能越改越差（路径笔记线的老教训），失败收场时把最好一轮写回盘。
+  let best: { raw: string; pen: number } | null = null;
+  const penaltyOf = (reasons: string[], unclearMed: number, breakMed: number, unsupported: number) =>
+    reasons.length * 2 + unclearMed + breakMed * 2 + unsupported * 3;
   for (let round = 0; round < 3; round++) {
     console.log(`[${slug}] round ${round}: ${round === 0 && !existsSync(pageFile(slug)) ? "写作" : "修订"}…`);
     await write(page, feedback);
@@ -237,6 +239,8 @@ async function runPage(slug: string): Promise<{ slug: string; pass: boolean; rea
     if (retellOk < 2) reasons.push(`复述不成立（${retellOk}/3 能讲给同事）`);
     if (fc.unsupported.length) reasons.push(`unsupported ${fc.unsupported.length} 条：${fc.unsupported.map((u: any) => u.claim).slice(0, 3).join("｜")}`);
     record.rounds.push({ round, visuals: vis, unclearMed, breakMed, retellOk, unsupported: fc.unsupported, reasons });
+    const pen = penaltyOf(reasons, unclearMed, breakMed, fc.unsupported.length);
+    if (!best || pen < best.pen) best = { raw, pen };
     if (!reasons.length) {
       record.finalPass = true;
       writeFileSync(arch, JSON.stringify(record, null, 2));
@@ -252,6 +256,11 @@ async function runPage(slug: string): Promise<{ slug: string; pass: boolean; rea
       ...(readers.flatMap(r => r.undefined_terms ?? [])).slice(0, 6).map(t => `- 术语没解释：${t}`),
       ...fc.unsupported.map((u: any) => `- 事实不符：「${u.claim}」——${u.why}`),
     ].join("\n");
+  }
+  // 三轮都没过：盘上留"最好一轮"而非"最后一轮"
+  if (best && readFileSync(pageFile(slug), "utf8") !== best.raw) {
+    writeFileSync(pageFile(slug), best.raw);
+    console.log(`[${slug}] 回退到最好一轮（penalty ${best.pen}）`);
   }
   writeFileSync(arch, JSON.stringify(record, null, 2));
   return { slug, pass: false, reasons: record.rounds.at(-1).reasons };

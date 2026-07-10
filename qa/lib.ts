@@ -99,6 +99,58 @@ export function newDirtyOutsideAtlas(repo: string, before: Set<string>): string[
   return [...dirtyPaths(repo)].filter(p => !before.has(p) && !p.startsWith(".atlas/"));
 }
 
+// ---------- 精确越界守卫（transcript 归因） ----------
+// 共享工作区里，git 差分守卫会把"别的 session 并发弄脏的路径"冤枉成本 agent 越界（实测
+// 一整波 concept 生成被另一 session 的重构误杀）。grok 把每次会话的工具调用记录在
+// ~/.grok/sessions/<urlencode(cwd)>/<sessionId>/chat_history.jsonl —— 据此精确回答
+// "这个 agent 自己写了哪些文件"。终端命令无法按路径归因，调用方应对无需终端的阶段
+// 直接 disallow Shell，让全部写入可归因。
+const WRITE_TOOLS = new Set(["write", "search_replace", "edit_file", "create_file", "apply_patch", "str_replace"]);
+const SHELL_TOOLS = new Set(["run_terminal_command", "bash", "shell", "terminal"]);
+export function agentWrites(cwd: string, sessionId: string): { files: string[]; shells: string[] } | null {
+  const home = process.env.HOME || "";
+  const f = join(home, ".grok/sessions", encodeURIComponent(cwd), sessionId, "chat_history.jsonl");
+  if (!home || !sessionId || !existsSync(f)) return null;
+  const files: string[] = [], shells: string[] = [];
+  for (const ln of readFileSync(f, "utf8").split("\n")) {
+    if (!ln.trim()) continue;
+    let d: any; try { d = JSON.parse(ln); } catch { continue; }
+    for (const tc of d?.tool_calls ?? []) {
+      let a: any = {}; try { a = JSON.parse(tc.arguments ?? "{}"); } catch { /* 参数解析失败按未知处理 */ }
+      const p = a.target_file ?? a.file_path ?? a.path ?? a.filePath;
+      if (WRITE_TOOLS.has(tc.name)) { if (p) files.push(String(p)); }
+      else if (SHELL_TOOLS.has(tc.name)) shells.push(String(a.command ?? a.cmd ?? "").slice(0, 200));
+    }
+  }
+  return { files, shells };
+}
+// 终端命令里"像写操作"的形状（无法按路径归因时的兜底判据）
+const SHELL_WRITEY = /(^|[;&|]\s*)(rm|mv|cp|tee|sed\s+-i|git\s+(add|commit|checkout|restore|clean|stash|reset))\b|>>?\s*\S/;
+/**
+ * 断言"这个 agent 会话没有写 .atlas 之外的东西"。
+ * 优先 transcript 归因：agent 自己写的文件越界 → 抛；终端跑了写形状的命令且树上出现
+ * .atlas 外新脏 → 无法归因，fail-safe 抛；只有环境脏（别的 session 并发改动）→ 警告放行。
+ * transcript 不可得（非 grok / 日志缺失）→ 回退老的 git 差分硬门。
+ */
+export function assertOnlyAtlasWrites(repo: string, agentCwd: string, sessionId: string | undefined, before: Set<string>, label: string): void {
+  const ambient = newDirtyOutsideAtlas(repo, before);
+  const t = sessionId ? agentWrites(agentCwd, sessionId) : null;
+  if (t === null) {
+    if (ambient.length) throw new Error(`${label} 越界改了 .atlas 外路径（transcript 不可得，按 git 差分判）：${ambient.join(" | ")}`);
+    return;
+  }
+  const bad = t.files.filter(p => {
+    const abs = p.startsWith("/") ? p : join(agentCwd, p);
+    return abs.startsWith(repo + "/") && !abs.startsWith(join(repo, ".atlas") + "/");
+  });
+  if (bad.length) throw new Error(`${label} 的 agent 亲手写了 .atlas 外文件：${bad.join(" | ")}`);
+  if (ambient.length) {
+    const writey = t.shells.filter(c => SHELL_WRITEY.test(c));
+    if (writey.length) throw new Error(`${label}：树上出现 .atlas 外新脏（${ambient.join(" | ")}），且该 agent 跑过写形状的终端命令（${writey[0]}…）——无法归因，按越界处理`);
+    console.warn(`  ⚠ ${label}：检测到 .atlas 外新脏路径（${ambient.slice(0, 4).join(", ")}${ambient.length > 4 ? "…" : ""}）——transcript 显示本 agent 未写它们，判为其它 session 的并发改动，放行`);
+  }
+}
+
 // ---------- agent 调用（grok 参数面） ----------
 export interface AgentOpts { cwd: string; schema?: string; maxTurns: number; disallowed?: string; approve?: boolean; timeoutMs: number }
 export async function runAgent(promptText: string, o: AgentOpts): Promise<any> {
