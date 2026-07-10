@@ -1,4 +1,5 @@
 import { loadNotes, noteFileFor } from './notes.js';
+import { conceptStatusEntries } from './conceptPages.js';
 import { detectMoves, attachDeltas } from './reconcile.js';
 import { checkRefs } from './refs.js';
 export function computeStatus(root, scanResult, opts = {}) {
@@ -73,7 +74,12 @@ export function computeStatus(root, scanResult, opts = {}) {
     if (opts.deltas)
         attachDeltas(root, entries, notes);
     entries.sort((a, b) => (a.path < b.path ? -1 : 1));
-    return { entries, orphans, brokenRefs: checkRefs(root, scanResult, notes, moved) };
+    return {
+        entries,
+        orphans,
+        brokenRefs: checkRefs(root, scanResult, notes, moved),
+        concepts: conceptStatusEntries(root, scanResult),
+    };
 }
 export function summarize(status) {
     const counts = { fresh: 0, outdated: 0, missing: 0, moved: 0, ignored: 0 };
@@ -85,4 +91,16 @@ export function summarize(status) {
         orphans: status.orphans.length,
         brokenRefs: status.brokenRefs.length,
     };
+}
+export function summarizeConcepts(status) {
+    const counts = { fresh: 0, outdated: 0, brokenSource: 0 };
+    for (const c of status.concepts) {
+        if (c.status === 'fresh')
+            counts.fresh++;
+        else if (c.status === 'outdated')
+            counts.outdated++;
+        else
+            counts.brokenSource++;
+    }
+    return { total: status.concepts.length, ...counts };
 }

@@ -48,7 +48,10 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
     const payload = buildPayload(input)
     const html = buildHtml({ ...input, payload })
     const digest = createHash('sha1')
-      .update(JSON.stringify(status.entries) + JSON.stringify(status.orphans) + glossaryRaw)
+      .update(
+        JSON.stringify(status.entries) + JSON.stringify(status.orphans) +
+        JSON.stringify(status.concepts) + glossaryRaw,
+      )
       .digest('hex')
     return { html, digest, payloadJson: JSON.stringify(payload) }
   }

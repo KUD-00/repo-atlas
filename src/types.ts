@@ -79,6 +79,43 @@ export interface ComputeStatusResult {
   entries: StatusEntry[]
   orphans: Orphan[]
   brokenRefs: BrokenRef[]
+  concepts: ConceptStatusEntry[]
+}
+
+export type ConceptAudience = 'dev' | 'general'
+
+/** Concept-page freshness. No 'missing' — concept pages only exist once a
+ * human writes them; 'broken-source' means a listed source left the scan. */
+export type ConceptState = 'fresh' | 'outdated' | 'broken-source'
+
+/** A concept page: an explainer anchored to a SET of repo paths (`sources`)
+ * instead of a single path. Lives in .atlas/concepts/<slug>.md. */
+export interface ConceptPage {
+  slug: string
+  file: string
+  title: string
+  audience: ConceptAudience
+  /** Repo paths (files or dirs) this explanation is written against. */
+  sources: string[]
+  /** sha1 over the sources' scan hashes (in `sources` order) at stamp time. */
+  sourcesHash: string | null
+  anchor: string | null
+  stamped: string | null
+  body: string
+}
+
+export interface ConceptStatusEntry {
+  slug: string
+  title: string
+  audience: ConceptAudience
+  status: ConceptState
+  sources: string[]
+  /** Sources that no longer resolve in the scan. */
+  brokenSources: string[]
+  stamped: string | null
+  anchor: string | null
+  file: string
+  body: string
 }
 
 export interface ImportGraph {
@@ -120,6 +157,20 @@ export interface TreeNode {
   agg?: TreeAgg
 }
 
+/** Concept page as the viewer consumes it (rendered body, no note file path). */
+export interface ConceptNode {
+  slug: string
+  title: string
+  audience: ConceptAudience
+  status: ConceptState
+  sources: string[]
+  brokenSources: string[]
+  stamped: string | null
+  anchor: string | null
+  html: string | null
+  source: string | null
+}
+
 export interface AtlasPayload {
   repoName: string
   commit: string | null
@@ -129,6 +180,7 @@ export interface AtlasPayload {
   graph: ImportGraph | null
   glossary: GlossaryEntry[]
   basePoints: string[]
+  concepts: ConceptNode[]
 }
 
 export interface ChatMessage {

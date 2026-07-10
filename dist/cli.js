@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { repoRoot, headCommit, headCommitFull, dirtyPaths, atlasDir, loadConfig, scan, hashFor, DEFAULT_EXCLUDE, DATA_FORMAT, } from './scan.js';
 import { noteFileFor, loadNotes, stampNote, moveNoteFile, notesRoot } from './notes.js';
-import { computeStatus, summarize } from './status.js';
+import { loadConceptPages, sourcesHashFor, stampConceptPage, conceptFileFor } from './conceptPages.js';
+import { computeStatus, summarize, summarizeConcepts } from './status.js';
 import { buildHtml, writeAtlas } from './build.js';
 import { serve } from './serve.js';
 import { buildImportGraph } from './deps.js';
@@ -18,7 +19,9 @@ usage: repo-atlas <command> [args]
   status [--json]          compare notes ledger against the working tree
                            (reports moved paths and broken note references too)
   notepath <path>          print the note file location for a repo path
-  stamp [paths...|--all]   stamp note(s) with the current git hash + HEAD anchor
+  stamp [paths...|--all]   stamp note(s) with the current git hash + HEAD anchor;
+                           concept pages too: stamp .atlas/concepts/<slug>.md
+                           (or concepts/<slug>) recomputes their sources_hash
   migrate [--apply]        relocate notes whose targets moved (dry-run by default);
                            also rewrites references to the old paths in note prose
   build [-o <file>]        generate the self-contained HTML atlas (default .atlas/atlas.html)
@@ -35,6 +38,10 @@ Notes live in .atlas/notes/ — one markdown file per described path:
   directory apps/daemon   -> .atlas/notes/apps/daemon/__dir__.md
   file      apps/x.ts     -> .atlas/notes/apps/x.ts.md
 Frontmatter (hash, anchor, dirty, stamped) is managed by 'stamp'; you write the body.
+
+Concept pages live in .atlas/concepts/<slug>.md — explainers anchored to a SET
+of repo paths (frontmatter: title, audience, sources, sources_hash, anchor,
+stamped). 'status' reports them fresh / outdated / broken-source.
 
 Agent loop: status --json  ->  migrate --apply  ->  read diffs, revise note bodies  ->  stamp  ->  build`;
 function main() {
@@ -95,6 +102,7 @@ function status(root, args) {
     const config = requireConfig(root);
     const result = computeStatus(root, scan(root, config), { deltas: true });
     const sum = summarize(result);
+    const conceptSum = summarizeConcepts(result);
     const fmtDelta = (d) => d ? ` (+${d.added}/-${d.removed}${d.files > 1 ? ` in ${d.files} files` : ''})` : '';
     if (args.includes('--json')) {
         const pick = (st) => result.entries.filter((e) => e.status === st).map(({ path, type }) => ({ path, type }));
@@ -107,6 +115,10 @@ function status(root, args) {
                 .map(({ path, type, movedFrom, similarity, noteFile, expectedNoteFile }) => ({ from: movedFrom, to: path, type, similarity, noteFile, expectedNoteFile })),
             orphans: result.orphans,
             brokenRefs: result.brokenRefs,
+            concepts: {
+                summary: conceptSum,
+                pages: result.concepts.map(({ slug, title, audience, status, sources, brokenSources, stamped, file }) => ({ slug, title, audience, status, sources, brokenSources, stamped, file })),
+            },
         }, null, 2));
         return;
     }
@@ -133,6 +145,18 @@ function status(root, args) {
         for (const e of movedList) {
             const sim = e.similarity === 100 ? 'identical' : e.similarity !== null ? `${e.similarity}% similar` : 'children moved';
             console.log(`  ${e.type === 'dir' ? 'D' : 'F'} ${e.movedFrom} -> ${e.path} (${sim})`);
+        }
+    }
+    if (conceptSum.total) {
+        console.log(`\nconcepts: ${conceptSum.total} page(s) · ${conceptSum.fresh} fresh · ` +
+            `${conceptSum.outdated} outdated · ${conceptSum.brokenSource} broken-source`);
+        for (const c of result.concepts) {
+            if (c.status === 'fresh')
+                continue;
+            const detail = c.status === 'broken-source'
+                ? `source(s) gone: ${c.brokenSources.join(', ')}`
+                : 'a source changed since stamped';
+            console.log(`  C ${c.slug} — ${c.title} (${detail})`);
         }
     }
     for (const o of result.orphans)
@@ -172,14 +196,36 @@ function stamp(root, args) {
     const config = requireConfig(root);
     const scanResult = scan(root, config);
     const notes = loadNotes(root);
+    const conceptPages = new Map(loadConceptPages(root).map((p) => [p.slug, p]));
     const anchor = headCommitFull(root);
     const dirty = dirtyPaths(root);
-    let targets;
-    if (args.includes('--all') || args.length === 0) {
-        targets = [...notes.keys()];
+    // A target names a concept page via its ledger file (.atlas/concepts/<slug>.md)
+    // or the concepts/<slug> shorthand — the shorthand only when it can't be a
+    // real repo path (a repo may well contain a concepts/ directory of its own).
+    const conceptSlugFor = (a) => {
+        const file = /^\.atlas\/concepts\/(.+?)\.md$/.exec(a);
+        if (file)
+            return file[1];
+        const short = /^concepts\/(.+)$/.exec(a);
+        if (short && conceptPages.has(short[1]) && !notes.has(a) && !hashFor(scanResult, a))
+            return short[1];
+        return null;
+    };
+    const all = args.includes('--all') || args.length === 0;
+    const targets = [];
+    const conceptTargets = [];
+    if (all) {
+        targets.push(...notes.keys());
+        conceptTargets.push(...conceptPages.keys());
     }
     else {
-        targets = args.map((a) => (a === '.' ? '' : a.replace(/\/+$/, '')));
+        for (const a of args) {
+            const slug = conceptSlugFor(a);
+            if (slug !== null)
+                conceptTargets.push(slug);
+            else
+                targets.push(a === '.' ? '' : a.replace(/\/+$/, ''));
+        }
     }
     let stamped = 0;
     for (const p of targets) {
@@ -199,7 +245,33 @@ function stamp(root, args) {
         stampNote(note.file, current.hash, { anchor, dirty: isDirty(dirty, p, current.type) });
         stamped++;
     }
+    let stampedConcepts = 0;
+    for (const slug of conceptTargets) {
+        const page = conceptPages.get(slug);
+        if (!page) {
+            console.error(`no concept page: write ${conceptFileFor(root, slug)} first`);
+            process.exitCode = 1;
+            continue;
+        }
+        const { hash, broken } = sourcesHashFor(scanResult, page.sources);
+        if (hash === null) {
+            // like an orphan note under --all this is only a warning; an explicit
+            // target that can't be stamped is an error
+            console.error(`skipping concept ${slug}: source(s) not in scan: ${broken.join(', ')}`);
+            if (!all)
+                process.exitCode = 1;
+            continue;
+        }
+        if (page.sourcesHash === hash && page.anchor)
+            continue;
+        stampConceptPage(page, hash, anchor);
+        stampedConcepts++;
+    }
     console.log(`stamped ${stamped} note(s), ${targets.length - stamped} already current or skipped`);
+    if (conceptTargets.length) {
+        console.log(`stamped ${stampedConcepts} concept page(s), ` +
+            `${conceptTargets.length - stampedConcepts} already current or skipped`);
+    }
 }
 function migrate(root, args) {
     const apply = args.includes('--apply');

@@ -6,6 +6,7 @@ import { fillGlossaryRefs } from './glossary.js'
 import type {
   AtlasPayload,
   ComputeStatusResult,
+  ConceptNode,
   GlossaryEntry,
   ImportGraph,
   TreeNode,
@@ -85,6 +86,19 @@ export function buildPayload({
   // note bodies we already have. `home` was parsed from glossary.md upstream.
   fillGlossaryRefs(glossary, status.entries.map((e) => ({ path: e.path, body: e.body })))
 
+  const concepts: ConceptNode[] = status.concepts.map((c) => ({
+    slug: c.slug,
+    title: c.title,
+    audience: c.audience,
+    status: c.status,
+    sources: c.sources,
+    brokenSources: c.brokenSources,
+    stamped: c.stamped,
+    anchor: c.anchor,
+    html: c.body ? String(marked.parse(c.body)) : null,
+    source: c.body || null,
+  }))
+
   return {
     repoName,
     commit,
@@ -94,13 +108,16 @@ export function buildPayload({
     graph,
     glossary,
     basePoints,
+    concepts,
   }
 }
 
 export function buildHtml(input: BuildInput & { payload?: AtlasPayload }): string {
   const data = input.payload ?? buildPayload(input)
   const json = JSON.stringify(data).replace(/</g, '\\u003c')
-  const usesMermaid = input.status.entries.some((e) => e.body?.includes('```mermaid'))
+  const usesMermaid =
+    input.status.entries.some((e) => e.body?.includes('```mermaid')) ||
+    input.status.concepts.some((c) => c.body.includes('```mermaid'))
 
   return TEMPLATE.replace('__TITLE__', () => escapeHtml(data.repoName))
     .replace('/*__VIEWER_CSS__*/', () => readVendor('viewer.css'))
