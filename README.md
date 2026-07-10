@@ -98,6 +98,45 @@ code's shape IS the point being made. A marker that no longer resolves
 degrades to plain text (`repo-atlas check` reports the rot); the static
 `build` output has no source to slice, so embeds degrade there too.
 
+## Concept pages
+
+The third page kind: an explainer for one important mechanism end-to-end
+(often readable by non-developers), anchored to a SET of repo paths instead
+of a single one.
+
+- **Storage** — `.atlas/concepts/<slug>.md`, frontmatter + markdown body:
+
+  ```
+  ---
+  title: 一通 IVR 电话的一生
+  audience: general          # dev | general (general pages get a 👥 badge)
+  sources: ["application/classes/model/app/ivrmodel.php", "application/classes/tts"]
+  sources_hash: <sha1>       # managed by stamp — hashes of the sources, in order
+  anchor: <commit>
+  stamped: <iso>
+  ---
+  ```
+
+- **Stamp** — `repo-atlas stamp .atlas/concepts/<slug>.md` (canonical; the
+  shorthand `concepts/<slug>` also works when it doesn't collide with a real
+  repo path) recomputes `sources_hash` — each source's current scan hash
+  (blob hash for files, dir hash for dirs), concatenated in `sources` order
+  and sha1'd — plus `anchor` and `stamped`. `stamp --all` covers concept
+  pages too.
+
+- **Freshness** — any source's hash changing flips the page to `outdated`; a
+  source that no longer resolves in the scan is `broken-source` (reported per
+  page by `status`, human and `--json` alike). There is no `missing`: concept
+  pages exist only once someone writes them. Dir sources have dir-hash
+  semantics — direct children only, deep edits flag the nested dir, so list
+  the specific subdirs you actually lean on.
+
+- **Viewer** — concept pages sit in a "concepts" group at the top of the
+  sidebar and render like any note (mermaid, raw HTML, glossary). Because a
+  concept has no file of its own, `code:` anchors must carry a full repo
+  path: `[label](code:path/to/file.ts#StartMarker..EndMarker)` — same marker
+  semantics as file pages, link and `![embed]` forms both.
+
 ## Raw HTML in notes
 
 Notes are markdown, and raw HTML (including inline styles) passes through —
