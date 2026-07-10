@@ -307,6 +307,14 @@ function lint(body: string): string[] {
   // 长段落告警：一段塞太多字/句 = 没分段换行。软阈值（比硬门低一格），提前提醒拆段。
   for (const p of longParagraphs(body, false))
     issues.push(`段落过长（${p}）：分段换行，一段讲一件事；平行项改 - 列表`);
+  // 图表密度告警：长页无图 = 散文墙的另一种形态。图=mermaid；表=markdown 表头分隔行或 <table>。
+  const figures = (body.match(/```mermaid/g) || []).length
+    + (body.match(/^\s*\|[-: |]+\|\s*$/gm) || []).length
+    + (body.match(/<table\b/g) || []).length;
+  if (bodyLines > 60 && figures === 0)
+    issues.push(`长页无图表（正文 ${bodyLines} 行，图/表 0）：至少给 1 张——形态变换给具体实例两侧对照（并排 JSON/HTML 双栏），管线/分派画 mermaid（真实节点名）`);
+  else if (bodyLines > 110 && figures < 2)
+    issues.push(`图表不足（正文 ${bodyLines} 行，图/表 ${figures} < 2）：把逐句描述"A 键变 B 字段"的散文段改成对照图/表`);
   return issues;
 }
 
