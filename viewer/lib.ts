@@ -411,6 +411,7 @@ const PV_LANG: Record<string, string> = {
   css: 'css', html: 'xml', xml: 'xml', svg: 'xml', astro: 'xml', vue: 'xml',
   py: 'python', sh: 'bash', bash: 'bash', zsh: 'bash', yml: 'yaml', yaml: 'yaml',
   sql: 'sql', rs: 'rust', go: 'go', nix: 'nix', toml: 'ini', ini: 'ini', diff: 'diff',
+  php: 'php', phtml: 'php',
 }
 
 export function languageFor(path: string): string | null {
