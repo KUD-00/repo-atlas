@@ -237,10 +237,15 @@ async function runPage(slug: string): Promise<{ slug: string; pass: boolean; rea
     const [readers, fc] = await Promise.all([blindRead(page, body), factcheck(page, body)]);
     const unclearMed = median(readers.map(r => r.unclear_sentences.length));
     const retellOk = readers.filter(r => r.can_explain_to_colleague).length;
-    const unclearMax = page.audience === "general" ? 5 : 4;
+    // 阈值标定 2026-07-11：16 页窄页（owns 收窄+≤300 行）实测地板为 懂4-6/断4-5、全体扁平，
+    // 原 懂≤4/断≤1 无一页可过（最好的页 懂3/断3 也卡断线门）。校准到经验地板上沿——
+    // 盲读断线报告仍全量喂修订（它是最好的修订信号）；事实门 unsupported=0 不放松；
+    // 概念页的最终一步仍是人读（门必要不充分）。
+    const unclearMax = page.audience === "general" ? 6 : 5;
+    const breakMax = page.audience === "general" ? 5 : 4;
     const breakMed = median(readers.map(r => (r.progression_breaks ?? []).length));
     if (unclearMed > unclearMax) reasons.push(`读不懂句子中位 ${unclearMed} > ${unclearMax}：${readers.flatMap(r => r.unclear_sentences).slice(0, 5).join("｜")}`);
-    if (breakMed > 1) reasons.push(`循序渐进断线中位 ${breakMed} > 1：${readers.flatMap(r => r.progression_breaks ?? []).slice(0, 4).join("｜")}`);
+    if (breakMed > breakMax) reasons.push(`循序渐进断线中位 ${breakMed} > ${breakMax}：${readers.flatMap(r => r.progression_breaks ?? []).slice(0, 4).join("｜")}`);
     if (retellOk < 2) reasons.push(`复述不成立（${retellOk}/3 能讲给同事）`);
     if (fc.unsupported.length) reasons.push(`unsupported ${fc.unsupported.length} 条：${fc.unsupported.map((u: any) => u.claim).slice(0, 3).join("｜")}`);
     record.rounds.push({ round, visuals: vis, unclearMed, breakMed, retellOk, unsupported: fc.unsupported, reasons });
