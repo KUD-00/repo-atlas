@@ -51,9 +51,14 @@ bun $QA/sweep.ts --file .atlas/qa/missing.txt --concurrency 12
 bun $QA/order.ts --dry          # 先看提案与理由
 bun $QA/order.ts                # 认可后写入 frontmatter 的 order:（stamp 会保序）
 
-# 4. 人审概念主页（必做，见下"门的边界"）
+# 4. 概念收敛：跨切概念 → 归属页讲全 + glossary 一行本质 + 别处瘦身指路
+#    概念清单 .atlas/pipeline/concepts.json 是仓库自有内容（格式见 extract.ts 头注释）
+bun $QA/extract.ts --all --dry   # 先看会触碰哪些页
+bun $QA/extract.ts --all         # 执行；触碰过的页用 run.ts --revise --stamp --force 复验
 
-# 5. 代码演进后：只重扫过时的
+# 5. 人审概念主页（必做，见下"门的边界"）
+
+# 6. 代码演进后：只重扫过时的
 repo-atlas status --json | jq -r '.outdated[].path' > .atlas/qa/outdated.txt
 bun $QA/sweep.ts --file .atlas/qa/outdated.txt --fresh
 ```
