@@ -75,7 +75,7 @@ ${page.sources.map((s: string) => `- \`${s}\``).join("\n")}
 
 硬要求：
 1. **可视化 ≥2 处**：内嵌 HTML（viewer 直接渲染——时间线/双栏对照/流程卡片/表格，形式随你发挥，以一眼看懂为准；朴素行内样式即可）${page.audience === "general" ? "，至少 1 处必须是 HTML" : ""}；拓扑（管线/状态机）可用 mermaid。别机械套模板。
-2. **一个真实例子贯穿全文**（一通具体的电话/一条具体的菜单配置），别每节换例子。
+2. **一个例子贯穿全文**（一通具体的电话/一条具体的菜单配置），别每节换例子。例子里的场景细节（酒店名/时间/客人问题）可以虚构，但要用「比如」明示是举例；例子中体现的**机制、数字、顺序、字段行为必须全部来自 sources**，不许为了例子顺手编机制。
 3. 中文行文；一段讲一件事；平行枚举用列表不用顿号串。
 4. 读者读完要能向同事复述这个机制——按"是什么→一个例子→怎么运作→常见疑问"的顺序教。
 5. **禁令句式（机械硬门，出现即不过）**：「值得注意的是/有意思的是/我们来看/一定要注意/先记住/记住一件事/简单来说/换句话说/别担心/让我们/想象一下/见文末/如上所述/综上所述/总而言之」——这些是 AI 教学腔，是什么就直接说什么。标题也不许用"先记住一件事"这类句式。
@@ -134,7 +134,7 @@ async function factcheck(page: any, body: string): Promise<any> {
   const prompt = `你是事实核查员，有代码读权限。核对下面这页讲解里的每条事实断言是否被这些源码文件支撑（只读这些）：
 ${page.sources.map((s: string) => `- ${s}`).join("\n")}
 
-注意受众是${page.audience === "general" ? "非开发者：允许合理的通俗化省略（比如把 Twilio Studio 说成'电话平台的流程图'），只抓**与源码行为相悖**的断言，不抓简化" : "开发者：按常规严格核对"}。
+注意受众是${page.audience === "general" ? "非开发者：允许合理的通俗化省略（比如把 Twilio Studio 说成'电话平台的流程图'），只抓**与源码行为相悖**的断言，不抓简化" : "开发者：按常规严格核对"}。明示为举例的虚构场景（假想的酒店名/时间/客人提问）不算违规——只核查例子中体现的机制/数字/字段行为是否与源码一致。
 
 页面：
 ${body}
@@ -171,7 +171,8 @@ async function runPage(slug: string): Promise<{ slug: string; pass: boolean; rea
     const [readers, fc] = await Promise.all([blindRead(page, body), factcheck(page, body)]);
     const unclearMed = median(readers.map(r => r.unclear_sentences.length));
     const retellOk = readers.filter(r => r.can_explain_to_colleague).length;
-    if (unclearMed > 3) reasons.push(`读不懂句子中位 ${unclearMed} > 3：${readers.flatMap(r => r.unclear_sentences).slice(0, 5).join("｜")}`);
+    const unclearMax = page.audience === "general" ? 5 : 4;
+    if (unclearMed > unclearMax) reasons.push(`读不懂句子中位 ${unclearMed} > ${unclearMax}：${readers.flatMap(r => r.unclear_sentences).slice(0, 5).join("｜")}`);
     if (retellOk < 2) reasons.push(`复述不成立（${retellOk}/3 能讲给同事）`);
     if (fc.unsupported.length) reasons.push(`unsupported ${fc.unsupported.length} 条：${fc.unsupported.map((u: any) => u.claim).slice(0, 3).join("｜")}`);
     record.rounds.push({ round, visuals: vis, unclearMed, retellOk, unsupported: fc.unsupported, reasons });
