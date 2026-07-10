@@ -194,7 +194,7 @@ forward transparently; data written by a NEWER tool fails with a clear
 
 ## Agent workflow
 
-This tool deliberately does **not** call an LLM. Description quality comes from letting a
+The core tool deliberately does **not** call an LLM. Description quality comes from letting a
 coding agent (Claude Code etc.) actually read the code:
 
 1. `repo-atlas status --json` → lists `missing`, `outdated` (with diff size), `moved`,
@@ -218,3 +218,13 @@ those notes' subjects didn't change, only their references to other paths did.
 Suggested note shape: 1–3 sentences of *what this is and why it exists*, then bullets for
 anything non-obvious (invariants, gotchas, who calls it). Directory notes describe the
 area's role and how its children divide the work — not a file-by-file inventory.
+
+## QA pipeline (optional LLM suite)
+
+[`qa/`](qa/README.md) is a self-contained batch pipeline that generates and quality-gates
+notes at scale: per-note blind-reader review (N readers, empty-cwd isolation) + read-only
+fact-checking against current source + revision loops behind a rubric gate, with a sweep
+driver for whole-repo runs. It shells out to a headless agent CLI (grok by default) and is
+strictly optional — the core stays LLM-free. Per-repo customization (prompt overrides,
+extra rules, rubric tweaks) lives in the target repo's `.atlas/pipeline/`.
+See [qa/README.md](qa/README.md) for the new-repo recipe.

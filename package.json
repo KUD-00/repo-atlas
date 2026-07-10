@@ -8,7 +8,8 @@
   },
   "files": [
     "dist",
-    "src/vendor"
+    "src/vendor",
+    "qa"
   ],
   "engines": {
     "node": ">=20"

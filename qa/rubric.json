@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "calibrated": "2026-07-07",
+  "calibration_note": "阈值在一个 ~200 篇的真实仓库上标定过（拿一篇公认好的和一篇公认差的各跑一遍，确认门判对）。新仓库建议同样先各挑一好一差标定，再批量跑；要改阈值放 .atlas/pipeline/rubric.json 覆盖，别改本文件。",
+  "readers_per_note": 3,
+  "consensus": { "flagged_by_min": null, "fuzzy_ratio": 0.55, "note": "flagged_by_min=null → 代码按过半读者(floor(N/2)+1)算共识；3→2, 5→3。标定在 3 读者/2 票(=majority)下做，改读者数保持 majority 语义即等价" },
+  "gates": {
+    "reader": {
+      "consensus_unclear_max": 4,
+      "section_score_median_min": 3,
+      "overall_score_median_min": 4,
+      "retell_ok_required": true,
+      "concreteness_median_min": 4,
+      "concreteness_note": "只对枢纽页(dir 笔记 / 含 mermaid / 正文>60行)强制；小文件笔记不需要走查。低=全是比喻和机制名词、没有一个真实例子",
+      "note": "分节分排除 进阶细节 callout；overall_score 单独不区分好坏（模型向3-4收敛），共识问题数+最差章节中位分才是主信号"
+    },
+    "factcheck": {
+      "unsupported_max": 0,
+      "note_misleading_max": 0,
+      "note": "reader_invention（读者臆测）只警告不拦截"
+    },
+    "revision_rounds_max": 4
+  },
+  "grok": {
+    "reader_flags": "--no-memory --disable-web-search --max-turns 6, cwd=空目录（结构性无码权限）",
+    "factcheck_flags": "--no-memory --disable-web-search --no-subagents --always-approve --disallowed-tools Shell,AwaitShell,Delete,StrReplace,Write,EditNotebook,GenerateImage --max-turns 40, cwd=仓库根，跑完 git status 差分必须为零"
+  }
+}

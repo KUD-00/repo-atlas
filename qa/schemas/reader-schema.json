@@ -1,0 +1,11 @@
+{"type":"object","properties":{
+  "retell":{"type":"string"},
+  "key_decisions":{"type":"array","items":{"type":"string"}},
+  "unclear_sentences":{"type":"array","items":{"type":"object","properties":{"sentence":{"type":"string"},"reason":{"type":"string","enum":["term_undefined","too_dense","ambiguous","assumes_context"]},"note":{"type":"string"}},"required":["sentence","reason"]}},
+  "undefined_terms":{"type":"array","items":{"type":"string"}},
+  "section_scores":{"type":"array","items":{"type":"object","properties":{"section":{"type":"string"},"score":{"type":"number"},"comment":{"type":"string"}},"required":["section","score"]}},
+  "overall_score":{"type":"number"},
+  "confidence_statement":{"type":"string"},
+  "concreteness":{"type":"number"},
+  "abstract_spots":{"type":"array","items":{"type":"string"}}
+},"required":["retell","key_decisions","unclear_sentences","undefined_terms","section_scores","overall_score"]}
