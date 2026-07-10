@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import { MessageCircle, PanelLeftClose, PanelLeftOpen, PanelRightOpen } from 'lucide-react'
@@ -8,6 +8,7 @@ import { indexTree, ancestorsOf, buildRelationIndex, useCompact } from './lib'
 import { useLive } from './live'
 import { Tree } from './Tree'
 import { DocPane } from './Doc'
+import { ConceptList, ConceptPane, conceptSlugOf } from './Concept'
 import { PanelPane, type CodeJump, type PanelMode } from './Preview'
 import { ChatDock } from './Chat'
 import { SettingsButton, SettingsDialog } from './Settings'
@@ -20,17 +21,17 @@ const CHIP =
   'chip text-[0.7rem] py-0.5 px-2 rounded-full border border-border bg-transparent text-muted cursor-pointer whitespace-nowrap'
 const CHIP_ON = 'border-accent text-accent bg-[#3d6b540f]'
 
-function useRoute(nodesByPath: Map<string, { path: string }>) {
+function useRoute(valid: (route: string) => boolean) {
   const read = () => {
     const p = decodeURI(location.hash.slice(1))
-    return nodesByPath.has(p) ? p : ''
+    return valid(p) ? p : ''
   }
   const [path, setPath] = useState(read)
   useEffect(() => {
     const onChange = () => setPath(read())
     window.addEventListener('hashchange', onChange)
     return () => window.removeEventListener('hashchange', onChange)
-  }, [nodesByPath])
+  }, [valid])
   const navigate = (p: string) => {
     if (decodeURI(location.hash.slice(1)) !== p) {
       history.pushState(null, '', p ? '#' + encodeURI(p) : location.pathname + location.search)
@@ -68,7 +69,16 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
 
   const nodesByPath = useMemo(() => indexTree(data.tree), [data])
   const rel = useMemo(() => buildRelationIndex(data.graph), [data])
-  const [path, navigate] = useRoute(nodesByPath)
+  const concepts = data.concepts ?? []
+  const conceptsBySlug = useMemo(() => new Map(concepts.map((c) => [c.slug, c])), [data])
+  const isRoute = useCallback(
+    (p: string) => {
+      const slug = conceptSlugOf(p)
+      return slug !== null ? conceptsBySlug.has(slug) : nodesByPath.has(p)
+    },
+    [nodesByPath, conceptsBySlug],
+  )
+  const [path, navigate] = useRoute(isRoute)
   const [expanded, setExpanded] = useState(() => new Set(ancestorsOf(path)))
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
@@ -86,6 +96,21 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const [panelClosing, setPanelClosing] = useState(false)
   const [jump, setJump] = useState<CodeJump | null>(null)
   const jumpSeq = useRef(0)
+  // Concept pages have no path of their own, so the panel needs a repo file to
+  // show: the first file-typed source by default, then whatever code anchors jump to.
+  const [conceptCodePath, setConceptCodePath] = useState<string | null>(null)
+
+  const concept = useMemo(() => {
+    const slug = conceptSlugOf(path)
+    return slug !== null ? conceptsBySlug.get(slug) : undefined
+  }, [path, conceptsBySlug])
+
+  useEffect(() => {
+    if (!concept) return
+    setConceptCodePath(concept.sources.find((s) => nodesByPath.get(s)?.type === 'file') ?? null)
+    // keyed by route: a live data refresh must not reset a jump the reader followed
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path])
 
   const onSelect = (p: string) => {
     navigate(p)
@@ -100,6 +125,7 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
       setPanelClosing(false)
       setPanelOpen(true)
       setPanelMode('code')
+      setConceptCodePath(d.path) // concept anchors jump across files — follow them
       setJump({ path: d.path, line: d.line, endLine: d.endLine ?? d.line, seq: ++jumpSeq.current })
     }
     window.addEventListener('atlas-code-jump', onJump)
@@ -123,6 +149,11 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   }, [path])
 
   const node = nodesByPath.get(path) ?? data.tree
+  // for a concept page the side panel shows the source a code anchor jumped to
+  // (or the first file source); with no file source it falls back to the root toc
+  const panelNode = concept
+    ? (conceptCodePath !== null ? nodesByPath.get(conceptCodePath) : undefined) ?? data.tree
+    : node
   const agg = data.tree.agg!
   const fresh = agg.total - agg.outdated - agg.missing
 
@@ -152,7 +183,7 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   }
 
   const panelProps = {
-    node,
+    node: panelNode,
     nodesByPath,
     basePoints: data.basePoints ?? [],
     repoName: data.repoName,
@@ -170,7 +201,7 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
             <PanelLeftOpen />
           </button>
           <span className="flex-1 min-w-0 text-[0.85rem] font-semibold text-center overflow-hidden text-ellipsis whitespace-nowrap">
-            {node.path ? node.path.split('/').pop() : data.repoName}
+            {concept ? concept.title : node.path ? node.path.split('/').pop() : data.repoName}
           </span>
           {live && (
             <button
@@ -267,6 +298,13 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
           </div>
         </div>
         <nav className="flex-1 min-h-0 overflow-auto px-1.5 pt-2 pb-6">
+          <ConceptList
+            concepts={concepts}
+            selected={path}
+            query={query.trim().toLowerCase()}
+            statusFilter={statusFilter}
+            onSelect={onSelect}
+          />
           <Tree
             root={data.tree}
             selected={path}
@@ -282,17 +320,21 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
       </aside>
       <main className={'min-w-0 min-h-0 grid overflow-hidden ' + mainCols}>
         <div className="overflow-auto min-w-0" ref={docRef}>
-          <DocPane
-            node={node}
-            repoName={data.repoName}
-            nodesByPath={nodesByPath}
-            rel={rel}
-            glossary={data.glossary}
-            onContents={() => {
-              openPanel()
-              setPanelMode('toc')
-            }}
-          />
+          {concept ? (
+            <ConceptPane concept={concept} nodesByPath={nodesByPath} glossary={data.glossary} />
+          ) : (
+            <DocPane
+              node={node}
+              repoName={data.repoName}
+              nodesByPath={nodesByPath}
+              rel={rel}
+              glossary={data.glossary}
+              onContents={() => {
+                openPanel()
+                setPanelMode('toc')
+              }}
+            />
+          )}
         </div>
         {!compact && panelOpen && <PanelPane {...panelProps} />}
         {!compact && !panelOpen && (

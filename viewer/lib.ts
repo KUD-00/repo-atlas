@@ -576,18 +576,21 @@ function buildCodeEmbed(
  * symbol disappears (renamed/deleted) the link silently degrades back to
  * plain code, and the note's own staleness flag is what says "re-read me".
  */
+function wireCodeAnchor(a: HTMLElement, path: string, line: number, endLine: number, implicit = false): void {
+  a.className = 'code-anchor' + (implicit ? ' implicit' : '')
+  a.title = endLine > line ? `jump to lines ${line}–${endLine}` : `jump to line ${line}`
+  a.insertAdjacentHTML('beforeend', JUMP_ICON)
+  a.addEventListener('click', (e) => {
+    e.preventDefault()
+    window.dispatchEvent(new CustomEvent('atlas-code-jump', { detail: { path, line, endLine } }))
+  })
+}
+
 export function annotateCodeAnchors(container: HTMLElement, path: string, source: string): void {
   const lines = source.split('\n')
   const findLine = (name: string): number | null => findLineInSource(lines, name)
-  const wire = (a: HTMLElement, line: number, endLine: number, implicit = false) => {
-    a.className = 'code-anchor' + (implicit ? ' implicit' : '')
-    a.title = endLine > line ? `jump to lines ${line}–${endLine}` : `jump to line ${line}`
-    a.insertAdjacentHTML('beforeend', JUMP_ICON)
-    a.addEventListener('click', (e) => {
-      e.preventDefault()
-      window.dispatchEvent(new CustomEvent('atlas-code-jump', { detail: { path, line, endLine } }))
-    })
-  }
+  const wire = (a: HTMLElement, line: number, endLine: number, implicit = false) =>
+    wireCodeAnchor(a, path, line, endLine, implicit)
 
   // embedded code: ![label](code:startMarker..endMarker) — same markers as the
   // link form, but rendered in place as a highlighted slice of the CURRENT
@@ -641,6 +644,68 @@ export function annotateCodeAnchors(container: HTMLElement, path: string, source
     code.replaceWith(a)
     a.appendChild(code)
     wire(a, line, line, true)
+  }
+}
+
+/**
+ * Code anchors on a CONCEPT page. A concept spans many files, so its anchors
+ * must carry the file: `code:<repo-path>#StartMarker..EndMarker` (both the
+ * link and the ![embed] form). The path is a full repo path — there is no
+ * "this page's file" to resolve against — and markers resolve against that
+ * file's CURRENT source, same as file-page anchors. A spec without a path,
+ * or whose source can't be fetched (static build), degrades like elsewhere:
+ * embeds to their label, links to plain text.
+ */
+export async function annotateConceptCodeAnchors(container: HTMLElement): Promise<void> {
+  const cache = new Map<string, Promise<string[] | null>>()
+  const linesOf = (p: string): Promise<string[] | null> => {
+    let hit = cache.get(p)
+    if (!hit) {
+      hit = fetch('raw?p=' + encodeURIComponent(p))
+        .then((res) => (res.ok && !res.headers.get('x-atlas-binary') ? res.text() : null))
+        .then((src) => (src === null ? null : src.split('\n')))
+        .catch(() => null)
+      cache.set(p, hit)
+    }
+    return hit
+  }
+  const parse = (spec: string): { path: string; start: string; end: string | null } | null => {
+    const cut = spec.indexOf('#')
+    if (cut <= 0) return null
+    const [start, end] = spec.slice(cut + 1).split('..')
+    if (!start?.trim()) return null
+    return { path: spec.slice(0, cut), start: start.trim(), end: end?.trim() || null }
+  }
+
+  for (const img of container.querySelectorAll<HTMLImageElement>('img[src^="code:"]')) {
+    const spec = parse(decodeURIComponent(img.getAttribute('src')!.slice('code:'.length)))
+    const lines = spec ? await linesOf(spec.path) : null
+    const line = spec && lines ? findLineInSource(lines, spec.start) : null
+    if (!spec || !lines || line === null) {
+      degradeEmbed(img)
+      continue
+    }
+    const e = spec.end ? findLineInSource(lines, spec.end) : null
+    const endLine = e !== null && e > line ? e - 1 : blockEndFor(lines, line)
+    buildCodeEmbed(img, spec.path, lines, line, endLine)
+  }
+
+  for (const a of container.querySelectorAll<HTMLAnchorElement>('a[href^="code:"]')) {
+    if (a.closest('pre')) continue
+    const spec = parse(decodeURIComponent(a.getAttribute('href')!.slice('code:'.length)))
+    const lines = spec ? await linesOf(spec.path) : null
+    const line = spec && lines ? findLineInSource(lines, spec.start) : null
+    if (!spec || !lines || line === null) {
+      a.replaceWith(...a.childNodes) // no path / rotted marker / no source — plain text
+      continue
+    }
+    let endLine = line
+    if (spec.end) {
+      const e = findLineInSource(lines, spec.end)
+      if (e !== null && e > line) endLine = e - 1
+    }
+    a.removeAttribute('href')
+    wireCodeAnchor(a, spec.path, line, endLine)
   }
 }
 

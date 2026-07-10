@@ -29,6 +29,10 @@ msgstr "+{hidden} more"
 msgid "⌘⏎ save · esc cancel"
 msgstr "⌘⏎ save · esc cancel"
 
+#: viewer/Doc.tsx
+msgid "▸ frame"
+msgstr "▸ frame"
+
 #: viewer/Chat.tsx
 msgid "⤷ attach to chat"
 msgstr "⤷ attach to chat"
@@ -44,6 +48,10 @@ msgstr "also show config-excluded paths, greyed out"
 #: viewer/Preview.tsx
 msgid "binary file — no preview"
 msgstr "binary file — no preview"
+
+#: viewer/Concept.tsx
+msgid "broken source — a source path is gone from the scan"
+msgstr "broken source — a source path is gone from the scan"
 
 #: viewer/Doc.tsx
 msgid "cancel"
@@ -66,6 +74,10 @@ msgstr "chat"
 msgid "chat with the attached agent session"
 msgstr "chat with the attached agent session"
 
+#: viewer/Doc.tsx
+msgid "close"
+msgstr "close"
+
 #: viewer/Settings.tsx
 msgid "Close"
 msgstr "Close"
@@ -82,6 +94,14 @@ msgstr "collapse panel"
 msgid "collapse sidebar"
 msgstr "collapse sidebar"
 
+#: viewer/Concept.tsx
+msgid "concept"
+msgstr "concept"
+
+#: viewer/Concept.tsx
+msgid "concepts"
+msgstr "concepts"
+
 #: viewer/Preview.tsx
 msgid "content hash changed but git shows no diff against the anchor"
 msgstr "content hash changed but git shows no diff against the anchor"
@@ -97,6 +117,14 @@ msgstr "Contents"
 #: viewer/Doc.tsx
 msgid "directory"
 msgstr "directory"
+
+#: viewer/Doc.tsx
+msgid "directory frame"
+msgstr "directory frame"
+
+#: viewer/Doc.tsx
+msgid "directory notes above this page"
+msgstr "directory notes above this page"
 
 #: viewer/Doc.tsx
 msgid "edit"
@@ -121,6 +149,10 @@ msgstr "filter paths…"
 #: viewer/App.tsx
 msgid "fresh"
 msgstr "fresh"
+
+#: viewer/Concept.tsx
+msgid "gone from the scan"
+msgstr "gone from the scan"
 
 #: viewer/App.tsx
 msgid "ignored"
@@ -211,6 +243,10 @@ msgstr "None is right now — attach one first."
 msgid "outdated"
 msgstr "outdated"
 
+#: viewer/Concept.tsx
+msgid "outdated — a source changed since this page was stamped"
+msgstr "outdated — a source changed since this page was stamped"
+
 #: viewer/Doc.tsx
 msgid "outdated — code changed since this was written"
 msgstr "outdated — code changed since this was written"
@@ -239,6 +275,10 @@ msgstr "retract last message (agent is already on it)"
 #: viewer/Chat.tsx
 msgid "retracted"
 msgstr "retracted"
+
+#: viewer/Doc.tsx
+msgid "save"
+msgstr "save"
 
 #: viewer/Doc.tsx
 msgid "save & stamp"
@@ -273,6 +313,11 @@ msgstr "sort: a–z"
 msgid "sort: reading"
 msgstr "sort: reading"
 
+#: viewer/Concept.tsx
+msgid "sources →"
+msgstr "sources →"
+
+#: viewer/Concept.tsx
 #: viewer/Doc.tsx
 msgid "stamped"
 msgstr "stamped"
@@ -280,6 +325,10 @@ msgstr "stamped"
 #: viewer/Doc.tsx
 msgid "start reading ↘"
 msgstr "start reading ↘"
+
+#: viewer/Doc.tsx
+msgid "the directory notes above this page — the frame it is written within"
+msgstr "the directory notes above this page — the frame it is written within"
 
 #: viewer/App.tsx
 msgid "tree layout: alphabetical or reading order"
@@ -289,6 +338,7 @@ msgstr "tree layout: alphabetical or reading order"
 msgid "truncated"
 msgstr "truncated"
 
+#: viewer/Concept.tsx
 #: viewer/Doc.tsx
 msgid "up to date"
 msgstr "up to date"
@@ -304,3 +354,7 @@ msgstr "uses →"
 #: viewer/Doc.tsx
 msgid "write note"
 msgstr "write note"
+
+#: viewer/Concept.tsx
+msgid "written for a general audience"
+msgstr "written for a general audience"

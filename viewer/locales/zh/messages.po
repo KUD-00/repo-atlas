@@ -29,6 +29,10 @@ msgstr "还有 {hidden} 项"
 msgid "⌘⏎ save · esc cancel"
 msgstr "⌘⏎ 保存 · esc 取消"
 
+#: viewer/Doc.tsx
+msgid "▸ frame"
+msgstr ""
+
 #: viewer/Chat.tsx
 msgid "⤷ attach to chat"
 msgstr "⤷ 连接到聊天"
@@ -44,6 +48,10 @@ msgstr "同时显示配置中排除的路径（灰色显示）"
 #: viewer/Preview.tsx
 msgid "binary file — no preview"
 msgstr "二进制文件 — 无法预览"
+
+#: viewer/Concept.tsx
+msgid "broken source — a source path is gone from the scan"
+msgstr "来源失效 — 有来源路径已不在扫描范围内"
 
 #: viewer/Doc.tsx
 msgid "cancel"
@@ -66,6 +74,10 @@ msgstr "聊天"
 msgid "chat with the attached agent session"
 msgstr "与已连接的代理会话聊天"
 
+#: viewer/Doc.tsx
+msgid "close"
+msgstr ""
+
 #: viewer/Settings.tsx
 msgid "Close"
 msgstr "关闭"
@@ -82,6 +94,14 @@ msgstr "收起面板"
 msgid "collapse sidebar"
 msgstr "收起侧栏"
 
+#: viewer/Concept.tsx
+msgid "concept"
+msgstr "概念"
+
+#: viewer/Concept.tsx
+msgid "concepts"
+msgstr "概念"
+
 #: viewer/Preview.tsx
 msgid "content hash changed but git shows no diff against the anchor"
 msgstr "内容哈希变了，但 git 相对 anchor 没有差异"
@@ -97,6 +117,14 @@ msgstr "目录"
 #: viewer/Doc.tsx
 msgid "directory"
 msgstr "目录"
+
+#: viewer/Doc.tsx
+msgid "directory frame"
+msgstr ""
+
+#: viewer/Doc.tsx
+msgid "directory notes above this page"
+msgstr ""
 
 #: viewer/Doc.tsx
 msgid "edit"
@@ -121,6 +149,10 @@ msgstr "筛选路径…"
 #: viewer/App.tsx
 msgid "fresh"
 msgstr "最新"
+
+#: viewer/Concept.tsx
+msgid "gone from the scan"
+msgstr "已不在扫描范围内"
 
 #: viewer/App.tsx
 msgid "ignored"
@@ -211,6 +243,10 @@ msgstr "当前没有连接 — 请先连接一个。"
 msgid "outdated"
 msgstr "已过时"
 
+#: viewer/Concept.tsx
+msgid "outdated — a source changed since this page was stamped"
+msgstr "已过期 — 盖章后有来源发生了变化"
+
 #: viewer/Doc.tsx
 msgid "outdated — code changed since this was written"
 msgstr "已过时 — 编写后代码已更改"
@@ -239,6 +275,10 @@ msgstr "撤回上一条消息（代理已在处理）"
 #: viewer/Chat.tsx
 msgid "retracted"
 msgstr "已撤回"
+
+#: viewer/Doc.tsx
+msgid "save"
+msgstr ""
 
 #: viewer/Doc.tsx
 msgid "save & stamp"
@@ -273,6 +313,11 @@ msgstr "排序: a–z"
 msgid "sort: reading"
 msgstr "排序: 阅读顺序"
 
+#: viewer/Concept.tsx
+msgid "sources →"
+msgstr "来源 →"
+
+#: viewer/Concept.tsx
 #: viewer/Doc.tsx
 msgid "stamped"
 msgstr "已标记"
@@ -280,6 +325,10 @@ msgstr "已标记"
 #: viewer/Doc.tsx
 msgid "start reading ↘"
 msgstr "开始阅读 ↘"
+
+#: viewer/Doc.tsx
+msgid "the directory notes above this page — the frame it is written within"
+msgstr ""
 
 #: viewer/App.tsx
 msgid "tree layout: alphabetical or reading order"
@@ -289,6 +338,7 @@ msgstr "树形布局：按字母顺序或阅读顺序"
 msgid "truncated"
 msgstr "已截断"
 
+#: viewer/Concept.tsx
 #: viewer/Doc.tsx
 msgid "up to date"
 msgstr "最新"
@@ -304,3 +354,7 @@ msgstr "使用 →"
 #: viewer/Doc.tsx
 msgid "write note"
 msgstr "编写笔记"
+
+#: viewer/Concept.tsx
+msgid "written for a general audience"
+msgstr "面向非开发者的讲解"
