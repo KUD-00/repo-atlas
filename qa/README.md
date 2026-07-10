@@ -74,8 +74,20 @@ bun $QA/sweep.ts --file .atlas/qa/outdated.txt --fresh
 | `rubric.json` | 与出厂 rubric **合并**（顶层 + consensus/gates.reader/gates.factcheck 两层） |
 | `reader-schema.json` / `factcheck-schema.json` | 整体替换出厂 schema |
 | `concepts.json` | `extract.ts` 的概念清单（含 `includeRoots` 搜索范围），纯仓库内容 |
+| `concept-pages.json` | `concept.ts` 的概念页清单（slug/title/audience/sources/brief），纯仓库内容 |
+| `concept-<writer\|reader\|factcheck>.md` / `.extra.md` | 概念页三阶段的 prompt 覆盖/追加（与路径笔记同一契约） |
 
 仓库自有内容（不属于引擎）：`.atlas/glossary.md`、`.atlas/CONVENTIONS.md`、`.atlas/templates/default.md`、`.atlas/qa/` 档案。
+
+## 组合机制（文体如何共享与分叉）
+
+共通核在 `qa/lib.ts`：禁令句式清单（单一来源）、可视化计数、agent 调用参数面、git 越界守卫、宽容 JSON 解析、prompt 三层加载（出厂 → 仓库整替 → `.extra.md` 追加）。
+
+文体层各自持有：prompt 与门阈值。路径笔记（`run.ts`）的具体度=端到端代码走查、盲读 persona=第一天入职工程师；概念页（`concept.ts`）的具体度=贯穿的现实例子、persona 按 `audience` 切（general=不懂编程的运营）、核查允许受众级通俗化、可视化门更严。
+
+仓库层对两种文体是同一契约：`.atlas/pipeline/<名字>.md` 整替、`<名字>.extra.md` 追加（概念页的名字是 `concept-writer` / `concept-reader` / `concept-factcheck`）。
+
+已知债：`run.ts` 的禁令句式仍是自己的短清单（迁到 lib 的长清单会改变既有门行为，需要配合全量重验做，别静默换）。
 
 ## 省 token（按 ROI 排序，多数已内建自动生效）
 

@@ -15,22 +15,13 @@
  *   - 事实核查：unsupported 断言 = 0
  * 未过带评语返工，≤3 轮。档案落 .atlas/qa/_concepts/<slug>.json（resume-skip，--force 重跑）。
  */
-import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { join } from "node:path";
+import { findRepoRoot, runAgent as libRunAgent, lenientParse as lenient, dirtyPaths as libDirty, newDirtyOutsideAtlas as libGuard, lintBannedPhrases, countVisuals as libVisuals, loadPrompt, median } from "./lib";
 
-function findRepoRoot(): string {
-  let d = process.cwd();
-  while (true) {
-    if (existsSync(join(d, ".atlas"))) return d;
-    const up = dirname(d);
-    if (up === d) throw new Error("未找到 .atlas/ —— 请在带 atlas 的仓库内运行");
-    d = up;
-  }
-}
 const REPO = findRepoRoot();
 const QA = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
-const AGENT_BIN = process.env.ATLAS_QA_AGENT || "grok";
 const SPEC_FILE = join(REPO, ".atlas/pipeline/concept-pages.json");
 const ARCHIVE = join(REPO, ".atlas/qa/_concepts");
 mkdirSync(ARCHIVE, { recursive: true });
@@ -46,55 +37,18 @@ const wanted: string[] = flag("all") ? spec.pages.map((p: any) => p.slug)
   : args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--concurrency");
 if (!wanted.length) { console.error("usage: bun concept.ts <slug...>|--all [--concurrency N] [--force]"); process.exit(2); }
 
-// ---------- agent 调用（与 run.ts 同参数面） ----------
-function dirtyPaths(): Set<string> {
-  const out = new TextDecoder().decode(Bun.spawnSync(["git", "status", "--porcelain"], { cwd: REPO }).stdout);
-  return new Set(out.split("\n").filter(Boolean).map(l => l.slice(3).trim()));
-}
-function newDirtyOutsideAtlas(before: Set<string>): string[] {
-  return [...dirtyPaths()].filter(p => !before.has(p) && !p.startsWith(".atlas/"));
-}
-async function runAgent(prompt: string, o: { cwd?: string; schema?: string; maxTurns: number; disallowed?: string; timeoutMs: number }): Promise<any> {
-  const pf = join(mkdtempSync(join(tmpdir(), "atlas-cpt-")), "p.md");
-  writeFileSync(pf, prompt);
-  const argv = [AGENT_BIN, "--prompt-file", pf, "--no-memory", "--disable-web-search", "--no-subagents", "--always-approve", "--max-turns", String(o.maxTurns), "--output-format", "json"];
-  if (o.schema) argv.push("--json-schema", o.schema);
-  if (o.disallowed) argv.push("--disallowed-tools", o.disallowed);
-  const proc = Bun.spawn(argv, { cwd: o.cwd ?? REPO, stdout: "pipe", stderr: "pipe" });
-  const t = setTimeout(() => proc.kill(), o.timeoutMs);
-  const out = await new Response(proc.stdout).text();
-  clearTimeout(t); await proc.exited;
-  rmSync(dirname(pf), { recursive: true, force: true });
-  try { return JSON.parse(out); } catch { return { text: out, structuredOutput: null }; }
-}
-function lenient(g: any): any | null {
-  if (g?.structuredOutput) return g.structuredOutput;
-  const t: string = (g?.text ?? "").trim();
-  const s = t.indexOf("{"), e = t.lastIndexOf("}");
-  if (s < 0 || e <= s) return null;
-  try { return JSON.parse(t.slice(s, e + 1)); } catch { return null; }
-}
+const dirtyPaths = () => libDirty(REPO);
+const newDirtyOutsideAtlas = (before: Set<string>) => libGuard(REPO, before);
+const runAgent = (prompt: string, o: { cwd?: string; schema?: string; maxTurns: number; disallowed?: string; timeoutMs: number }) =>
+  libRunAgent(prompt, { ...o, cwd: o.cwd ?? REPO });
 const DISALLOW_NOTEONLY = "Delete,EditNotebook,GenerateImage";
 
-// ---------- 可视化硬门 ----------
+// ---------- 机械硬门（共通核 qa/lib.ts：禁令句式单一来源 + 可视化计数） ----------
 function countVisuals(body: string): { html: number; mermaid: number } {
-  const html = (body.match(/<(div|table|details|section|figure)\b/g) || []).length;
-  const mermaid = (body.match(/```mermaid/g) || []).length;
-  return { html, mermaid };
+  const v = libVisuals(body);
+  return { html: v.html, mermaid: v.mermaid };
 }
-
-// ---------- AI 腔机械硬门（与 run.ts 禁令句式同族，概念页更容易犯教学腔） ----------
-const BANNED = [
-  "值得注意的是", "有意思的是", "我们来看", "挑几个说", "一定要注意", "答案是——",
-  "先记住", "记住一件事", "简单来说", "换句话说", "别担心", "让我们", "想象一下",
-  "见文末", "如上所述", "综上所述", "总而言之",
-];
-function lintConcept(body: string): string[] {
-  const noCode = body.replace(/```[\s\S]*?```/g, "");
-  const issues: string[] = [];
-  for (const p of BANNED) if (noCode.includes(p)) issues.push(`禁令句式（AI 腔/元话术）：「${p}」——删掉或改成直接陈述`);
-  return issues;
-}
+const lintConcept = (body: string) => lintBannedPhrases(body);
 
 // ---------- persona ----------
 function personaOf(aud: string): string {
@@ -137,7 +91,7 @@ audience: ${page.audience}
 sources: ${JSON.stringify(page.sources)}
 ---
 
-硬边界：只允许写这一个文件；不许改源码/别的笔记/glossary；sources_hash 等字段不要写（由 stamp 管）。`;
+硬边界：只允许写这一个文件；不许改源码/别的笔记/glossary；sources_hash 等字段不要写（由 stamp 管）。\n${loadPrompt(QA, REPO, "concept-writer")}`;
   const before = dirtyPaths();
   await runAgent(prompt, { maxTurns: 80, disallowed: DISALLOW_NOTEONLY, timeoutMs: 1_500_000 });
   const extra = newDirtyOutsideAtlas(before);
@@ -162,7 +116,7 @@ async function blindRead(page: any, body: string): Promise<any[]> {
 
 ${body}
 
-报告：读不懂/要读两遍的句子（原文摘录）；没解释就使用的词；用自己的话复述机制；你能否把它讲给同事听；总体 1-5 分。只输出 JSON。`,
+报告：读不懂/要读两遍的句子（原文摘录）；没解释就使用的词；用自己的话复述机制；你能否把它讲给同事听；总体 1-5 分。只输出 JSON。\n${loadPrompt(QA, REPO, "concept-reader")}`,
     { cwd: emptyCwd(), schema: READER_SCHEMA, maxTurns: 4, timeoutMs: 300_000 });
   const outs = await Promise.all([mk(), mk(), mk()]);
   return outs.map(lenient).filter(Boolean);
@@ -185,15 +139,13 @@ ${page.sources.map((s: string) => `- ${s}`).join("\n")}
 页面：
 ${body}
 
-只输出 JSON：{"unsupported":[{"claim":"...","why":"..."}],"summary":"..."}`;
+只输出 JSON：{"unsupported":[{"claim":"...","why":"..."}],"summary":"..."}\n${loadPrompt(QA, REPO, "concept-factcheck")}`;
   const before = dirtyPaths();
   const out = await runAgent(prompt, { schema: FACT_SCHEMA, maxTurns: 30, disallowed: DISALLOW_NOTEONLY + ",Write,StrReplace,Edit", timeoutMs: 900_000 });
   const extra = newDirtyOutsideAtlas(before);
   if (extra.length) throw new Error(`核查越界改了路径：${extra.join(" | ")}`);
   return lenient(out) ?? { unsupported: [], summary: "解析失败(视为通过存疑)" };
 }
-
-function median(ns: number[]): number { const s = [...ns].sort((a, b) => a - b); return s[Math.floor(s.length / 2)] ?? 0; }
 
 // ---------- 单页主循环 ----------
 async function runPage(slug: string): Promise<{ slug: string; pass: boolean; reasons: string[] }> {
