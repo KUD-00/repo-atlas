@@ -337,7 +337,7 @@ msgstr "취소됨"
 
 #: viewer/Doc.tsx
 msgid "save"
-msgstr ""
+msgstr "저장"
 
 #: viewer/Doc.tsx
 msgid "save & stamp"

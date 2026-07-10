@@ -337,7 +337,7 @@ msgstr "已撤回"
 
 #: viewer/Doc.tsx
 msgid "save"
-msgstr ""
+msgstr "保存"
 
 #: viewer/Doc.tsx
 msgid "save & stamp"

@@ -108,6 +108,26 @@ export function writeNoteBody(
   return file
 }
 
+/** Rewrite ONLY the body, leaving every freshness field (hash, anchor, stamped,
+ *  dirty, order) exactly as it was. This is the viewer's plain "save": you edit
+ *  the prose without asserting the note now matches the current code, so an
+ *  outdated note stays outdated. A brand-new note is created unstamped — written,
+ *  but not yet verified against any commit. */
+export function updateNoteBody(
+  root: string,
+  relPath: string,
+  type: PathType,
+  body: string,
+): string {
+  const file = noteFileFor(root, relPath, type)
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const prev: ParsedNote = fs.existsSync(file)
+    ? parseNote(fs.readFileSync(file, 'utf8'))
+    : { hash: null, anchor: null, dirty: false, stamped: null, order: null, body: '' }
+  fs.writeFileSync(file, serializeNote({ ...prev, body }))
+  return file
+}
+
 export function stampNote(
   file: string,
   hash: string,

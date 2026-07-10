@@ -5,7 +5,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { scan, headCommit, hashFor } from './scan.js';
-import { loadNotes, writeNoteBody } from './notes.js';
+import { loadNotes, writeNoteBody, updateNoteBody } from './notes.js';
 import { computeStatus } from './status.js';
 import { buildHtml, buildPayload } from './build.js';
 import { buildImportGraph } from './deps.js';
@@ -301,7 +301,7 @@ export function serve(root, config, port, host = '127.0.0.1') {
             });
             req.on('end', () => {
                 try {
-                    const { path: p, body } = JSON.parse(raw);
+                    const { path: p, body, stamp } = JSON.parse(raw);
                     if (typeof p !== 'string' || typeof body !== 'string') {
                         res.writeHead(400, { 'content-type': 'text/plain' }).end('expected {path, body}');
                         return;
@@ -313,7 +313,11 @@ export function serve(root, config, port, host = '127.0.0.1') {
                         res.writeHead(404, { 'content-type': 'text/plain' }).end('path not in scan');
                         return;
                     }
-                    const file = writeNoteBody(root, p, found.type, body, found.hash);
+                    // stamp !== false: also anchor the note to the current hash (marks it
+                    // fresh). stamp === false: body-only save, freshness left untouched.
+                    const file = stamp === false
+                        ? updateNoteBody(root, p, found.type, body)
+                        : writeNoteBody(root, p, found.type, body, found.hash);
                     const { digest } = render();
                     lastDigest = digest;
                     for (const c of clients)
