@@ -16,8 +16,8 @@
  *   机械：场景数 3-10；时长和 = 目标 ±20%；旁白语速 ≤ 每秒 7 字（zh/ja）；旁白无禁令句式
  *   忠实度：核查 agent 逐场景比对旁白与概念页——引入页面之外的事实/改变机制 = 不过
  * 未过带评语返工 ≤2 轮。产出：
- *   .atlas/distill/<slug>.storyboard.json（喂下游的结构化脚本）
- *   .atlas/distill/<slug>.storyboard.md（人读预览：分镜表）
+ *   .atlas/artifacts/concepts/<slug>/storyboard.json（喂下游的结构化脚本）
+ *   .atlas/artifacts/concepts/<slug>/storyboard.md（人读预览,viewer 右栏「产物」tab 可见）
  * 档案 .atlas/qa/_distill/<slug>.json（resume-skip，--force 重跑）。
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
@@ -27,9 +27,8 @@ import { findRepoRoot, runAgent, lenientParse, lintBannedPhrases, loadPrompt, me
 const REPO = findRepoRoot();
 const QA = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
 const SPEC_FILE = join(REPO, ".atlas/pipeline/distill.json");
-const OUT_DIR = join(REPO, ".atlas/distill");
+const OUT_DIR_BASE = join(REPO, ".atlas/artifacts/concepts");
 const ARCHIVE = join(REPO, ".atlas/qa/_distill");
-mkdirSync(OUT_DIR, { recursive: true });
 mkdirSync(ARCHIVE, { recursive: true });
 if (!existsSync(SPEC_FILE)) { console.error("缺 .atlas/pipeline/distill.json（格式见本文件头注释）"); process.exit(2); }
 const spec = JSON.parse(readFileSync(SPEC_FILE, "utf8"));
@@ -145,7 +144,7 @@ function renderMd(slug: string, target: any, sb: any): string {
     ``, `**核心信息**:${sb.core_message}`, `**视觉隐喻**:${sb.metaphor}`, ``,
     `| # | 秒 | 旁白 | 画面 prompt | 叠字 |`, `| --- | --- | --- | --- | --- |`,
     ...sb.scenes.map((s: any, i: number) => `| ${i + 1} | ${s.seconds} | ${s.narration} | ${s.visual_prompt} | ${s.on_screen_text ?? ""} |`),
-    ``, `> 溯源:各场景 source_quote 见同名 .json;蒸馏自 .atlas/concepts/${slug}.md`,
+    ``, `> 溯源:各场景 source_quote 见 storyboard.json;蒸馏自 .atlas/concepts/${slug}.md`,
   ].join("\n");
 }
 
@@ -172,10 +171,12 @@ async function runTarget(slug: string): Promise<{ slug: string; pass: boolean; r
     record.rounds.push({ round, mech: mechGate(sb, dur), fidelity: fid, reasons });
     if (!reasons.length) {
       record.finalPass = true;
-      writeFileSync(join(OUT_DIR, `${slug}.storyboard.json`), JSON.stringify({ slug, title: page.title, audience: page.audience, ...DEF, duration_sec: dur, ...sb }, null, 2));
-      writeFileSync(join(OUT_DIR, `${slug}.storyboard.md`), renderMd(slug, target, sb));
+      const outDir = join(OUT_DIR_BASE, slug);
+      mkdirSync(outDir, { recursive: true });
+      writeFileSync(join(outDir, "storyboard.json"), JSON.stringify({ slug, title: page.title, audience: page.audience, ...DEF, duration_sec: dur, ...sb }, null, 2));
+      writeFileSync(join(outDir, "storyboard.md"), renderMd(slug, target, sb));
       writeFileSync(arch, JSON.stringify(record, null, 2));
-      console.log(`[${slug}] ✅ 过门(round ${round}) → .atlas/distill/${slug}.storyboard.{json,md}`);
+      console.log(`[${slug}] ✅ 过门(round ${round}) → .atlas/artifacts/concepts/${slug}/storyboard.{json,md}`);
       return { slug, pass: true, reasons: [] };
     }
     console.log(`[${slug}] round ${round}: ❌ ${reasons.join(";").slice(0, 200)}`);
