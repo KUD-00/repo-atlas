@@ -3,7 +3,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { marked } from 'marked'
 import { fillGlossaryRefs } from './glossary.js'
+import type { RawArtifact } from './artifacts.js'
 import type {
+  ArtifactNode,
   AtlasPayload,
   ComputeStatusResult,
   ConceptNode,
@@ -38,6 +40,7 @@ export interface BuildInput {
   graph?: ImportGraph | null
   glossary?: GlossaryEntry[]
   basePoints?: string[]
+  artifacts?: RawArtifact[]
 }
 
 /** The data the viewer runs on — also served as JSON by `serve`'s /data so
@@ -49,6 +52,7 @@ export function buildPayload({
   graph = null,
   glossary = [],
   basePoints = [],
+  artifacts = [],
 }: BuildInput): AtlasPayload {
   const byPath = new Map(status.entries.map((e) => [e.path, e]))
 
@@ -99,6 +103,19 @@ export function buildPayload({
     source: c.body || null,
   }))
 
+  // md artifacts render through the same markdown pipeline as notes; json
+  // stays raw — the viewer shows it as a (collapsible) code block
+  const artifactIndex: Record<string, ArtifactNode[]> = {}
+  for (const a of artifacts) {
+    const node: ArtifactNode = {
+      name: a.name,
+      kind: a.kind,
+      html: a.kind === 'md' ? String(marked.parse(a.body)) : null,
+      raw: a.kind === 'json' ? a.body : null,
+    }
+    ;(artifactIndex[a.pageKey] ??= []).push(node)
+  }
+
   return {
     repoName,
     commit,
@@ -109,6 +126,7 @@ export function buildPayload({
     glossary,
     basePoints,
     concepts,
+    artifacts: artifactIndex,
   }
 }
 
@@ -117,7 +135,8 @@ export function buildHtml(input: BuildInput & { payload?: AtlasPayload }): strin
   const json = JSON.stringify(data).replace(/</g, '\\u003c')
   const usesMermaid =
     input.status.entries.some((e) => e.body?.includes('```mermaid')) ||
-    input.status.concepts.some((c) => c.body.includes('```mermaid'))
+    input.status.concepts.some((c) => c.body.includes('```mermaid')) ||
+    (input.artifacts ?? []).some((a) => a.kind === 'md' && a.body.includes('```mermaid'))
 
   return TEMPLATE.replace('__TITLE__', () => escapeHtml(data.repoName))
     .replace('/*__VIEWER_CSS__*/', () => readVendor('viewer.css'))

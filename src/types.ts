@@ -171,6 +171,15 @@ export interface ConceptNode {
   source: string | null
 }
 
+/** Page artifact as the viewer consumes it: `.md` arrives rendered (same
+ * markdown pipeline as notes), `.json` arrives raw for a code-block view. */
+export interface ArtifactNode {
+  name: string
+  kind: 'md' | 'json'
+  html: string | null
+  raw: string | null
+}
+
 export interface AtlasPayload {
   repoName: string
   commit: string | null
@@ -181,6 +190,9 @@ export interface AtlasPayload {
   glossary: GlossaryEntry[]
   basePoints: string[]
   concepts: ConceptNode[]
+  /** Pipeline-produced files attached to pages, keyed by page key
+   * (repo path, or `concepts/<slug>` for concept pages). */
+  artifacts: Record<string, ArtifactNode[]>
 }
 
 export interface ChatMessage {

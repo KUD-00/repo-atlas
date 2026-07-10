@@ -2,27 +2,45 @@ import { useEffect, useMemo, useRef, type MouseEvent } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import { Printer } from 'lucide-react'
-import type { AtlasPayload, ConceptNode, GlossaryEntry, TreeNode } from '../src/types'
+import type { ArtifactNode, AtlasPayload, ConceptNode, GlossaryEntry, TreeNode } from '../src/types'
 import {
   annotateCodeAnchors, annotateConceptCodeAnchors, degradeCodeEmbeds,
-  linkifyPaths, readingSequence, renderMermaidIn,
+  formatJsonArtifact, linkifyPaths, readingSequence, renderMermaidIn,
 } from './lib'
-import { conceptSlugOf } from './Concept'
+import { conceptRoute, conceptSlugOf } from './Concept'
 
 export const printRoute = (scope: string) => 'print:' + scope
+
+/** Print route for a single page artifact: `print:artifact:<page key>/<name>`. */
+export const artifactPrintRoute = (pageKey: string, name: string) =>
+  printRoute('artifact:' + pageKey + '/' + name)
 
 /** The scope a print route addresses, or null for ordinary routes. */
 export function printScopeOf(route: string): string | null {
   return route.startsWith('print:') ? route.slice('print:'.length) : null
 }
 
-/** A print route is valid when its scope is `all`, a known path, or a known concept. */
+/** The artifact an `artifact:` print scope addresses, or null. Artifact names
+ * carry no slash, so the last segment is the name and the rest the page key. */
+export function artifactScopeOf(scope: string): { pageKey: string; name: string } | null {
+  if (!scope.startsWith('artifact:')) return null
+  const rest = scope.slice('artifact:'.length)
+  const cut = rest.lastIndexOf('/')
+  if (cut <= 0 || cut === rest.length - 1) return null
+  return { pageKey: rest.slice(0, cut), name: rest.slice(cut + 1) }
+}
+
+/** A print route is valid when its scope is `all`, a known path, a known
+ * concept, or a known page artifact. */
 export function isPrintScope(
   scope: string,
   nodesByPath: Map<string, TreeNode>,
   conceptsBySlug: Map<string, ConceptNode>,
+  artifacts: Record<string, ArtifactNode[]>,
 ): boolean {
   if (scope === 'all') return true
+  const ref = artifactScopeOf(scope)
+  if (ref !== null) return (artifacts[ref.pageKey] ?? []).some((a) => a.name === ref.name)
   const slug = conceptSlugOf(scope)
   return slug !== null ? conceptsBySlug.has(slug) : nodesByPath.has(scope)
 }
@@ -30,10 +48,13 @@ export function isPrintScope(
 type PrintPage =
   | { kind: 'node'; id: string; node: TreeNode; depth: number }
   | { kind: 'concept'; id: string; concept: ConceptNode; depth: number }
+  | { kind: 'artifact'; id: string; artifact: ArtifactNode; depth: number }
 
 interface PrintModel {
   /** Cover headline: the path, the concept title, or "entire repository". */
   label: string
+  /** Artifact scopes only: the page the artifact belongs to (cover subtitle). */
+  owner: string | null
   pages: PrintPage[]
   showToc: boolean
   showGlossary: boolean
@@ -53,12 +74,30 @@ function buildModel(
   entireRepoLabel: string,
 ): PrintModel {
   const idByPath = new Map<string, string>()
+  const ref = artifactScopeOf(scope)
+  if (ref !== null) {
+    // a single page artifact: simplified cover (name + owning page), no toc,
+    // no glossary — an artifact is an attachment, not document body
+    const artifact = ((data.artifacts ?? {})[ref.pageKey] ?? []).find((a) => a.name === ref.name)!
+    const slug = ref.pageKey.startsWith('concepts/') ? ref.pageKey.slice('concepts/'.length) : null
+    const concept = slug !== null ? conceptsBySlug.get(slug) : undefined
+    return {
+      label: artifact.name,
+      owner: concept ? concept.title : ref.pageKey,
+      pages: [{ kind: 'artifact', id: 'psec-0', artifact, depth: 0 }],
+      showToc: false, showGlossary: false,
+      backRoute: concept
+        ? conceptRoute(concept.slug)
+        : nodesByPath.has(ref.pageKey) ? ref.pageKey : '',
+      idByPath,
+    }
+  }
   const slug = conceptSlugOf(scope)
   if (slug !== null) {
     const concept = conceptsBySlug.get(slug)!
     const page: PrintPage = { kind: 'concept', id: 'psec-0', concept, depth: 0 }
     return {
-      label: concept.title, pages: [page], showToc: false, showGlossary: false,
+      label: concept.title, owner: null, pages: [page], showToc: false, showGlossary: false,
       backRoute: scope, idByPath,
     }
   }
@@ -67,7 +106,7 @@ function buildModel(
   if (!isAll && root.type === 'file') {
     idByPath.set(root.path, 'psec-0')
     return {
-      label: scope,
+      label: scope, owner: null,
       pages: [{ kind: 'node', id: 'psec-0', node: root, depth: 0 }],
       showToc: false, showGlossary: false, backRoute: scope, idByPath,
     }
@@ -89,6 +128,7 @@ function buildModel(
   }
   return {
     label: isAll ? entireRepoLabel : scope,
+    owner: null,
     pages,
     showToc: true,
     showGlossary: data.glossary.length > 0,
@@ -164,13 +204,32 @@ function PrintSection({
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    const html = page.kind === 'node' ? page.node.html : page.concept.html
+    const html =
+      page.kind === 'node' ? page.node.html
+      : page.kind === 'concept' ? page.concept.html
+      : page.artifact.html ?? page.artifact.raw
     const key = page.id + '\0' + (html ?? '')
     if (last.current === key) return
     last.current = key
+    if (page.kind === 'artifact' && page.artifact.kind === 'json') {
+      // json artifact: a plain formatted code block — nothing to linkify
+      el.textContent = ''
+      const pre = document.createElement('pre')
+      const code = document.createElement('code')
+      code.textContent = formatJsonArtifact(page.artifact.raw ?? '')
+      pre.appendChild(code)
+      el.appendChild(pre)
+      onReady()
+      return
+    }
     el.innerHTML = html ?? ''
     const jobs: Promise<unknown>[] = [renderMermaidIn(el, { zoomable: false })]
-    if (page.kind === 'concept') {
+    if (page.kind === 'artifact') {
+      // md artifact: notes' markdown treatment, minus code anchors (an
+      // artifact has no single source file to resolve them against)
+      linkifyPaths(el, nodesByPath.get('')!, nodesByPath)
+      degradeCodeEmbeds(el)
+    } else if (page.kind === 'concept') {
       linkifyPaths(el, nodesByPath.get('')!, nodesByPath)
       jobs.push(annotateConceptCodeAnchors(el))
     } else {
@@ -202,6 +261,11 @@ function PrintSection({
       <h2 className="print-sec-title text-[1.05rem] font-[650] break-all border-b border-border pb-1.5 mb-3">
         {page.kind === 'concept' ? (
           page.concept.title
+        ) : page.kind === 'artifact' ? (
+          <>
+            <span className="font-mono">{page.artifact.name}</span>
+            <span className="text-muted font-normal text-[0.85rem]"> {t(i18n)`(artifact)`}</span>
+          </>
         ) : (
           <>
             <span className="font-mono">{page.node.path || repoName}</span>
@@ -299,6 +363,11 @@ export function PrintView({
           <div className="text-[0.85rem] text-muted">{data.repoName}</div>
           <h1 className="text-[1.7rem] font-[700] my-2 break-all">{model.label}</h1>
           <div className="text-[0.82rem] text-muted mt-4 flex flex-col gap-1">
+            {model.owner !== null && (
+              <div>
+                {t(i18n)`artifact of`} <span className="font-mono">{model.owner}</span>
+              </div>
+            )}
             {data.commit && (
               <div>
                 {t(i18n)`commit`} <span className="font-mono">{data.commit.slice(0, 7)}</span>
@@ -324,7 +393,9 @@ export function PrintView({
               >
                 {pg.kind === 'concept'
                   ? pg.concept.title
-                  : (pg.node.path ? pg.node.name : data.repoName) + (pg.node.type === 'dir' ? '/' : '')}
+                  : pg.kind === 'artifact'
+                    ? pg.artifact.name
+                    : (pg.node.path ? pg.node.name : data.repoName) + (pg.node.type === 'dir' ? '/' : '')}
               </a>
             ))}
             {model.showGlossary && (

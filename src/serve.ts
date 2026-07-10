@@ -11,6 +11,7 @@ import { computeStatus } from './status.js'
 import { buildHtml, buildPayload } from './build.js'
 import { buildImportGraph } from './deps.js'
 import { loadGlossaryRaw, parseGlossary } from './glossary.js'
+import { loadArtifacts } from './artifacts.js'
 import type { AtlasConfig, ChatMessage, ScanResult } from './types.js'
 
 const POLL_MS = 1500
@@ -37,6 +38,7 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
     lastScan = scanResult
     const status = computeStatus(root, scanResult)
     const glossaryRaw = loadGlossaryRaw(root)
+    const artifacts = loadArtifacts(root)
     const input = {
       repoName: path.basename(root),
       commit: headCommit(root),
@@ -44,13 +46,14 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
       graph: buildImportGraph(root, scanResult),
       glossary: parseGlossary(glossaryRaw),
       basePoints: config.basePoints ?? [],
+      artifacts,
     }
     const payload = buildPayload(input)
     const html = buildHtml({ ...input, payload })
     const digest = createHash('sha1')
       .update(
         JSON.stringify(status.entries) + JSON.stringify(status.orphans) +
-        JSON.stringify(status.concepts) + glossaryRaw,
+        JSON.stringify(status.concepts) + glossaryRaw + JSON.stringify(artifacts),
       )
       .digest('hex')
     return { html, digest, payloadJson: JSON.stringify(payload) }

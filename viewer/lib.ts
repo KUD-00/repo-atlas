@@ -424,6 +424,16 @@ export function languageFor(path: string): string | null {
   return PV_LANG[ext] ?? null
 }
 
+/** Pretty-print a json artifact for the code-block view; malformed json (the
+ * pipeline's problem, not ours) falls back to the raw text. */
+export function formatJsonArtifact(raw: string): string {
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2)
+  } catch {
+    return raw
+  }
+}
+
 export interface RelationIndex {
   edges: [string, string][]
   packageRoots: Set<string>

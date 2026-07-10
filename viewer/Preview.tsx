@@ -1,16 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { t } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { Code, FileDiff, TableOfContents, PanelRightClose } from 'lucide-react'
-import type { TreeNode } from '../src/types'
-import { languageFor } from './lib'
+import { ChevronRight, Code, FileDiff, Package, Printer, TableOfContents, PanelRightClose } from 'lucide-react'
+import type { ArtifactNode, TreeNode } from '../src/types'
+import { degradeCodeEmbeds, formatJsonArtifact, languageFor, linkifyPaths, renderMermaidIn } from './lib'
+import { artifactPrintRoute } from './Print'
 import { TocView, baseFor } from './Toc'
 
 const PV_ICON =
   'pv-icon flex items-center justify-center w-[26px] h-[26px] border-none rounded-md bg-transparent text-muted cursor-pointer p-0 shrink-0 hover:text-accent hover:bg-[#3d6b540d] [&_svg]:w-4 [&_svg]:h-4'
 const EMPTY = 'text-muted text-[0.9rem] mt-2 p-4 [&_code]:bg-[#00000009] [&_code]:py-[0.1em] [&_code]:px-[0.4em] [&_code]:rounded [&_code]:text-[0.85em]'
 
-export type PanelMode = 'code' | 'diff' | 'toc'
+export type PanelMode = 'code' | 'diff' | 'toc' | 'artifacts'
 
 export interface CodeJump {
   path: string
@@ -68,12 +69,17 @@ function PageOutline({ node }: { node: TreeNode }) {
  * page — the source itself, what changed since the note's anchor, or the
  * contents of the book (base point) the page belongs to. */
 export function PanelPane({
-  node, nodesByPath, basePoints, repoName, mode, onMode, onCollapse, jump, overlay, closing, onCloseEnd,
+  node, nodesByPath, basePoints, repoName, artifacts, pageKey, mode, onMode, onCollapse, jump,
+  overlay, closing, onCloseEnd,
 }: {
   node: TreeNode
   nodesByPath: Map<string, TreeNode>
   basePoints: string[]
   repoName: string
+  /** The CURRENT page's artifacts + key — note the panel `node` may differ
+   * from the page (concept pages show a source file here). */
+  artifacts: ArtifactNode[]
+  pageKey: string
   mode: PanelMode
   onMode: (m: PanelMode) => void
   onCollapse: () => void
@@ -84,18 +90,28 @@ export function PanelPane({
 }) {
   const { i18n } = useLingui()
   const isDir = node.type === 'dir'
-  const effective: PanelMode = isDir ? 'toc' : mode
-  const tab = (m: PanelMode, icon: React.ReactNode, label: string) => (
+  // the artifacts tab exists only while the page has artifacts; a page turn
+  // that loses them falls back to the usual default (contents for dirs)
+  const effective: PanelMode =
+    mode === 'artifacts'
+      ? artifacts.length ? 'artifacts' : isDir ? 'toc' : 'code'
+      : isDir ? 'toc' : mode
+  const tab = (m: PanelMode, icon: React.ReactNode, label: string, badge?: number) => (
     <button
       className={
         'pv-tab flex items-center gap-[5px] font-inherit text-[0.76rem] border border-transparent rounded-[7px] bg-transparent text-muted cursor-pointer py-1 px-[9px] [&_svg]:w-3.5 [&_svg]:h-3.5 hover:enabled:text-text disabled:opacity-40 disabled:cursor-default' +
         (effective === m ? ' on text-text bg-panel border-border' : '')
       }
-      disabled={isDir && m !== 'toc'}
+      disabled={isDir && m !== 'toc' && m !== 'artifacts'}
       onClick={() => onMode(m)}
     >
       {icon}
       {label}
+      {badge !== undefined && (
+        <span className="shrink-0 min-w-3.5 h-3.5 px-[3px] rounded-full text-[0.6rem] leading-[14px] text-center text-accent bg-[#3d6b5414]">
+          {badge}
+        </span>
+      )}
     </button>
   )
   const base = baseFor(node.path, basePoints)
@@ -117,6 +133,7 @@ export function PanelPane({
         {tab('code', <Code />, t(i18n)`Code`)}
         {tab('diff', <FileDiff />, t(i18n)`Changes`)}
         {tab('toc', <TableOfContents />, t(i18n)`Contents`)}
+        {artifacts.length > 0 && tab('artifacts', <Package />, t(i18n)`Artifacts`, artifacts.length)}
         <span className="flex-1" />
         <button className={PV_ICON} title={t(i18n)`collapse panel`} onClick={onCollapse}>
           <PanelRightClose />
@@ -124,6 +141,9 @@ export function PanelPane({
       </div>
       {effective === 'code' && <CodeView path={node.path} jump={jump} />}
       {effective === 'diff' && <DiffView path={node.path} status={node.status} />}
+      {effective === 'artifacts' && (
+        <ArtifactsView artifacts={artifacts} pageKey={pageKey} nodesByPath={nodesByPath} />
+      )}
       {effective === 'toc' && (
         <>
           <PageOutline node={node} />
@@ -137,6 +157,121 @@ export function PanelPane({
         </>
       )}
     </section>
+  )
+}
+
+/** Artifacts view: what a pipeline produced FOR this page (`.atlas/artifacts/
+ * <page key>/`), one accordion section per artifact with its own print button. */
+function ArtifactsView({
+  artifacts, pageKey, nodesByPath,
+}: {
+  artifacts: ArtifactNode[]
+  pageKey: string
+  nodesByPath: Map<string, TreeNode>
+}) {
+  const { i18n } = useLingui()
+  const [closed, setClosed] = useState<Set<string>>(() => new Set())
+  useEffect(() => setClosed(new Set()), [pageKey])
+  const toggle = (name: string) =>
+    setClosed((prev) => {
+      const next = new Set(prev)
+      next.has(name) ? next.delete(name) : next.add(name)
+      return next
+    })
+  return (
+    <div className="flex-1 min-h-0 overflow-auto pv-body">
+      {artifacts.map((a) => {
+        const open = !closed.has(a.name)
+        return (
+          <section key={a.name} className="border-b border-border">
+            <div
+              className="group sticky top-0 z-10 flex items-center gap-1.5 py-2 px-3 bg-panel cursor-pointer select-none text-[0.8rem] hover:bg-[#00000006]"
+              onClick={() => toggle(a.name)}
+            >
+              <span
+                className={
+                  'w-4 shrink-0 flex items-center justify-center text-muted transition-transform duration-[160ms] ease-[ease] [&_svg]:w-3.5 [&_svg]:h-3.5' +
+                  (open ? ' rotate-90' : '')
+                }
+              >
+                <ChevronRight />
+              </span>
+              <span className="font-semibold overflow-hidden text-ellipsis whitespace-nowrap">{a.name}</span>
+              <span className="shrink-0 text-[0.66rem] text-muted border border-border rounded-md py-px px-1.5">
+                {a.kind}
+              </span>
+              <a
+                className={PV_ICON + ' ml-auto opacity-0 group-hover:opacity-100 focus:opacity-100'}
+                href={'#' + encodeURI(artifactPrintRoute(pageKey, a.name))}
+                title={t(i18n)`print this artifact as a PDF`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Printer />
+              </a>
+            </div>
+            {open &&
+              (a.kind === 'md' ? (
+                <ArtifactProse artifact={a} nodesByPath={nodesByPath} />
+              ) : (
+                <JsonArtifactBlock raw={a.raw ?? ''} />
+              ))}
+          </section>
+        )
+      })}
+    </div>
+  )
+}
+
+/** md artifact body — the notes' markdown treatment (mermaid, inline HTML,
+ * pathlinks), minus code anchors: there is no source file to resolve against. */
+function ArtifactProse({
+  artifact, nodesByPath,
+}: {
+  artifact: ArtifactNode
+  nodesByPath: Map<string, TreeNode>
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const last = useRef<string | null>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    // same idempotence dance as Prose: only rebuild when this artifact changed
+    const key = artifact.name + '\0' + (artifact.html ?? '')
+    if (last.current === key) return
+    last.current = key
+    el.innerHTML = artifact.html ?? ''
+    linkifyPaths(el, nodesByPath.get('')!, nodesByPath) // resolve repo paths from the root
+    renderMermaidIn(el)
+    degradeCodeEmbeds(el)
+  }, [artifact, nodesByPath])
+  return <div className="prose px-4 py-2 pb-6 text-[0.85rem]" ref={ref} />
+}
+
+const JSON_COLLAPSE_LINES = 80
+
+/** json artifact body: a formatted code block; big payloads start collapsed. */
+function JsonArtifactBlock({ raw }: { raw: string }) {
+  const { i18n } = useLingui()
+  const text = useMemo(() => formatJsonArtifact(raw), [raw])
+  const lines = useMemo(() => text.split('\n'), [text])
+  const [expanded, setExpanded] = useState(false)
+  useEffect(() => setExpanded(false), [raw])
+  const collapsed = !expanded && lines.length > JSON_COLLAPSE_LINES
+  return (
+    <div>
+      <CodeBlock
+        text={collapsed ? lines.slice(0, JSON_COLLAPSE_LINES).join('\n') : text}
+        lang="json"
+      />
+      {collapsed && (
+        <button
+          className="block w-full text-left font-inherit text-[0.75rem] text-muted bg-transparent border-none cursor-pointer px-4 py-1.5 -mt-10 pb-4 hover:text-accent"
+          onClick={() => setExpanded(true)}
+        >
+          {t(i18n)`… show all ${lines.length} lines`}
+        </button>
+      )}
+    </div>
   )
 }
 

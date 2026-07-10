@@ -13,6 +13,15 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#. placeholder {0}: lines.length
+#: viewer/Preview.tsx
+msgid "… show all {0} lines"
+msgstr "… 전체 {0}줄 표시"
+
+#: viewer/Print.tsx
+msgid "(artifact)"
+msgstr "(산출물)"
+
 #: viewer/Print.tsx
 msgid "(directory)"
 msgstr "(디렉터리)"
@@ -48,6 +57,14 @@ msgstr "에이전트 연결됨"
 #: viewer/App.tsx
 msgid "also show config-excluded paths, greyed out"
 msgstr "설정에서 제외된 경로도 회색으로 표시"
+
+#: viewer/Print.tsx
+msgid "artifact of"
+msgstr "소속 페이지"
+
+#: viewer/Preview.tsx
+msgid "Artifacts"
+msgstr "산출물"
 
 #: viewer/Print.tsx
 msgid "back"
@@ -283,6 +300,10 @@ msgstr "고정된 읽기 순서"
 #: viewer/Print.tsx
 msgid "print"
 msgstr "인쇄"
+
+#: viewer/Preview.tsx
+msgid "print this artifact as a PDF"
+msgstr "이 산출물을 PDF로 인쇄"
 
 #: viewer/Doc.tsx
 msgid "print this directory as a PDF"

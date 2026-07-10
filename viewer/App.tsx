@@ -72,14 +72,15 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const rel = useMemo(() => buildRelationIndex(data.graph), [data])
   const concepts = data.concepts ?? []
   const conceptsBySlug = useMemo(() => new Map(concepts.map((c) => [c.slug, c])), [data])
+  const artifacts = data.artifacts ?? {}
   const isRoute = useCallback(
     (p: string) => {
       const printScope = printScopeOf(p)
-      if (printScope !== null) return isPrintScope(printScope, nodesByPath, conceptsBySlug)
+      if (printScope !== null) return isPrintScope(printScope, nodesByPath, conceptsBySlug, artifacts)
       const slug = conceptSlugOf(p)
       return slug !== null ? conceptsBySlug.has(slug) : nodesByPath.has(p)
     },
-    [nodesByPath, conceptsBySlug],
+    [nodesByPath, conceptsBySlug, artifacts],
   )
   const [path, navigate] = useRoute(isRoute)
   const [expanded, setExpanded] = useState(() => new Set(ancestorsOf(path)))
@@ -199,11 +200,16 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
     )
   }
 
+  // artifacts hang off the PAGE (path note or concept page), not the panel's
+  // node — key: repo path verbatim, or concepts/<slug> for concept pages
+  const pageKey = concept ? 'concepts/' + concept.slug : path
   const panelProps = {
     node: panelNode,
     nodesByPath,
     basePoints: data.basePoints ?? [],
     repoName: data.repoName,
+    artifacts: artifacts[pageKey] ?? [],
+    pageKey,
     mode: panelMode,
     onMode: setPanelMode,
     onCollapse: closePanel,

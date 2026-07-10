@@ -7,6 +7,7 @@ import {
 } from './scan.js'
 import { noteFileFor, loadNotes, stampNote, moveNoteFile, notesRoot } from './notes.js'
 import { loadConceptPages, sourcesHashFor, stampConceptPage, conceptFileFor } from './conceptPages.js'
+import { loadArtifacts } from './artifacts.js'
 import { computeStatus, summarize, summarizeConcepts } from './status.js'
 import { buildHtml, writeAtlas } from './build.js'
 import { serve } from './serve.js'
@@ -397,6 +398,7 @@ function build(root: string, args: string[]) {
     graph: buildImportGraph(root, scanResult),
     glossary: parseGlossary(loadGlossaryRaw(root)),
     basePoints: config.basePoints ?? [],
+    artifacts: loadArtifacts(root),
   })
   const target = writeAtlas(root, outFile, html)
   const sum = summarize(status)

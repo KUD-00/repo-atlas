@@ -10,6 +10,7 @@ import { computeStatus } from './status.js';
 import { buildHtml, buildPayload } from './build.js';
 import { buildImportGraph } from './deps.js';
 import { loadGlossaryRaw, parseGlossary } from './glossary.js';
+import { loadArtifacts } from './artifacts.js';
 const POLL_MS = 1500;
 const PREVIEW_CAP = 500_000;
 export function serve(root, config, port, host = '127.0.0.1') {
@@ -19,6 +20,7 @@ export function serve(root, config, port, host = '127.0.0.1') {
         lastScan = scanResult;
         const status = computeStatus(root, scanResult);
         const glossaryRaw = loadGlossaryRaw(root);
+        const artifacts = loadArtifacts(root);
         const input = {
             repoName: path.basename(root),
             commit: headCommit(root),
@@ -26,12 +28,13 @@ export function serve(root, config, port, host = '127.0.0.1') {
             graph: buildImportGraph(root, scanResult),
             glossary: parseGlossary(glossaryRaw),
             basePoints: config.basePoints ?? [],
+            artifacts,
         };
         const payload = buildPayload(input);
         const html = buildHtml({ ...input, payload });
         const digest = createHash('sha1')
             .update(JSON.stringify(status.entries) + JSON.stringify(status.orphans) +
-            JSON.stringify(status.concepts) + glossaryRaw)
+            JSON.stringify(status.concepts) + glossaryRaw + JSON.stringify(artifacts))
             .digest('hex');
         return { html, digest, payloadJson: JSON.stringify(payload) };
     };
