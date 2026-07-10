@@ -34,7 +34,9 @@ function stateLabel(status: ConceptState, i18n: Parameters<typeof t>[0]): string
   }
 }
 
-/** Sidebar group: all concept pages, above the file tree. */
+/** The concepts sidebar tab: a curriculum tree — chapters as group headings,
+ * pages inside in reading order with ①② position badges. Concepts and the code
+ * tree are different kinds of structure, so they live on separate tabs. */
 export function ConceptList({
   concepts, selected, query, statusFilter, onSelect,
 }: {
@@ -53,24 +55,42 @@ export function ConceptList({
     if (statusFilter) return false
     return true
   })
-  if (!shown.length) return null
+  if (!shown.length) {
+    return <div className="text-[0.78rem] text-muted px-2 py-3">{t(i18n)`no concept pages yet`}</div>
+  }
+  // Group by chapter, preserving payload order (already curriculum-sorted).
+  const chapters: { name: string | null; items: ConceptNode[] }[] = []
+  for (const c of shown) {
+    const last = chapters[chapters.length - 1]
+    if (last && last.name === c.chapter) last.items.push(c)
+    else chapters.push({ name: c.chapter, items: [c] })
+  }
+  // Reading-position badge = index in the FULL curriculum (not the filtered view)
+  const posOf = new Map(concepts.map((c, i) => [c.slug, i + 1]))
   return (
-    <div className="mb-1.5 pb-1.5 border-b border-border">
-      <div className="text-[0.7rem] text-muted px-2 pt-0.5 pb-1">{t(i18n)`concepts`}</div>
-      {shown.map((c) => (
-        <div
-          key={c.slug}
-          className={ROW + (selected === conceptRoute(c.slug) ? ' sel bg-[#3d6b5414]' : '')}
-          style={{ paddingLeft: 4 }}
-          onClick={() => onSelect(conceptRoute(c.slug))}
-        >
-          <span className={dotClass(c.status)} />
-          <span className="overflow-hidden text-ellipsis">{c.title}</span>
-          {c.audience === 'general' && (
-            <span className="shrink-0 text-[0.7rem]" title={t(i18n)`written for a general audience`}>
-              👥
-            </span>
+    <div>
+      {chapters.map((ch, gi) => (
+        <div key={gi} className="mb-2">
+          {ch.name && (
+            <div className="text-[0.7rem] text-muted px-2 pt-1 pb-0.5 font-[600]">{ch.name}</div>
           )}
+          {ch.items.map((c) => (
+            <div
+              key={c.slug}
+              className={ROW + (selected === conceptRoute(c.slug) ? ' sel bg-[#3d6b5414]' : '')}
+              style={{ paddingLeft: ch.name ? 10 : 4 }}
+              onClick={() => onSelect(conceptRoute(c.slug))}
+            >
+              <span className="shrink-0 text-[0.68rem] text-muted w-4 text-right">{posOf.get(c.slug)}</span>
+              <span className={dotClass(c.status)} />
+              <span className="overflow-hidden text-ellipsis">{c.title}</span>
+              {c.audience === 'general' && (
+                <span className="shrink-0 text-[0.7rem]" title={t(i18n)`written for a general audience`}>
+                  👥
+                </span>
+              )}
+            </div>
+          ))}
         </div>
       ))}
     </div>

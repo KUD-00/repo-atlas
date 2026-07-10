@@ -23,7 +23,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findRepoRoot, runAgent as libRunAgent, lenientParse as lenient, dirtyPaths as libDirty, assertOnlyAtlasWrites, lintBannedPhrases, countVisuals as libVisuals, longParagraphs, listCandidates, flatStructure, loadPrompt, median, DENY_TERMINAL, DENY_ALL_WRITES } from "./lib";
+import { findRepoRoot, runAgent as libRunAgent, lenientParse as lenient, dirtyPaths as libDirty, assertOnlyAtlasWrites, lintBannedPhrases, countVisuals as libVisuals, longParagraphs, listCandidates, flatStructure, validateMermaid, loadPrompt, median, DENY_TERMINAL, DENY_ALL_WRITES } from "./lib";
 
 const REPO = findRepoRoot();
 const QA = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
@@ -109,6 +109,7 @@ ${curriculumTable(page.slug)}
 - **前置页已讲的机制不重讲**——读者按顺序读到这页时已读过前置页；用一句话点到（提它的标题）即可，重讲=返工。
 - **不提前展开后面页的独占范围**${later.length ? `（${later.map((p: any) => `「${p.owns}」归 ${p.title}`).join("；")}）` : ""}——需要提及时一句带过，不讲机制。
 - 本页独占范围${page.owns ? `：**${page.owns}**——这是全课程唯一讲透它的地方，讲全` : "以 brief 为准"}。
+- **页长纪律（机械硬门 ≤300 行，目标 ~200-250 行）**：贴着独占范围写，旁路与兄弟页的活一句点到就走。读者一页学一个机制，学得动比"全"重要——超长=范围失守，砍。
 
 ${prereqs.length ? `## 前置页全文（读者已读过；你在其上写作）\n\n${prereqs.map((p: any) => `### ${p.title}\n\n${p.body.slice(0, 6000)}`).join("\n\n---\n\n")}\n` : ""}
 ## 本页
@@ -122,7 +123,7 @@ ${page.sources.map((s: string) => `- \`${s}\``).join("\n")}
 
 硬要求：
 1. **循序渐进的教学结构（硬门）**：开头一段 = 这页回答什么疑问 + 引入贯穿例子；接着**定义在先**——核心名词先用大白话立起来再用；主体 = 跟着贯穿例子**一步步走完整个机制**（编号步骤，每步只新增一个概念，且只建立在前置页或本页已立起的概念上——顺序错了读者就断线）；每个真实小节开 \`####\` 独立标题（右侧大纲从标题生成，别用加粗伪标题）。
-2. **可视化 ≥2 处**：内嵌 HTML（viewer 直接渲染——时间线/双栏对照/流程卡片/表格，形式随你发挥，以一眼看懂为准；朴素行内样式即可）${page.audience === "general" ? "，至少 1 处必须是 HTML" : ""}；拓扑（管线/状态机）可用 mermaid。别机械套模板。
+2. **可视化 ≥2 处**：内嵌 HTML（viewer 直接渲染——时间线/双栏对照/流程卡片/表格，形式随你发挥，以一眼看懂为准；朴素行内样式即可）${page.audience === "general" ? "，至少 1 处必须是 HTML" : ""}；拓扑（管线/状态机）可用 mermaid。mermaid 的 Note/标签文本里禁用分号、括号、引号等特殊符号（会碎解析，有机械门校验），改用中文标点。别机械套模板。
 3. **一个例子贯穿全文**，别每节换例子。例子里的场景细节可以虚构，但要用「比如」明示是举例；例子中体现的**机制、数字、顺序、字段行为必须全部来自 sources**，不许为了例子顺手编机制。
 4. 中文行文；**一段讲一件事**（一段 ≤~5 句 ~300 字，超了拆段，机械硬门）；**平行枚举用 - 列表不用顿号串**（机械硬门）。
 5. **禁令句式（机械硬门，出现即不过）**：「值得注意的是/有意思的是/我们来看/一定要注意/先记住/记住一件事/简单来说/换句话说/别担心/让我们/想象一下/见文末/如上所述/综上所述/总而言之」——这些是 AI 教学腔，是什么就直接说什么。标题也不许用"先记住一件事"这类句式。
@@ -136,7 +137,7 @@ ${glossary.slice(0, 2000)}
 title: ${page.title}
 audience: ${page.audience}
 sources: ${JSON.stringify(page.sources)}
-order: ${(curIndex.get(page.slug) ?? 0) + 1}
+order: ${(curIndex.get(page.slug) ?? 0) + 1}${page.chapter ? `\nchapter: ${page.chapter}` : ""}
 ---
 
 硬边界：只允许写这一个文件；不许改源码/别的笔记/glossary；sources_hash 等字段不要写（由 stamp 管）。\n${loadPrompt(QA, REPO, "concept-writer")}`;
@@ -224,11 +225,14 @@ async function runPage(slug: string): Promise<{ slug: string; pass: boolean; rea
     if (vis.html + vis.mermaid < 2) reasons.push(`可视化不足（HTML ${vis.html} + mermaid ${vis.mermaid} < 2）`);
     if (page.audience === "general" && vis.html < 1) reasons.push("general 页至少 1 处 HTML 可视化");
     reasons.push(...lintConcept(body));
-    // 结构机械硬门（与路径笔记同源）：长段落 / 顿号串 / 大纲可见的标题结构
+    // 结构机械硬门（与路径笔记同源）：长段落 / 顿号串 / 大纲可见的标题结构 / mermaid 语法
     reasons.push(...longParagraphs(body, true).map(p => `长段落（拆成多段，每段一件事）：${p}`));
     reasons.push(...listCandidates(body));
     const flat = flatStructure(body);
     if (flat) reasons.push(flat);
+    reasons.push(...await validateMermaid(body));
+    const bodyLines = body.split("\n").length;
+    if (bodyLines > 300) reasons.push(`页面过肥（${bodyLines} 行 > 300）：贴着 owns 砍——旁路一句点到、兄弟页的活删掉、重复的图并掉`);
     console.log(`[${slug}] round ${round}: 盲读 ×3 + 核查…`);
     const [readers, fc] = await Promise.all([blindRead(page, body), factcheck(page, body)]);
     const unclearMed = median(readers.map(r => r.unclear_sentences.length));

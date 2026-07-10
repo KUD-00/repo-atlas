@@ -21,7 +21,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { assertOnlyAtlasWrites, DENY_TERMINAL, DENY_ALL_WRITES } from "./lib";
+import { assertOnlyAtlasWrites, validateMermaid, DENY_TERMINAL, DENY_ALL_WRITES } from "./lib";
 
 // 仓库根 = 从 cwd 向上第一个含 .atlas/ 的目录（引擎住在工具仓，不假设与目标仓的相对位置）。
 function findRepoRoot(): string {
@@ -544,10 +544,11 @@ async function processPath(repoPath: string) {
     for (let s = 0; s < 3; s++) {
       const b = stripFrontmatter(readFileSync(noteFile, "utf8"));
       const sg = staticGate(b);
-      if (sg.pass) break;
-      const n = sg.longParas.length + sg.metaHits.length + sg.listCand.length;
+      const mm = await validateMermaid(b);
+      if (sg.pass && mm.length === 0) break;
+      const n = sg.longParas.length + sg.metaHits.length + sg.listCand.length + mm.length;
       console.log(`[${repoPath}] 轻路径：修 ${n} 处机械违规（不跑盲读/核查）…`);
-      await runReviser(repoPath, noteFile, sg, lint(b));
+      await runReviser(repoPath, noteFile, sg, [...lint(b), ...mm]);
     }
   }
   const record: any = { path: repoPath, note: noteFile.slice(REPO.length + 1), rubricVersion: rubric.version, startedAt: new Date().toISOString(), rounds: [] };
@@ -564,12 +565,14 @@ async function processPath(repoPath: string) {
   try {
   for (let round = 0; round < maxRounds; round++) {
     const body = stripFrontmatter(readFileSync(noteFile, "utf8"));
-    const lintIssues = lint(body);
+    const mermaidErrs = await validateMermaid(body);
+    const lintIssues = [...lint(body), ...mermaidErrs];
     console.log(`[${repoPath}] round ${round}: lint=${lintIssues.length}，盲读 ×${N_READERS}…`);
     const readers = await runReaders(repoPath, body);
     console.log(`[${repoPath}] round ${round}: 事实核查…`);
     const factcheck = await runFactcheck(repoPath, body, readers[0]);
     const gate = evaluate(readers, factcheck, body);
+    if (mermaidErrs.length) { gate.pass = false; gate.reasons.push(`mermaid 解析失败 ${mermaidErrs.length} 块（机械硬门）`); }
     record.rounds.push({ round, lintIssues, readers, factcheck, gate: { ...gate, consensusUnclear: gate.consensusUnclear } });
     finalGate = gate;
     const pen = penalty(gate);

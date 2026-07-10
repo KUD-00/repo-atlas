@@ -49,6 +49,7 @@ function parseConceptPage(slug, file, raw) {
         audience: meta.audience === 'general' ? 'general' : 'dev',
         sources,
         order: Number.isFinite(orderNum) ? orderNum : null,
+        chapter: meta.chapter || null,
         sourcesHash: meta.sources_hash || null,
         anchor: meta.anchor || null,
         stamped: meta.stamped || null,
@@ -103,6 +104,7 @@ export function conceptStatusEntries(root, scanResult) {
             slug: p.slug,
             title: p.title,
             audience: p.audience,
+            chapter: p.chapter,
             status: broken.length
                 ? 'broken-source'
                 : p.sourcesHash !== null && p.sourcesHash === hash
@@ -125,6 +127,7 @@ export function stampConceptPage(page, hash, anchor) {
         `audience: ${page.audience}`,
         `sources: ${JSON.stringify(page.sources)}`,
         ...(page.order !== null && page.order !== undefined ? [`order: ${page.order}`] : []),
+        ...(page.chapter ? [`chapter: ${page.chapter}`] : []),
         `sources_hash: ${hash}`,
     ];
     if (anchor)

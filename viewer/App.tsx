@@ -84,6 +84,10 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   )
   const [path, navigate] = useRoute(isRoute)
   const [expanded, setExpanded] = useState(() => new Set(ancestorsOf(path)))
+  // Sidebar tabs: the code tree and the concept curriculum are two different
+  // structures — switch between them instead of stacking one above the other.
+  const [sideTab, setSideTab] = useState<'code' | 'concepts'>(() =>
+    conceptSlugOf(path) !== null ? 'concepts' : 'code')
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
   const [showIgnored, setShowIgnored] = useState(false)
@@ -111,6 +115,7 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
 
   useEffect(() => {
     if (!concept) return
+    setSideTab('concepts') // following a concept link switches the sidebar to the curriculum
     setConceptCodePath(concept.sources.find((s) => nodesByPath.get(s)?.type === 'file') ?? null)
     // keyed by route: a live data refresh must not reset a jump the reader followed
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -320,25 +325,46 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
             </button>
           </div>
         </div>
+        {concepts.length > 0 && (
+          <div className="flex gap-1 px-3 pt-2">
+            {(['code', 'concepts'] as const).map((tb) => (
+              <button
+                key={tb}
+                className={
+                  'flex-1 text-[0.76rem] py-1 rounded-md border cursor-pointer font-inherit ' +
+                  (sideTab === tb
+                    ? 'border-accent text-accent bg-[#3d6b540d]'
+                    : 'border-border text-muted bg-transparent hover:text-text')
+                }
+                onClick={() => setSideTab(tb)}
+              >
+                {tb === 'code' ? t(i18n)`code` : t(i18n)`concepts`}
+              </button>
+            ))}
+          </div>
+        )}
         <nav className="flex-1 min-h-0 overflow-auto px-1.5 pt-2 pb-6">
-          <ConceptList
-            concepts={concepts}
-            selected={path}
-            query={query.trim().toLowerCase()}
-            statusFilter={statusFilter}
-            onSelect={onSelect}
-          />
-          <Tree
-            root={data.tree}
-            selected={path}
-            expanded={expanded}
-            query={query.trim().toLowerCase()}
-            statusFilter={statusFilter}
-            showIgnored={showIgnored}
-            sortMode={sortMode}
-            onSelect={onSelect}
-            onToggle={toggle}
-          />
+          {sideTab === 'concepts' && concepts.length > 0 ? (
+            <ConceptList
+              concepts={concepts}
+              selected={path}
+              query={query.trim().toLowerCase()}
+              statusFilter={statusFilter}
+              onSelect={onSelect}
+            />
+          ) : (
+            <Tree
+              root={data.tree}
+              selected={path}
+              expanded={expanded}
+              query={query.trim().toLowerCase()}
+              statusFilter={statusFilter}
+              showIgnored={showIgnored}
+              sortMode={sortMode}
+              onSelect={onSelect}
+              onToggle={toggle}
+            />
+          )}
         </nav>
       </aside>
       <main className={'min-w-0 min-h-0 grid overflow-hidden ' + mainCols}>

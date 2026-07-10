@@ -99,6 +99,8 @@ export interface ConceptPage {
   sources: string[]
   /** Curriculum reading position (sidebar sort key); null = unordered, sorts last. */
   order: number | null
+  /** Curriculum chapter (sidebar group heading); null = ungrouped. */
+  chapter: string | null
   /** sha1 over the sources' scan hashes (in `sources` order) at stamp time. */
   sourcesHash: string | null
   anchor: string | null
@@ -110,6 +112,7 @@ export interface ConceptStatusEntry {
   slug: string
   title: string
   audience: ConceptAudience
+  chapter: string | null
   status: ConceptState
   sources: string[]
   /** Sources that no longer resolve in the scan. */
@@ -164,6 +167,7 @@ export interface ConceptNode {
   slug: string
   title: string
   audience: ConceptAudience
+  chapter: string | null
   status: ConceptState
   sources: string[]
   brokenSources: string[]

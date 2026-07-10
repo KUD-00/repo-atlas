@@ -94,6 +94,7 @@ export function buildPayload({
     slug: c.slug,
     title: c.title,
     audience: c.audience,
+    chapter: c.chapter,
     status: c.status,
     sources: c.sources,
     brokenSources: c.brokenSources,

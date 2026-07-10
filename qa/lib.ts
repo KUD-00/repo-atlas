@@ -81,6 +81,33 @@ export function flatStructure(body: string, minHeadings = 3, minLines = 60): str
   return null;
 }
 
+// ---------- mermaid 语法机械门 ----------
+// 「图必须能通过 mermaid 解析」一直只是规范文字，没人兜底——坏图要等人打开页面看到红框
+// 才发现（实测：sequenceDiagram 的 Note 文本里一个分号就碎）。这里用 mermaid.parse 无头
+// 校验每个围栏块。mermaid 装在本工具仓的 node_modules；装不上时降级为跳过并警告一次。
+let _mermaid: any | undefined;
+async function getMermaid(): Promise<any | null> {
+  if (_mermaid !== undefined) return _mermaid;
+  try { _mermaid = (await import("mermaid")).default; }
+  catch { _mermaid = null; console.warn("  ⚠ mermaid 不可用（repo-atlas 未安装依赖？），跳过图语法校验"); }
+  return _mermaid;
+}
+export async function validateMermaid(body: string): Promise<string[]> {
+  const blocks = [...body.matchAll(/```mermaid\n([\s\S]*?)```/g)].map(m => m[1]);
+  if (!blocks.length) return [];
+  const mermaid = await getMermaid();
+  if (!mermaid) return [];
+  const errs: string[] = [];
+  for (let i = 0; i < blocks.length; i++) {
+    try { await mermaid.parse(blocks[i]); }
+    catch (e: any) {
+      const head = String(e?.message ?? e).split("\n").slice(0, 2).join(" ");
+      errs.push(`mermaid 第 ${i + 1} 块（${blocks[i].trim().split("\n")[0]}）解析失败：${head.slice(0, 160)} —— 常见病：Note/标签文本里的分号、括号、引号；修语法或把特殊符号换成中文标点`);
+    }
+  }
+  return errs;
+}
+
 // ---------- 可视化计数（图表密度门共用） ----------
 export function countVisuals(body: string): { html: number; mermaid: number; tables: number } {
   return {
