@@ -4,7 +4,9 @@ import {
 } from 'react'
 import { t } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
+import { Printer } from 'lucide-react'
 import type { EntryStatus, GlossaryEntry, TreeNode } from '../src/types'
+import { printRoute } from './Print'
 import {
   linkifyPaths, renderMermaidIn, noteFileFor, relationsFor, annotateGlossary,
   annotateCodeAnchors, degradeCodeEmbeds, readingSequence, firstFileWithin,
@@ -381,6 +383,13 @@ export function DocPane({
             {t(i18n)`▸ frame`}
           </button>
         )}
+        <a
+          className={BTN + ' no-underline text-muted hover:text-accent inline-flex items-center [&_svg]:w-3.5 [&_svg]:h-3.5'}
+          href={'#' + encodeURI(printRoute(node.path === '' ? 'all' : node.path))}
+          title={node.type === 'dir' ? t(i18n)`print this directory as a PDF` : t(i18n)`print this page as a PDF`}
+        >
+          <Printer />
+        </a>
       </div>
       {glossary.some((g) => g.home === node.path) && (
         <div className="text-[0.75rem] text-muted mb-4 flex flex-wrap items-center gap-x-2 gap-y-1">

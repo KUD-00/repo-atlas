@@ -373,7 +373,10 @@ function wireMermaidDiagram(holder: HTMLElement, svg: SVGSVGElement): void {
   })
 }
 
-export async function renderMermaidIn(container: HTMLElement): Promise<void> {
+export async function renderMermaidIn(
+  container: HTMLElement,
+  opts?: { zoomable?: boolean },
+): Promise<void> {
   if (!window.mermaid) return
   const blocks = container.querySelectorAll('pre > code.language-mermaid')
   if (!blocks.length) return
@@ -392,7 +395,7 @@ export async function renderMermaidIn(container: HTMLElement): Promise<void> {
       const el = holder.querySelector('svg')
       if (el) {
         fitMermaidPreview(el)
-        wireMermaidDiagram(holder, el)
+        if (opts?.zoomable !== false) wireMermaidDiagram(holder, el)
       }
     } catch (err: unknown) {
       const pre = document.createElement('pre')

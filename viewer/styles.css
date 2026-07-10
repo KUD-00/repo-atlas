@@ -604,6 +604,100 @@
     }
   }
 
+  /* ---- print view (#print:<scope> route) ---------------------------------
+   * On screen it is a plain scrollable document; @media print flattens the
+   * app shell so the whole document flows across pages instead of being
+   * clipped to one viewport by body/#root overflow:hidden. */
+  .print-view .print-toc-row {
+    border-bottom: 1px dotted var(--color-border);
+  }
+  .print-view .code-embed-loc-print {
+    margin-left: auto;
+    color: var(--color-muted);
+    white-space: nowrap;
+  }
+  /* screen-only affordance the paper page must not show */
+  .print-view .prose .mermaid-diagram {
+    cursor: default;
+  }
+
+  @page {
+    margin: 18mm 15mm;
+  }
+
+  @media print {
+    html,
+    body {
+      height: auto !important;
+      overflow: visible !important;
+      background: #fff !important;
+      color: #000 !important;
+    }
+    #root {
+      display: block !important;
+      height: auto !important;
+      grid-template-columns: none;
+      grid-template-rows: none;
+    }
+    .print-view {
+      height: auto !important;
+      overflow: visible !important;
+    }
+    .print-toolbar {
+      display: none !important;
+    }
+    .print-body {
+      max-width: none;
+      padding: 0;
+      font-size: 11pt;
+    }
+    .print-view .prose {
+      font-size: 11pt;
+      line-height: 1.55;
+    }
+    .print-cover {
+      break-after: page;
+      padding-top: 30vh;
+    }
+    .print-toc {
+      break-after: page;
+    }
+    .print-section {
+      break-before: page;
+    }
+    /* keep block content whole and inside the page: no horizontal clipping */
+    .print-view pre,
+    .print-view table,
+    .print-view figure,
+    .print-view .code-embed,
+    .print-view .mermaid-diagram {
+      break-inside: avoid;
+      max-width: 100%;
+    }
+    .print-view pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow: hidden;
+    }
+    .print-view td,
+    .print-view th {
+      word-break: break-word;
+    }
+    .print-view .mermaid-diagram svg {
+      max-width: 100% !important;
+      height: auto !important;
+    }
+    .print-view .prose a,
+    .print-view .print-toc-row {
+      color: inherit;
+    }
+    /* floating overlays mean nothing on paper */
+    .glossary-pop,
+    .mermaid-lightbox {
+      display: none !important;
+    }
+  }
+
   @media (pointer: coarse) {
     .row {
       min-height: 36px;

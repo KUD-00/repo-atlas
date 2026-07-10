@@ -9,6 +9,7 @@ import { useLive } from './live'
 import { Tree } from './Tree'
 import { DocPane } from './Doc'
 import { ConceptList, ConceptPane, conceptSlugOf } from './Concept'
+import { isPrintScope, printScopeOf, PrintView } from './Print'
 import { PanelPane, type CodeJump, type PanelMode } from './Preview'
 import { ChatDock } from './Chat'
 import { SettingsButton, SettingsDialog } from './Settings'
@@ -73,6 +74,8 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const conceptsBySlug = useMemo(() => new Map(concepts.map((c) => [c.slug, c])), [data])
   const isRoute = useCallback(
     (p: string) => {
+      const printScope = printScopeOf(p)
+      if (printScope !== null) return isPrintScope(printScope, nodesByPath, conceptsBySlug)
       const slug = conceptSlugOf(p)
       return slug !== null ? conceptsBySlug.has(slug) : nodesByPath.has(p)
     },
@@ -180,6 +183,20 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const openPanel = () => {
     setPanelClosing(false)
     setPanelOpen(true)
+  }
+
+  // print route: a chrome-less document view (cover, toc, sections, glossary)
+  // that auto-opens the browser's print dialog once rendering settles
+  const printScope = printScopeOf(path)
+  if (printScope !== null) {
+    return (
+      <PrintView
+        scope={printScope}
+        data={data}
+        nodesByPath={nodesByPath}
+        conceptsBySlug={conceptsBySlug}
+      />
+    )
   }
 
   const panelProps = {

@@ -13,6 +13,10 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#: viewer/Print.tsx
+msgid "(directory)"
+msgstr "(directory)"
+
 #: viewer/Doc.tsx
 msgid "← prev"
 msgstr "← prev"
@@ -44,6 +48,10 @@ msgstr "agent connected"
 #: viewer/App.tsx
 msgid "also show config-excluded paths, greyed out"
 msgstr "also show config-excluded paths, greyed out"
+
+#: viewer/Print.tsx
+msgid "back"
+msgstr "back"
 
 #: viewer/Preview.tsx
 msgid "binary file — no preview"
@@ -94,6 +102,10 @@ msgstr "collapse panel"
 msgid "collapse sidebar"
 msgstr "collapse sidebar"
 
+#: viewer/Print.tsx
+msgid "commit"
+msgstr "commit"
+
 #: viewer/Concept.tsx
 msgid "concept"
 msgstr "concept"
@@ -107,6 +119,7 @@ msgid "content hash changed but git shows no diff against the anchor"
 msgstr "content hash changed but git shows no diff against the anchor"
 
 #: viewer/Doc.tsx
+#: viewer/Print.tsx
 msgid "contents"
 msgstr "contents"
 
@@ -130,6 +143,10 @@ msgstr "directory notes above this page"
 msgid "edit"
 msgstr "edit"
 
+#: viewer/Print.tsx
+msgid "entire repository"
+msgstr "entire repository"
+
 #: viewer/App.tsx
 msgid "expand panel"
 msgstr "expand panel"
@@ -149,6 +166,14 @@ msgstr "filter paths…"
 #: viewer/App.tsx
 msgid "fresh"
 msgstr "fresh"
+
+#: viewer/Print.tsx
+msgid "generated"
+msgstr "generated"
+
+#: viewer/Print.tsx
+msgid "glossary"
+msgstr "glossary"
 
 #: viewer/Concept.tsx
 msgid "gone from the scan"
@@ -254,6 +279,19 @@ msgstr "outdated — code changed since this was written"
 #: viewer/Tree.tsx
 msgid "pinned reading order"
 msgstr "pinned reading order"
+
+#: viewer/Print.tsx
+msgid "print"
+msgstr "print"
+
+#: viewer/Doc.tsx
+msgid "print this directory as a PDF"
+msgstr "print this directory as a PDF"
+
+#: viewer/Concept.tsx
+#: viewer/Doc.tsx
+msgid "print this page as a PDF"
+msgstr "print this page as a PDF"
 
 #: viewer/Preview.tsx
 msgid "reading order"

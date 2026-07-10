@@ -13,6 +13,10 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#: viewer/Print.tsx
+msgid "(directory)"
+msgstr "（目录）"
+
 #: viewer/Doc.tsx
 msgid "← prev"
 msgstr "← 上一项"
@@ -44,6 +48,10 @@ msgstr "代理已连接"
 #: viewer/App.tsx
 msgid "also show config-excluded paths, greyed out"
 msgstr "同时显示配置中排除的路径（灰色显示）"
+
+#: viewer/Print.tsx
+msgid "back"
+msgstr "返回"
 
 #: viewer/Preview.tsx
 msgid "binary file — no preview"
@@ -94,6 +102,10 @@ msgstr "收起面板"
 msgid "collapse sidebar"
 msgstr "收起侧栏"
 
+#: viewer/Print.tsx
+msgid "commit"
+msgstr "提交"
+
 #: viewer/Concept.tsx
 msgid "concept"
 msgstr "概念"
@@ -107,6 +119,7 @@ msgid "content hash changed but git shows no diff against the anchor"
 msgstr "内容哈希变了，但 git 相对 anchor 没有差异"
 
 #: viewer/Doc.tsx
+#: viewer/Print.tsx
 msgid "contents"
 msgstr "目录"
 
@@ -130,6 +143,10 @@ msgstr ""
 msgid "edit"
 msgstr "编辑"
 
+#: viewer/Print.tsx
+msgid "entire repository"
+msgstr "整个仓库"
+
 #: viewer/App.tsx
 msgid "expand panel"
 msgstr "展开面板"
@@ -149,6 +166,14 @@ msgstr "筛选路径…"
 #: viewer/App.tsx
 msgid "fresh"
 msgstr "最新"
+
+#: viewer/Print.tsx
+msgid "generated"
+msgstr "生成于"
+
+#: viewer/Print.tsx
+msgid "glossary"
+msgstr "术语表"
 
 #: viewer/Concept.tsx
 msgid "gone from the scan"
@@ -254,6 +279,19 @@ msgstr "已过时 — 编写后代码已更改"
 #: viewer/Tree.tsx
 msgid "pinned reading order"
 msgstr "固定的阅读顺序"
+
+#: viewer/Print.tsx
+msgid "print"
+msgstr "打印"
+
+#: viewer/Doc.tsx
+msgid "print this directory as a PDF"
+msgstr "将此目录打印为 PDF"
+
+#: viewer/Concept.tsx
+#: viewer/Doc.tsx
+msgid "print this page as a PDF"
+msgstr "将此页打印为 PDF"
 
 #: viewer/Preview.tsx
 msgid "reading order"

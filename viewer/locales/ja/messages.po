@@ -13,6 +13,10 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#: viewer/Print.tsx
+msgid "(directory)"
+msgstr "（ディレクトリ）"
+
 #: viewer/Doc.tsx
 msgid "← prev"
 msgstr "← 前へ"
@@ -44,6 +48,10 @@ msgstr "エージェント接続済み"
 #: viewer/App.tsx
 msgid "also show config-excluded paths, greyed out"
 msgstr "設定で除外されたパスもグレー表示で表示"
+
+#: viewer/Print.tsx
+msgid "back"
+msgstr "戻る"
 
 #: viewer/Preview.tsx
 msgid "binary file — no preview"
@@ -94,6 +102,10 @@ msgstr "パネルを折りたたむ"
 msgid "collapse sidebar"
 msgstr "サイドバーを折りたたむ"
 
+#: viewer/Print.tsx
+msgid "commit"
+msgstr "コミット"
+
 #: viewer/Concept.tsx
 msgid "concept"
 msgstr "コンセプト"
@@ -107,6 +119,7 @@ msgid "content hash changed but git shows no diff against the anchor"
 msgstr "内容ハッシュは変わったが、anchor に対する git の差分はない"
 
 #: viewer/Doc.tsx
+#: viewer/Print.tsx
 msgid "contents"
 msgstr "目次"
 
@@ -130,6 +143,10 @@ msgstr ""
 msgid "edit"
 msgstr "編集"
 
+#: viewer/Print.tsx
+msgid "entire repository"
+msgstr "リポジトリ全体"
+
 #: viewer/App.tsx
 msgid "expand panel"
 msgstr "パネルを開く"
@@ -149,6 +166,14 @@ msgstr "パスをフィルター…"
 #: viewer/App.tsx
 msgid "fresh"
 msgstr "最新"
+
+#: viewer/Print.tsx
+msgid "generated"
+msgstr "生成日時"
+
+#: viewer/Print.tsx
+msgid "glossary"
+msgstr "用語集"
 
 #: viewer/Concept.tsx
 msgid "gone from the scan"
@@ -254,6 +279,19 @@ msgstr "古い — 書かれてからコードが変更されました"
 #: viewer/Tree.tsx
 msgid "pinned reading order"
 msgstr "固定された読み順"
+
+#: viewer/Print.tsx
+msgid "print"
+msgstr "印刷"
+
+#: viewer/Doc.tsx
+msgid "print this directory as a PDF"
+msgstr "このディレクトリをPDFとして印刷"
+
+#: viewer/Concept.tsx
+#: viewer/Doc.tsx
+msgid "print this page as a PDF"
+msgstr "このページをPDFとして印刷"
 
 #: viewer/Preview.tsx
 msgid "reading order"

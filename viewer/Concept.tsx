@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
+import { Printer } from 'lucide-react'
 import type { ConceptNode, ConceptState, GlossaryEntry, TreeNode } from '../src/types'
 import {
   annotateConceptCodeAnchors, annotateGlossary, linkifyPaths, renderMermaidIn,
@@ -136,6 +137,15 @@ export function ConceptPane({
             ? ` · ${t(i18n)`stamped`} ${new Date(concept.stamped).toLocaleDateString(i18n.locale)}`
             : ''}
         </div>
+        <a
+          className="btn font-inherit text-[0.75rem] py-[5px] px-3 rounded-lg border border-border bg-panel no-underline text-muted cursor-pointer whitespace-nowrap hover:border-accent hover:text-accent inline-flex items-center [&_svg]:w-3.5 [&_svg]:h-3.5"
+          // literal prefix: importing printRoute from Print.tsx would cycle
+          // (Print.tsx already imports conceptSlugOf from this module)
+          href={'#' + encodeURI('print:' + conceptRoute(concept.slug))}
+          title={t(i18n)`print this page as a PDF`}
+        >
+          <Printer />
+        </a>
       </div>
       {concept.sources.length > 0 && (
         <div className="-mt-2 mb-5 flex gap-2 items-baseline text-[0.75rem]">

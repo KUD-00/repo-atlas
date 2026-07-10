@@ -13,6 +13,10 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#: viewer/Print.tsx
+msgid "(directory)"
+msgstr "(디렉터리)"
+
 #: viewer/Doc.tsx
 msgid "← prev"
 msgstr "← 이전"
@@ -44,6 +48,10 @@ msgstr "에이전트 연결됨"
 #: viewer/App.tsx
 msgid "also show config-excluded paths, greyed out"
 msgstr "설정에서 제외된 경로도 회색으로 표시"
+
+#: viewer/Print.tsx
+msgid "back"
+msgstr "뒤로"
 
 #: viewer/Preview.tsx
 msgid "binary file — no preview"
@@ -94,6 +102,10 @@ msgstr "패널 접기"
 msgid "collapse sidebar"
 msgstr "사이드바 접기"
 
+#: viewer/Print.tsx
+msgid "commit"
+msgstr "커밋"
+
 #: viewer/Concept.tsx
 msgid "concept"
 msgstr "개념"
@@ -107,6 +119,7 @@ msgid "content hash changed but git shows no diff against the anchor"
 msgstr "내용 해시는 바뀌었지만 anchor 대비 git 차이가 없습니다"
 
 #: viewer/Doc.tsx
+#: viewer/Print.tsx
 msgid "contents"
 msgstr "목차"
 
@@ -130,6 +143,10 @@ msgstr ""
 msgid "edit"
 msgstr "편집"
 
+#: viewer/Print.tsx
+msgid "entire repository"
+msgstr "저장소 전체"
+
 #: viewer/App.tsx
 msgid "expand panel"
 msgstr "패널 펼치기"
@@ -149,6 +166,14 @@ msgstr "경로 필터…"
 #: viewer/App.tsx
 msgid "fresh"
 msgstr "최신"
+
+#: viewer/Print.tsx
+msgid "generated"
+msgstr "생성 시각"
+
+#: viewer/Print.tsx
+msgid "glossary"
+msgstr "용어집"
 
 #: viewer/Concept.tsx
 msgid "gone from the scan"
@@ -254,6 +279,19 @@ msgstr "오래됨 — 작성 후 코드가 변경됨"
 #: viewer/Tree.tsx
 msgid "pinned reading order"
 msgstr "고정된 읽기 순서"
+
+#: viewer/Print.tsx
+msgid "print"
+msgstr "인쇄"
+
+#: viewer/Doc.tsx
+msgid "print this directory as a PDF"
+msgstr "이 디렉터리를 PDF로 인쇄"
+
+#: viewer/Concept.tsx
+#: viewer/Doc.tsx
+msgid "print this page as a PDF"
+msgstr "이 페이지를 PDF로 인쇄"
 
 #: viewer/Preview.tsx
 msgid "reading order"
