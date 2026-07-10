@@ -97,6 +97,8 @@ export interface ConceptPage {
   audience: ConceptAudience
   /** Repo paths (files or dirs) this explanation is written against. */
   sources: string[]
+  /** Curriculum reading position (sidebar sort key); null = unordered, sorts last. */
+  order: number | null
   /** sha1 over the sources' scan hashes (in `sources` order) at stamp time. */
   sourcesHash: string | null
   anchor: string | null

@@ -43,12 +43,14 @@ function parseConceptPage(slug: string, file: string, raw: string): ConceptPage 
       /* malformed sources — treat as absent rather than failing the whole page */
     }
   }
+  const orderNum = meta.order !== undefined ? Number(meta.order) : NaN
   return {
     slug,
     file,
     title: meta.title || slug,
     audience: meta.audience === 'general' ? 'general' : 'dev',
     sources,
+    order: Number.isFinite(orderNum) ? orderNum : null,
     sourcesHash: meta.sources_hash || null,
     anchor: meta.anchor || null,
     stamped: meta.stamped || null,
@@ -65,7 +67,14 @@ export function loadConceptPages(root: string): ConceptPage[] {
     const file = path.join(base, entry.name)
     pages.push(parseConceptPage(entry.name.slice(0, -'.md'.length), file, fs.readFileSync(file, 'utf8')))
   }
-  return pages.sort((a, b) => (a.slug < b.slug ? -1 : 1))
+  // Curriculum order first (frontmatter `order`, written by the QA pipeline from
+  // the repo's concept-pages.json reading order), unordered pages after, then slug.
+  return pages.sort((a, b) => {
+    const ao = a.order ?? Infinity
+    const bo = b.order ?? Infinity
+    if (ao !== bo) return ao - bo
+    return a.slug < b.slug ? -1 : 1
+  })
 }
 
 /**
@@ -112,12 +121,13 @@ export function conceptStatusEntries(root: string, scanResult: ScanResult): Conc
 }
 
 /** Rewrite the page with a fresh sources_hash / anchor / stamped; the
- * authored fields (title, audience, sources) and body pass through. */
+ * authored fields (title, audience, sources, order) and body pass through. */
 export function stampConceptPage(page: ConceptPage, hash: string, anchor: string | null): void {
   const lines = [
     `title: ${page.title}`,
     `audience: ${page.audience}`,
     `sources: ${JSON.stringify(page.sources)}`,
+    ...(page.order !== null && page.order !== undefined ? [`order: ${page.order}`] : []),
     `sources_hash: ${hash}`,
   ]
   if (anchor) lines.push(`anchor: ${anchor}`)

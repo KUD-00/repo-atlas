@@ -39,6 +39,48 @@ export function lintBannedPhrases(body: string, extra: string[] = []): string[] 
   return issues;
 }
 
+// ---------- 结构机械门（中文行文；run.ts 有历史局部副本=已知债，新文体一律用这里） ----------
+// 长段落：一段塞太多字/句 = 没分段。callout 区允许密（渐进披露），列表项剥掉 marker 同样计。
+export function longParagraphs(body: string, hard: boolean): string[] {
+  const ci = body.indexOf('<div class="callout"');
+  const prose = (ci >= 0 ? body.slice(0, ci) : body).replace(/```[\s\S]*?```/g, "");
+  const [maxLen, maxSent] = hard ? [360, 6] : [280, 4];
+  const bad: string[] = [];
+  for (const raw of prose.split("\n")) {
+    let t = raw.trim();
+    if (!t || /^(#{1,6} |>|\||!\[|<)/.test(t)) continue;
+    const isList = /^\s*([-*+]|\d+[.、)])\s/.test(t);
+    if (isList) t = t.replace(/^\s*([-*+]|\d+[.、)])\s+/, "");
+    const sentences = (t.match(/[。！？]/g) || []).length;
+    if (t.length > maxLen || sentences > maxSent) bad.push(`${isList ? "列表项" : "段落"}${t.length}字${sentences}句：${t.slice(0, 38)}…`);
+  }
+  return bad;
+}
+// 平行枚举顿号串（该拆 - 列表）。A「N个X：A、B、C」；B「X（…）、Y（…）、Z（…）」；排除"比如/例如"举例串。
+export function listCandidates(body: string): string[] {
+  const prose = body.replace(/```[\s\S]*?```/g, "");
+  const A = /(?:[二三四五六七八九十两]|[2-9]\d*)\s*(?:个|种|块|步|条|类|扇|轴|层|面|部分|方面|点)[^，。；：\n]{0,10}[：:][^。；\n]*、[^。；\n]*、/;
+  const out: string[] = [];
+  for (const raw of prose.split("\n")) {
+    const t = raw.trim();
+    if (!t || /^(#{1,6} |>|\||!\[|<|\s*[-*+] |\s*\d+[.、)] )/.test(t)) continue;
+    const illustrative = /比如|例如|诸如|譬如|如：/.test(t);
+    const parenSeries = !illustrative && (t.match(/）、/g) || []).length >= 2;
+    if (A.test(t) || parenSeries) out.push(`平行枚举顿号串（拆成 - 列表）：${t.slice(0, 44)}…`);
+  }
+  return out;
+}
+// 结构扁平：正文很长却只有 1-2 个标题 → 大纲反映不出结构（内容闷在一节里）。
+export function flatStructure(body: string, minHeadings = 3, minLines = 60): string | null {
+  const ci = body.indexOf('<div class="callout"');
+  const bo = ci >= 0 ? body.slice(0, ci) : body;
+  const lines = bo.split("\n").length;
+  const heads = (bo.replace(/```[\s\S]*?```/g, "").match(/^#{2,4} /gm) || []).length;
+  if (lines > minLines && heads < minHeadings)
+    return `结构扁平（${lines} 行只有 ${heads} 个标题）：每个真实小节开一个 #### 标题，让大纲反映结构`;
+  return null;
+}
+
 // ---------- 可视化计数（图表密度门共用） ----------
 export function countVisuals(body: string): { html: number; mermaid: number; tables: number } {
   return {
