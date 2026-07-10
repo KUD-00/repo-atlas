@@ -38,7 +38,7 @@ const args = process.argv.slice(2);
 const flag = (n: string) => args.includes(`--${n}`);
 const optNum = (n: string, d: number) => { const i = args.indexOf(`--${n}`); return i >= 0 ? Number(args[i + 1]) : d; };
 const DRY = flag("dry");
-const CONC = optNum("concurrency", 4);
+const CONC = optNum("concurrency", 10);
 const wanted = flag("all") ? spec.concepts.map((c: any) => c.id) : args.filter(a => !a.startsWith("--") && !/^\d+$/.test(a));
 if (!wanted.length) { console.error("usage: bun extract.ts <conceptId...>|--all [--concurrency N] [--dry]"); process.exit(2); }
 

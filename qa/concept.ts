@@ -63,7 +63,7 @@ const args = process.argv.slice(2);
 const flag = (n: string) => args.includes(`--${n}`);
 const optNum = (n: string, d: number) => { const i = args.indexOf(`--${n}`); return i >= 0 ? Number(args[i + 1]) : d; };
 const FORCE = flag("force");
-const CONC = optNum("concurrency", 2);
+const CONC = optNum("concurrency", 10);
 const wanted: string[] = (flag("all") ? spec.pages.map((p: any) => p.slug)
   : args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--concurrency"))
   .sort((a: string, b: string) => (curIndex.get(a) ?? 1e9) - (curIndex.get(b) ?? 1e9)); // 按课程表顺序跑：前置先成稿

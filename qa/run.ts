@@ -163,7 +163,7 @@ function isFlatHub(body: string): boolean {
   return heads <= 2 || max > 55; // 单节独大 / 某节挤了 >55 行
 }
 const N_READERS = opt("readers", rubric.readers_per_note ?? 3);
-const CONCURRENCY = opt("concurrency", 2);
+const CONCURRENCY = opt("concurrency", 10);
 if (paths.length === 0) {
   console.error("usage: cd <目标仓库> && bun <repo-atlas>/qa/run.ts <repo路径...> [--mapify] [--revise] [--stamp] [--force] [--readers N] [--concurrency N]");
   process.exit(2);
