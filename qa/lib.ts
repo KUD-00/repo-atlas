@@ -88,7 +88,18 @@ export function flatStructure(body: string, minHeadings = 3, minLines = 60): str
 let _mermaid: any | undefined;
 async function getMermaid(): Promise<any | null> {
   if (_mermaid !== undefined) return _mermaid;
-  try { _mermaid = (await import("mermaid")).default; }
+  try {
+    // mermaid 的部分解析路径（如带 <br/> 标签的 label）会走 DOMPurify，需要 DOM——
+    // 无头环境先用 happy-dom 把 window/document 立起来，否则报
+    // "DOMPurify.addHook is not a function" 造成所有带图页面被误判失败。
+    if (typeof (globalThis as any).document === "undefined") {
+      const { Window } = await import("happy-dom");
+      const w: any = new Window();
+      (globalThis as any).window = w;
+      (globalThis as any).document = w.document;
+    }
+    _mermaid = (await import("mermaid")).default;
+  }
   catch { _mermaid = null; console.warn("  ⚠ mermaid 不可用（repo-atlas 未安装依赖？），跳过图语法校验"); }
   return _mermaid;
 }

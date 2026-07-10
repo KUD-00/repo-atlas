@@ -30,6 +30,7 @@
     "@types/react-dom": "^19.1.5",
     "esbuild": "^0.28.1",
     "esbuild-plugin-lingui-macro": "^1.0.2",
+    "happy-dom": "^20.10.6",
     "highlight.js": "^11.11.1",
     "lucide-react": "^1.23.0",
     "mermaid": "^11.16.0",
