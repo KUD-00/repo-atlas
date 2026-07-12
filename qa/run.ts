@@ -72,7 +72,10 @@ const template = existsSync(join(REPO, ".atlas/templates/default.md")) ? readFil
 const conventions = existsSync(join(REPO, ".atlas/CONVENTIONS.md")) ? readFileSync(join(REPO, ".atlas/CONVENTIONS.md"), "utf8") : readFileSync(join(QA, "defaults/CONVENTIONS.md"), "utf8");
 const readerSchema = readFileSync(existsSync(join(OVERRIDE, "reader-schema.json")) ? join(OVERRIDE, "reader-schema.json") : join(QA, "schemas/reader-schema.json"), "utf8");
 const factcheckSchema = readFileSync(existsSync(join(OVERRIDE, "factcheck-schema.json")) ? join(OVERRIDE, "factcheck-schema.json") : join(QA, "schemas/factcheck-schema.json"), "utf8");
-const AGENT_BIN = process.env.ATLAS_QA_AGENT || "grok";
+// 按阶段路由 agent：ATLAS_QA_AGENT_<STAGE>（WRITER/READER/FACTCHECK/REVISER/MAPIFY）
+// 优先于全局 ATLAS_QA_AGENT。都不设 = grok，行为与旧版完全一致。
+const agentBinFor = (stage?: string) =>
+  (stage && process.env[`ATLAS_QA_AGENT_${stage.toUpperCase()}`]) || process.env.ATLAS_QA_AGENT || "grok";
 
 // ---------- CLI args ----------
 const args = process.argv.slice(2);
@@ -228,10 +231,10 @@ function relevantGlossary(body: string): string {
   });
   return kept.length ? intro + kept.join("") : intro;
 }
-async function runGrok(promptText: string, o: { cwd: string; schema?: string; maxTurns: number; disallowed?: string; approve?: boolean; timeoutMs: number }): Promise<any> {
+async function runGrok(promptText: string, o: { cwd: string; schema?: string; maxTurns: number; disallowed?: string; approve?: boolean; timeoutMs: number; stage?: string }): Promise<any> {
   const pf = join(mkdtempSync(join(tmpdir(), "atlas-qa-")), "prompt.md");
   writeFileSync(pf, promptText);
-  const argv = [AGENT_BIN, "--prompt-file", pf, "--no-memory", "--disable-web-search", "--no-subagents", "--max-turns", String(o.maxTurns), "--output-format", "json"];
+  const argv = [agentBinFor(o.stage), "--prompt-file", pf, "--no-memory", "--disable-web-search", "--no-subagents", "--max-turns", String(o.maxTurns), "--output-format", "json"];
   if (o.schema) argv.push("--json-schema", o.schema);
   if (o.disallowed) argv.push("--disallowed-tools", o.disallowed);
   if (o.approve) argv.push("--always-approve");
@@ -406,7 +409,7 @@ async function runReaders(repoPath: string, body: string): Promise<any[]> {
   const input = `${readerPrompt}\n## 术语表（glossary，可随时查阅）\n\n${relevantGlossary(body)}\n\n${frameForReader(repoPath)}\n\n## 笔记正文（这篇笔记描述的路径：${repoPath}）\n\n${body}`;
   const outs = await Promise.all(Array.from({ length: N_READERS }, () => {
     const emptyCwd = mkdtempSync(join(tmpdir(), "atlas-blind-")); // 空目录 = 结构性无码权限
-    return runGrok(input, { cwd: emptyCwd, schema: readerSchema, maxTurns: 6, timeoutMs: 600_000 })
+    return runGrok(input, { cwd: emptyCwd, schema: readerSchema, maxTurns: 6, timeoutMs: 600_000, stage: "reader" })
       .finally(() => rmSync(emptyCwd, { recursive: true, force: true }));
   }));
   const parsed = outs.map(lenientParse).filter(Boolean);
@@ -417,7 +420,7 @@ async function runFactcheck(repoPath: string, body: string, reader: any): Promis
   const retell = `${reader.retell}\n关键决定: ${(reader.key_decisions ?? []).join(" / ")}`;
   const input = `${factcheckPrompt}\n## 目标路径\n\n${repoPath}（仓库根：${REPO}）\n\n## 笔记正文\n\n${body}\n\n## 盲读者复述（请核对）\n\n${retell}`;
   const before = dirtyPaths();
-  const out = await runGrok(input, { cwd: REPO, schema: factcheckSchema, maxTurns: 40, disallowed: DISALLOW_RO, approve: true, timeoutMs: 900_000 });
+  const out = await runGrok(input, { cwd: REPO, schema: factcheckSchema, maxTurns: 40, disallowed: DISALLOW_RO, approve: true, timeoutMs: 900_000, stage: "factcheck" });
   assertOnlyAtlasWrites(REPO, REPO, out?.sessionId, before, `事实核查(${repoPath})`);
   const parsed = lenientParse(out);
   if (!parsed?.claims) throw new Error("事实核查输出解析失败");
@@ -456,7 +459,7 @@ async function runReviser(repoPath: string, noteFile: string, gate: GateResult, 
   const input = `${reviserPrompt}\n## 目标\n\n被描述的源码路径：${repoPath}\n**唯一允许修改的文件**：${noteFile}\n\n${issues}\n\n## 术语表\n\n${relevantGlossary(reviserBody)}\n\n${frameForProducer(repoPath)}`;
   const before = dirtyPaths();
   const beforeNote = readFileSync(noteFile, "utf8");
-  const out = await runGrok(input, { cwd: REPO, maxTurns: 60, disallowed: DISALLOW_REVISE, approve: true, timeoutMs: 1_200_000 });
+  const out = await runGrok(input, { cwd: REPO, maxTurns: 60, disallowed: DISALLOW_REVISE, approve: true, timeoutMs: 1_200_000, stage: "reviser" });
   const rel = noteFile.slice(REPO.length + 1);
   assertOnlyAtlasWrites(REPO, REPO, out?.sessionId, before, `修订(${repoPath})`);
   if (readFileSync(noteFile, "utf8") === beforeNote) console.warn(`  ⚠ 修订会话没有改动 ${rel}`);
@@ -470,7 +473,7 @@ async function runWriter(repoPath: string, noteFile: string): Promise<string> {
   const input = `${writerPrompt}\n## 目标\n\n描述的仓库路径：\`${repoPath}\`（${isDir ? "目录" : "文件"}）\n要写到的笔记文件：\`${noteFile.slice(REPO.length + 1)}\`\n\n## 模板\n\n${template.slice(0, 3500)}\n\n## 规范\n\n${conventions.slice(0, 2500)}\n\n## 术语表（用里面的术语，别重讲这些概念）\n\n${glossary}\n\n${frameForProducer(repoPath)}`;
   const before = dirtyPaths();
   mkdirSync(dirname(noteFile), { recursive: true });
-  const out = await runGrok(input, { cwd: REPO, maxTurns: 60, disallowed: DISALLOW_REVISE, approve: true, timeoutMs: 1_200_000 });
+  const out = await runGrok(input, { cwd: REPO, maxTurns: 60, disallowed: DISALLOW_REVISE, approve: true, timeoutMs: 1_200_000, stage: "writer" });
   assertOnlyAtlasWrites(REPO, REPO, out?.sessionId, before, `写作(${repoPath})`);
   return out?.text ?? "";
 }
@@ -480,7 +483,7 @@ async function runMapify(repoPath: string, noteFile: string): Promise<string> {
   const body = stripFrontmatter(readFileSync(noteFile, "utf8"));
   const input = `${mapifyPrompt}\n## 目标\n\n描述的仓库路径：\`${repoPath}\`\n要改写的笔记文件：\`${noteFile.slice(REPO.length + 1)}\`\n\n## 当前笔记正文（这堵墙）\n\n${body}\n\n## 术语表（用术语点到，别重讲）\n\n${relevantGlossary(body)}\n\n${frameForProducer(repoPath)}`;
   const before = dirtyPaths();
-  const out = await runGrok(input, { cwd: REPO, maxTurns: 60, disallowed: DISALLOW_REVISE, approve: true, timeoutMs: 1_200_000 });
+  const out = await runGrok(input, { cwd: REPO, maxTurns: 60, disallowed: DISALLOW_REVISE, approve: true, timeoutMs: 1_200_000, stage: "mapify" });
   assertOnlyAtlasWrites(REPO, REPO, out?.sessionId, before, `地图化(${repoPath})`);
   return out?.text ?? "";
 }
@@ -509,7 +512,7 @@ async function runWriterBatch(dir: string, repoPaths: string[]): Promise<void> {
   const input = `${writerPrompt}\n## 目标（一次新建同目录下多篇缺失笔记）\n\n下面是同一目录 \`${dir}\` 下需要**从零新建**的笔记。**逐个**读对应源码、各写一篇，用 Write 工具**分别落盘每个笔记文件**。共享上下文（模板/规范/术语表/目录框架）只给一次，但每篇要各自完整、独立成篇。\n\n${targets}\n\n## 模板\n\n${template.slice(0, 3500)}\n\n## 规范\n\n${conventions.slice(0, 2500)}\n\n## 术语表\n\n${glossary}\n\n${frameForProducer(repoPaths[0])}`;
   const before = dirtyPaths();
   for (const rp of repoPaths) mkdirSync(dirname(notePathFor(rp)), { recursive: true });
-  const out = await runGrok(input, { cwd: REPO, maxTurns: 120, disallowed: DISALLOW_REVISE, approve: true, timeoutMs: 1_800_000 });
+  const out = await runGrok(input, { cwd: REPO, maxTurns: 120, disallowed: DISALLOW_REVISE, approve: true, timeoutMs: 1_800_000, stage: "writer" });
   assertOnlyAtlasWrites(REPO, REPO, out?.sessionId, before, `批量写作(${dir})`);
 }
 
