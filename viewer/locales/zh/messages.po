@@ -54,6 +54,10 @@ msgstr "⤷ 连接到聊天"
 msgid "agent connected"
 msgstr "代理已连接"
 
+#: viewer/Security.tsx
+msgid "all units →"
+msgstr "全部单元 →"
+
 #: viewer/App.tsx
 msgid "also show config-excluded paths, greyed out"
 msgstr "同时显示配置中排除的路径（灰色显示）"
@@ -65,6 +69,10 @@ msgstr "所属页面"
 #: viewer/Preview.tsx
 msgid "Artifacts"
 msgstr "产物"
+
+#: viewer/Security.tsx
+msgid "audited units"
+msgstr "个已审计单元"
 
 #: viewer/Print.tsx
 msgid "back"
@@ -99,6 +107,10 @@ msgstr "聊天"
 msgid "chat with the attached agent session"
 msgstr "与已连接的代理会话聊天"
 
+#: viewer/Security.tsx
+msgid "clean"
+msgstr "干净"
+
 #: viewer/Doc.tsx
 msgid "close"
 msgstr ""
@@ -106,6 +118,10 @@ msgstr ""
 #: viewer/Settings.tsx
 msgid "Close"
 msgstr "关闭"
+
+#: viewer/App.tsx
+msgid "code"
+msgstr ""
 
 #: viewer/Preview.tsx
 msgid "Code"
@@ -127,7 +143,7 @@ msgstr "提交"
 msgid "concept"
 msgstr "概念"
 
-#: viewer/Concept.tsx
+#: viewer/App.tsx
 msgid "concepts"
 msgstr "概念"
 
@@ -144,6 +160,10 @@ msgstr "目录"
 msgid "Contents"
 msgstr "目录"
 
+#: viewer/Security.tsx
+msgid "dataflow"
+msgstr "数据流："
+
 #: viewer/Doc.tsx
 msgid "directory"
 msgstr "目录"
@@ -155,6 +175,10 @@ msgstr ""
 #: viewer/Doc.tsx
 msgid "directory notes above this page"
 msgstr ""
+
+#: viewer/Security.tsx
+msgid "dropped by factcheck"
+msgstr "条被核查丢弃"
 
 #: viewer/Doc.tsx
 msgid "edit"
@@ -176,9 +200,29 @@ msgstr "展开侧栏"
 msgid "file"
 msgstr "文件"
 
+#: viewer/Security.tsx
+msgid "files"
+msgstr "个文件"
+
+#: viewer/Security.tsx
+msgid "filter by severity"
+msgstr "按严重度筛选"
+
 #: viewer/App.tsx
 msgid "filter paths…"
 msgstr "筛选路径…"
+
+#: viewer/Security.tsx
+msgid "filtered"
+msgstr "已筛选"
+
+#: viewer/App.tsx
+msgid "findings"
+msgstr "个发现"
+
+#: viewer/Security.tsx
+msgid "fix"
+msgstr "修法："
 
 #: viewer/App.tsx
 msgid "fresh"
@@ -248,9 +292,17 @@ msgstr "没有代理在轮询"
 msgid "no anchor — this note has never been stamped"
 msgstr "没有 anchor——这篇笔记从未 stamp 过"
 
+#: viewer/Security.tsx
+msgid "no audited units yet"
+msgstr "还没有已审计的单元"
+
 #: viewer/Preview.tsx
 msgid "no changes since the note was stamped"
 msgstr "笔记 stamp 之后代码没有变更"
+
+#: viewer/Concept.tsx
+msgid "no concept pages yet"
+msgstr ""
 
 #: viewer/Doc.tsx
 msgid "no description yet"
@@ -259,6 +311,14 @@ msgstr "尚无描述"
 #: viewer/Preview.tsx
 msgid "no diff — change review needs <0>repo-atlas serve</0> (the static build has no git access)"
 msgstr "没有 diff——变更审阅需要 <0>repo-atlas serve</0>（静态构建没有 git 访问）"
+
+#: viewer/Security.tsx
+msgid "no findings — clean"
+msgstr "无发现——干净"
+
+#: viewer/Security.tsx
+msgid "no findings match the current filter"
+msgstr "当前筛选下没有匹配的发现"
 
 #: viewer/Tree.tsx
 msgid "no matches"
@@ -347,6 +407,22 @@ msgstr "保存并标记"
 msgid "saving…"
 msgstr "保存中…"
 
+#: viewer/Security.tsx
+msgid "scanned"
+msgstr "扫描于"
+
+#: viewer/Security.tsx
+msgid "security"
+msgstr "安全"
+
+#: viewer/Security.tsx
+msgid "security audit"
+msgstr "安全审计"
+
+#: viewer/App.tsx
+msgid "security audit findings across all units — open the security view"
+msgstr "所有单元的安全审计发现——打开安全视图"
+
 #: viewer/Chat.tsx
 msgid "send"
 msgstr "发送"
@@ -376,6 +452,14 @@ msgstr "排序: 阅读顺序"
 msgid "sources →"
 msgstr "来源 →"
 
+#: viewer/Security.tsx
+msgid "stale"
+msgstr "已漂移"
+
+#: viewer/Security.tsx
+msgid "stale — re-audit needed"
+msgstr "已漂移——需要重审"
+
 #: viewer/Concept.tsx
 #: viewer/Doc.tsx
 msgid "stamped"
@@ -389,6 +473,10 @@ msgstr "开始阅读 ↘"
 msgid "the directory notes above this page — the frame it is written within"
 msgstr ""
 
+#: viewer/Security.tsx
+msgid "the factcheck gate could not confirm this from source"
+msgstr "factcheck 门未能从源码核实此发现"
+
 #: viewer/App.tsx
 msgid "tree layout: alphabetical or reading order"
 msgstr "树形布局：按字母顺序或阅读顺序"
@@ -396,6 +484,10 @@ msgstr "树形布局：按字母顺序或阅读顺序"
 #: viewer/Preview.tsx
 msgid "truncated"
 msgstr "已截断"
+
+#: viewer/Security.tsx
+msgid "unverified"
+msgstr "未核实"
 
 #: viewer/Concept.tsx
 #: viewer/Doc.tsx

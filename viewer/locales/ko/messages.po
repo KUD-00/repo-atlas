@@ -54,6 +54,10 @@ msgstr "⤷ 채팅에 연결"
 msgid "agent connected"
 msgstr "에이전트 연결됨"
 
+#: viewer/Security.tsx
+msgid "all units →"
+msgstr "모든 유닛 →"
+
 #: viewer/App.tsx
 msgid "also show config-excluded paths, greyed out"
 msgstr "설정에서 제외된 경로도 회색으로 표시"
@@ -65,6 +69,10 @@ msgstr "소속 페이지"
 #: viewer/Preview.tsx
 msgid "Artifacts"
 msgstr "산출물"
+
+#: viewer/Security.tsx
+msgid "audited units"
+msgstr "감사된 유닛"
 
 #: viewer/Print.tsx
 msgid "back"
@@ -99,6 +107,10 @@ msgstr "채팅"
 msgid "chat with the attached agent session"
 msgstr "연결된 에이전트 세션과 채팅"
 
+#: viewer/Security.tsx
+msgid "clean"
+msgstr "클린"
+
 #: viewer/Doc.tsx
 msgid "close"
 msgstr ""
@@ -106,6 +118,10 @@ msgstr ""
 #: viewer/Settings.tsx
 msgid "Close"
 msgstr "닫기"
+
+#: viewer/App.tsx
+msgid "code"
+msgstr ""
 
 #: viewer/Preview.tsx
 msgid "Code"
@@ -127,7 +143,7 @@ msgstr "커밋"
 msgid "concept"
 msgstr "개념"
 
-#: viewer/Concept.tsx
+#: viewer/App.tsx
 msgid "concepts"
 msgstr "개념"
 
@@ -144,6 +160,10 @@ msgstr "목차"
 msgid "Contents"
 msgstr "목차"
 
+#: viewer/Security.tsx
+msgid "dataflow"
+msgstr "데이터 흐름:"
+
 #: viewer/Doc.tsx
 msgid "directory"
 msgstr "디렉터리"
@@ -155,6 +175,10 @@ msgstr ""
 #: viewer/Doc.tsx
 msgid "directory notes above this page"
 msgstr ""
+
+#: viewer/Security.tsx
+msgid "dropped by factcheck"
+msgstr "건 팩트체크에서 제외됨"
 
 #: viewer/Doc.tsx
 msgid "edit"
@@ -176,9 +200,29 @@ msgstr "사이드바 펼치기"
 msgid "file"
 msgstr "파일"
 
+#: viewer/Security.tsx
+msgid "files"
+msgstr "파일"
+
+#: viewer/Security.tsx
+msgid "filter by severity"
+msgstr "심각도로 필터"
+
 #: viewer/App.tsx
 msgid "filter paths…"
 msgstr "경로 필터…"
+
+#: viewer/Security.tsx
+msgid "filtered"
+msgstr "필터됨"
+
+#: viewer/App.tsx
+msgid "findings"
+msgstr "건의 지적"
+
+#: viewer/Security.tsx
+msgid "fix"
+msgstr "수정:"
 
 #: viewer/App.tsx
 msgid "fresh"
@@ -248,9 +292,17 @@ msgstr "폴링 중인 에이전트 없음"
 msgid "no anchor — this note has never been stamped"
 msgstr "anchor 없음 — 이 노트는 한 번도 stamp되지 않았습니다"
 
+#: viewer/Security.tsx
+msgid "no audited units yet"
+msgstr "아직 감사된 유닛이 없습니다"
+
 #: viewer/Preview.tsx
 msgid "no changes since the note was stamped"
 msgstr "노트 stamp 이후 변경 없음"
+
+#: viewer/Concept.tsx
+msgid "no concept pages yet"
+msgstr ""
 
 #: viewer/Doc.tsx
 msgid "no description yet"
@@ -259,6 +311,14 @@ msgstr "설명 없음"
 #: viewer/Preview.tsx
 msgid "no diff — change review needs <0>repo-atlas serve</0> (the static build has no git access)"
 msgstr "diff 없음 — 변경 검토에는 <0>repo-atlas serve</0>가 필요합니다(정적 빌드는 git에 접근할 수 없음)"
+
+#: viewer/Security.tsx
+msgid "no findings — clean"
+msgstr "지적 없음 — 클린"
+
+#: viewer/Security.tsx
+msgid "no findings match the current filter"
+msgstr "현재 필터에 맞는 지적이 없습니다"
 
 #: viewer/Tree.tsx
 msgid "no matches"
@@ -347,6 +407,22 @@ msgstr "저장 및 스탬프"
 msgid "saving…"
 msgstr "저장 중…"
 
+#: viewer/Security.tsx
+msgid "scanned"
+msgstr "스캔"
+
+#: viewer/Security.tsx
+msgid "security"
+msgstr "보안"
+
+#: viewer/Security.tsx
+msgid "security audit"
+msgstr "보안 감사"
+
+#: viewer/App.tsx
+msgid "security audit findings across all units — open the security view"
+msgstr "모든 유닛의 감사 지적 — 보안 뷰 열기"
+
 #: viewer/Chat.tsx
 msgid "send"
 msgstr "전송"
@@ -376,6 +452,14 @@ msgstr "정렬: 읽기 순서"
 msgid "sources →"
 msgstr "소스 →"
 
+#: viewer/Security.tsx
+msgid "stale"
+msgstr "드리프트됨"
+
+#: viewer/Security.tsx
+msgid "stale — re-audit needed"
+msgstr "드리프트 — 재감사 필요"
+
 #: viewer/Concept.tsx
 #: viewer/Doc.tsx
 msgid "stamped"
@@ -389,6 +473,10 @@ msgstr "읽기 시작 ↘"
 msgid "the directory notes above this page — the frame it is written within"
 msgstr ""
 
+#: viewer/Security.tsx
+msgid "the factcheck gate could not confirm this from source"
+msgstr "팩트체크 게이트가 소스에서 확인하지 못했습니다"
+
 #: viewer/App.tsx
 msgid "tree layout: alphabetical or reading order"
 msgstr "트리 레이아웃: 알파벳 순서 또는 읽기 순서"
@@ -396,6 +484,10 @@ msgstr "트리 레이아웃: 알파벳 순서 또는 읽기 순서"
 #: viewer/Preview.tsx
 msgid "truncated"
 msgstr "잘림"
+
+#: viewer/Security.tsx
+msgid "unverified"
+msgstr "미검증"
 
 #: viewer/Concept.tsx
 #: viewer/Doc.tsx

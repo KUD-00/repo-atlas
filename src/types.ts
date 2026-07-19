@@ -186,6 +186,33 @@ export interface ArtifactNode {
   raw: string | null
 }
 
+export interface AuditFinding {
+  severity: 'info' | 'low' | 'medium' | 'high' | 'critical'
+  category: string
+  title: string
+  /** `file:line` / `file#symbol` — the viewer turns the path part into a code jump. */
+  locations: string[]
+  dataflow: string
+  fix: string
+  /** 'unverified' when the factcheck gate could not confirm it from source. */
+  confidence?: string
+}
+
+/** A security-audit unit (one `.atlas/audits/<slug>.json`), produced by qa/audit.ts.
+ * The engine loads and freshness-checks it; the producing pipeline owns everything else. */
+export interface AuditUnit {
+  slug: string
+  title: string
+  ruleset: string
+  scannedAt: string
+  fileCount: number
+  findings: AuditFinding[]
+  droppedCount: number
+  roundCount: number
+  /** Scope bytes drifted since the audit (recomputed at load) → needs a re-audit. */
+  stale: boolean
+}
+
 export interface AtlasPayload {
   repoName: string
   commit: string | null

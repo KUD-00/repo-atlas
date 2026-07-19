@@ -168,6 +168,31 @@ export function agentWrites(cwd: string, sessionId: string): { files: string[]; 
   }
   return { files, shells };
 }
+
+// ---------- 工具证据计数（幻觉守门） ----------
+// 同一份 chat_history.jsonl，按工具名计数。用途：要求"读过码"的阶段（审计/事实核查），
+// 若一次读类工具都没调，输出按幻觉处理——实测 grok 会概率性跳过工具直接编结构化答案
+// （2026-07-19 探针：--json-schema 下 0 次 Read 产出"完美"审计结果；atlas 一律不用
+// --json-schema，但模型短路不挑开关，证据门不嫌多）。read 类按"非写非终端"计，
+// 对未知工具名稳妥。
+export function agentToolCounts(cwd: string, sessionId: string): { reads: number; writes: number; shells: number; tools: Record<string, number> } | null {
+  const home = process.env.HOME || "";
+  const f = join(home, ".grok/sessions", encodeURIComponent(cwd), sessionId, "chat_history.jsonl");
+  if (!home || !sessionId || !existsSync(f)) return null;
+  const tools: Record<string, number> = {};
+  for (const ln of readFileSync(f, "utf8").split("\n")) {
+    if (!ln.trim()) continue;
+    let d: any; try { d = JSON.parse(ln); } catch { continue; }
+    for (const tc of d?.tool_calls ?? []) tools[tc.name] = (tools[tc.name] ?? 0) + 1;
+  }
+  let writes = 0, shells = 0, total = 0;
+  for (const [n, c] of Object.entries(tools)) {
+    total += c;
+    if (WRITE_TOOLS.has(n)) writes += c;
+    else if (SHELL_TOOLS.has(n)) shells += c;
+  }
+  return { reads: total - writes - shells, writes, shells, tools };
+}
 // 终端命令里"像写操作"的形状（无法按路径归因时的兜底判据）
 const SHELL_WRITEY = /(^|[;&|]\s*)(rm|mv|cp|tee|sed\s+-i|git\s+(add|commit|checkout|restore|clean|stash|reset))\b|>>?\s*\S/;
 /**

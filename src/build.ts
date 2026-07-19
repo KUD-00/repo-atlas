@@ -7,6 +7,7 @@ import type { RawArtifact } from './artifacts.js'
 import type {
   ArtifactNode,
   AtlasPayload,
+  AuditUnit,
   ComputeStatusResult,
   ConceptNode,
   GlossaryEntry,
@@ -41,6 +42,7 @@ export interface BuildInput {
   glossary?: GlossaryEntry[]
   basePoints?: string[]
   artifacts?: RawArtifact[]
+  audits?: AuditUnit[]
 }
 
 /** The data the viewer runs on — also served as JSON by `serve`'s /data so
@@ -53,6 +55,7 @@ export function buildPayload({
   glossary = [],
   basePoints = [],
   artifacts = [],
+  audits = [],
 }: BuildInput): AtlasPayload {
   const byPath = new Map(status.entries.map((e) => [e.path, e]))
 
@@ -128,6 +131,7 @@ export function buildPayload({
     basePoints,
     concepts,
     artifacts: artifactIndex,
+    audits,
   }
 }
 

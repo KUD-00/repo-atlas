@@ -8,6 +8,7 @@ import {
 import { noteFileFor, loadNotes, stampNote, moveNoteFile, notesRoot } from './notes.js'
 import { loadConceptPages, sourcesHashFor, stampConceptPage, conceptFileFor } from './conceptPages.js'
 import { loadArtifacts } from './artifacts.js'
+import { loadAudits } from './audits.js'
 import { computeStatus, summarize, summarizeConcepts } from './status.js'
 import { buildHtml, writeAtlas } from './build.js'
 import { serve } from './serve.js'
@@ -399,6 +400,7 @@ function build(root: string, args: string[]) {
     glossary: parseGlossary(loadGlossaryRaw(root)),
     basePoints: config.basePoints ?? [],
     artifacts: loadArtifacts(root),
+    audits: loadAudits(root),
   })
   const target = writeAtlas(root, outFile, html)
   const sum = summarize(status)

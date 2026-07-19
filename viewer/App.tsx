@@ -9,6 +9,7 @@ import { useLive } from './live'
 import { Tree } from './Tree'
 import { DocPane } from './Doc'
 import { ConceptList, ConceptPane, conceptSlugOf } from './Concept'
+import { SecurityPane } from './Security'
 import { isPrintScope, printScopeOf, PrintView } from './Print'
 import { PanelPane, type CodeJump, type PanelMode } from './Preview'
 import { ChatDock } from './Chat'
@@ -73,14 +74,21 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const concepts = data.concepts ?? []
   const conceptsBySlug = useMemo(() => new Map(concepts.map((c) => [c.slug, c])), [data])
   const artifacts = data.artifacts ?? {}
+  const audits = data.audits ?? []
+  const auditsBySlug = useMemo(() => new Map(audits.map((a) => [a.slug, a])), [audits])
+  const totalFindings = useMemo(() => audits.reduce((n, a) => n + a.findings.length, 0), [audits])
   const isRoute = useCallback(
     (p: string) => {
       const printScope = printScopeOf(p)
       if (printScope !== null) return isPrintScope(printScope, nodesByPath, conceptsBySlug, artifacts)
       const slug = conceptSlugOf(p)
-      return slug !== null ? conceptsBySlug.has(slug) : nodesByPath.has(p)
+      if (slug !== null) return conceptsBySlug.has(slug)
+      if (nodesByPath.has(p)) return true
+      // pseudo-route: the global security home (a real root file named
+      // "security" would win above it — path collision loses to data)
+      return p === 'security' && audits.length > 0
     },
-    [nodesByPath, conceptsBySlug, artifacts],
+    [nodesByPath, conceptsBySlug, artifacts, audits],
   )
   const [path, navigate] = useRoute(isRoute)
   const [expanded, setExpanded] = useState(() => new Set(ancestorsOf(path)))
@@ -158,9 +166,10 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   }, [path])
 
   const node = nodesByPath.get(path) ?? data.tree
-  // for a concept page the side panel shows the source a code anchor jumped to
-  // (or the first file source); with no file source it falls back to the root toc
-  const panelNode = concept
+  const security = path === 'security' && audits.length > 0
+  // for a concept page (or the security home) the side panel shows the source a
+  // code anchor jumped to (or the first file source); else it falls back to the root toc
+  const panelNode = concept || security
     ? (conceptCodePath !== null ? nodesByPath.get(conceptCodePath) : undefined) ?? data.tree
     : node
   const agg = data.tree.agg!
@@ -284,6 +293,15 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
               <span><b>{fresh}</b> {t(i18n)`fresh`}</span>
               <span><b>{agg.outdated}</b> {t(i18n)`outdated`}</span>
               <span><b>{agg.missing}</b> {t(i18n)`missing`}</span>
+              {audits.length > 0 && (
+                <button
+                  className="font-inherit bg-transparent border-none p-0 cursor-pointer text-[0.72rem] text-muted hover:text-accent [&_b]:font-semibold"
+                  onClick={() => onSelect('security')}
+                  title={t(i18n)`security audit findings across all units — open the security view`}
+                >
+                  <b className="text-text">{totalFindings}</b> {t(i18n)`findings`}
+                </button>
+              )}
             </div>
             <SettingsButton onClick={() => setSettingsOpen(true)} />
           </div>
@@ -370,7 +388,9 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
       <main className={'min-w-0 min-h-0 grid overflow-hidden ' + mainCols}>
         <div className="overflow-auto min-w-0" ref={docRef}>
           {concept ? (
-            <ConceptPane concept={concept} nodesByPath={nodesByPath} glossary={data.glossary} />
+            <ConceptPane concept={concept} nodesByPath={nodesByPath} glossary={data.glossary} audit={auditsBySlug.get(concept.slug)} />
+          ) : security ? (
+            <SecurityPane audits={audits} />
           ) : (
             <DocPane
               node={node}

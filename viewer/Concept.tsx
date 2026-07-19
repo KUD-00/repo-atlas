@@ -2,10 +2,11 @@ import { useEffect, useRef } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import { Printer } from 'lucide-react'
-import type { ConceptNode, ConceptState, GlossaryEntry, TreeNode } from '../src/types'
+import type { AuditUnit, ConceptNode, ConceptState, GlossaryEntry, TreeNode } from '../src/types'
 import {
   annotateConceptCodeAnchors, annotateGlossary, linkifyPaths, renderMermaidIn,
 } from './lib'
+import { ConceptSecuritySection } from './Security'
 
 const ROW =
   'row flex items-center gap-1.5 py-0.5 pr-2 pl-0 rounded-md cursor-pointer select-none text-[0.82rem] whitespace-nowrap hover:bg-[#00000006]'
@@ -126,11 +127,12 @@ function ConceptProse({
 }
 
 export function ConceptPane({
-  concept, nodesByPath, glossary,
+  concept, nodesByPath, glossary, audit,
 }: {
   concept: ConceptNode
   nodesByPath: Map<string, TreeNode>
   glossary: GlossaryEntry[]
+  audit?: AuditUnit
 }) {
   const { i18n } = useLingui()
   const broken = new Set(concept.brokenSources)
@@ -194,6 +196,7 @@ export function ConceptPane({
         </div>
       )}
       <ConceptProse concept={concept} nodesByPath={nodesByPath} glossary={glossary} />
+      {audit && <ConceptSecuritySection unit={audit} />}
     </div>
   )
 }

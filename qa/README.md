@@ -77,8 +77,9 @@ bun $QA/sweep.ts --file .atlas/qa/outdated.txt --fresh
 | `concept-pages.json` | `concept.ts` 的概念页**课程表**（数组顺序=阅读顺序；每页 slug/title/audience/sources/brief + 可选 `requires` 前置页、`owns` 独占范围），纯仓库内容 |
 | `distill.json` | `distill.ts` 的蒸馏配置(defaults: 时长/画幅/风格/旁白与 prompt 语言;targets: slug/时长/侧重),纯仓库内容 |
 | `concept-<writer\|reader\|factcheck>.md` / `.extra.md` | 概念页三阶段的 prompt 覆盖/追加（与路径笔记同一契约） |
+| `audit.md` / `audit-factcheck.md` / `.extra.md` | 概念级安全审计两阶段的 prompt 覆盖/追加（ruleset 与定标放这里，见"概念级安全审计"节） |
 
-仓库自有内容（不属于引擎）：`.atlas/glossary.md`、`.atlas/CONVENTIONS.md`、`.atlas/templates/default.md`、`.atlas/qa/` 档案。
+仓库自有内容（不属于引擎）：`.atlas/glossary.md`、`.atlas/CONVENTIONS.md`、`.atlas/templates/default.md`、`.atlas/qa/` 档案、`.atlas/audits/` 安全审计档案。
 
 ## 组合机制（文体如何共享与分叉）
 
@@ -89,6 +90,26 @@ bun $QA/sweep.ts --file .atlas/qa/outdated.txt --fresh
 仓库层对两种文体是同一契约：`.atlas/pipeline/<名字>.md` 整替、`<名字>.extra.md` 追加（概念页的名字是 `concept-writer` / `concept-reader` / `concept-factcheck`）。
 
 已知债：`run.ts` 的禁令句式仍是自己的短清单（迁到 lib 的长清单会改变既有门行为，需要配合全量重验做，别静默换）。
+
+## 概念级安全审计（audit.ts）
+
+以概念页的 `sources` 为**审计单元**（信任边界）做只读安全审计：agent 拿概念页正文当「地图」审数据流（跨文件是一等公民），再对每个 finding 过独立 factcheck 门，档案落 `.atlas/audits/<slug>.json`。
+
+```sh
+cd <目标仓库>
+bun $QA/audit.ts auth-identity           # 单个概念
+bun $QA/audit.ts --all --concurrency 4   # 全部概念页
+bun $QA/audit.ts auth-identity --fresh   # scope 没变也强制重审
+```
+
+- **审计单元 = `sources` 覆盖的文件集**（`git ls-files` 展开，测试/fixture/二进制排除）。跳过条件：scope 指纹（sorted `blobSha  path` 的 sha1）与 ruleset 都没变——字节级 drift 或换 ruleset 才重审，与笔记 stamp 无关。
+- **两段式**：audit（`prompts/audit.md`：概念页当地图定位、逐文件读、追「不可信输入→危险汇聚点」数据流、按严重度定标）→ factcheck（`prompts/audit-factcheck.md`：逐条核位置/数据流/可达性三要素，`unsupported` 丢弃、`unverifiable` 标 `confidence:"unverified"` 保留、可纠正严重度）。LLM 安全扫描的头号问题是假阳性洪水，factcheck 门就是治它的——每个 finding 的滥用路径必须经独立只读核查才作数。
+- **幻觉硬门**：两段都过 `agentToolCounts` 工具证据（audit 读类调用 ≥ 文件数，factcheck ≥ finding 数），输出形状再完美、没读过码也整轮作废。不用 `--json-schema`（见"编排上踩过的坑"）。
+- **档案即历史**：`rounds[]` 每轮追加（审计要审计追踪，不像笔记 stamp 覆盖）；顶层 `findings` 是最新一轮。`dropped[]` 留被 factcheck 杀掉的 finding 及理由（校准复盘用）。
+- **viewer 投影**：每轮（含跳过路径）把最新档案渲染成 `.atlas/artifacts/concepts/<slug>/security-audit.md`——概念页右侧 Artifacts tab 直接看，严重度分节、位置路径自动成链接、dropped 折叠。机器账（audits/）与人看投影（artifacts/）分离；投影是生成物，别手改。
+- **定位（诚实条款）**：concept 级抓数据流级问题强（实测在 RelayOS auth-identity 上抓到文件级扫描 9 轮没抓到的跨 3 文件 medium），但会漏单文件校验类 low（实测漏 displayName 无上限、配额缺失）——**它不是文件级扫描的替代，是加深层**。完整覆盖 = concept 审计 + 残余文件扫（不在任何概念 sources 里的文件，或单文件维度）。
+
+仓库定制沿用同一契约：`.atlas/pipeline/audit.md` 整替、`audit.extra.md` 追加（放仓库专属 ruleset/定标）；`audit-factcheck` 同理。
 
 ## 省 token（按 ROI 排序，多数已内建自动生效）
 
@@ -110,7 +131,7 @@ bun $QA/sweep.ts --file .atlas/qa/outdated.txt --fresh
 
 ## 编排上踩过的坑（引擎已内建应对，改引擎前先读）
 
-- **agent 的 `--json-schema` 只校验不约束解码**：输出骨架必须原文写进 prompt，编排端再宽容捞 JSON 兜底。
+- **agent 的 `--json-schema` 只校验不约束解码**：输出骨架必须原文写进 prompt，编排端再宽容捞 JSON 兜底。更重的是 2026-07-19 探针实测：它还会**概率性令 agent 跳过全部工具调用直接编结构化答案**（0 次 Read 产出形状完美的"审计结果"）——所以本套件一律不用它产分析结果；凡要求"读过码"的阶段，必须用 `agentToolCounts`（lib.ts）核 chat_history 里的读类工具调用数，0 次按幻觉作废，**不许只信输出形状**。
 - **盲读隔离靠空目录 cwd**（结构性无码权限），不靠 prompt 自觉。
 - **git 守卫按"新增脏路径"判越界**（多 agent 共享工作区里别的进程随时 add/restore，比对整串 status 会误报）；任何会话弄脏 `.atlas/` 之外的路径立即中止。
 - **低分章节必须带读者评语回灌给修订者**，否则修订者收不到信号修不动。
@@ -129,6 +150,7 @@ bun $QA/sweep.ts --file .atlas/qa/outdated.txt --fresh
 | `concept.ts` | 概念页生产线（课程制）：concept-pages.json 是课程表（顺序+requires 前置+owns 分工）；writer 拿课程表+前置页全文在其上写、不重讲不越界；盲读 ×3 零代码零 glossary、唯一先验=前置页，报告"循序渐进断线"（breakMed>1 挂门）；+ 长段/顿号串/标题结构机械硬门 + 只对 sources 的事实核查 + 可视化门 → 按依赖分波生成 → stamp（frontmatter order=课程位次，viewer 侧栏按它排） |
 | `distill.ts` | 概念页 → 视频分镜蒸馏：core_message + 逐场景旁白/画面 prompt/叠字/时长,旁白逐场景溯源;门=语速/时长机械校验+忠实度核查(不许引入新事实) |
 | `extract.ts` | 概念抽取：跨切概念收敛成"归属页讲全 + glossary 一行本质 + 别处瘦身指路" |
+| `audit.ts` | 概念级安全审计：以概念页 sources 为审计单元（scope 指纹绑定字节）→ audit 审数据流 + factcheck 杀假 finding + 工具证据幻觉门 → 档案落 `.atlas/audits/`（详见"概念级安全审计"节） |
 | `prompts/` | 五阶段出厂 prompt（可被仓库覆盖/追加） |
 | `schemas/` | 盲读/核查的输出 JSON schema |
 | `rubric.json` | 出厂门槛（可被仓库合并覆盖） |

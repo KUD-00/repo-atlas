@@ -54,6 +54,10 @@ msgstr "⤷ チャットに接続"
 msgid "agent connected"
 msgstr "エージェント接続済み"
 
+#: viewer/Security.tsx
+msgid "all units →"
+msgstr "すべてのユニット →"
+
 #: viewer/App.tsx
 msgid "also show config-excluded paths, greyed out"
 msgstr "設定で除外されたパスもグレー表示で表示"
@@ -65,6 +69,10 @@ msgstr "所属ページ"
 #: viewer/Preview.tsx
 msgid "Artifacts"
 msgstr "産物"
+
+#: viewer/Security.tsx
+msgid "audited units"
+msgstr "監査済みユニット"
 
 #: viewer/Print.tsx
 msgid "back"
@@ -99,6 +107,10 @@ msgstr "チャット"
 msgid "chat with the attached agent session"
 msgstr "接続したエージェントセッションとチャット"
 
+#: viewer/Security.tsx
+msgid "clean"
+msgstr "クリーン"
+
 #: viewer/Doc.tsx
 msgid "close"
 msgstr ""
@@ -106,6 +118,10 @@ msgstr ""
 #: viewer/Settings.tsx
 msgid "Close"
 msgstr "閉じる"
+
+#: viewer/App.tsx
+msgid "code"
+msgstr ""
 
 #: viewer/Preview.tsx
 msgid "Code"
@@ -127,7 +143,7 @@ msgstr "コミット"
 msgid "concept"
 msgstr "コンセプト"
 
-#: viewer/Concept.tsx
+#: viewer/App.tsx
 msgid "concepts"
 msgstr "コンセプト"
 
@@ -144,6 +160,10 @@ msgstr "目次"
 msgid "Contents"
 msgstr "目次"
 
+#: viewer/Security.tsx
+msgid "dataflow"
+msgstr "データフロー："
+
 #: viewer/Doc.tsx
 msgid "directory"
 msgstr "ディレクトリ"
@@ -155,6 +175,10 @@ msgstr ""
 #: viewer/Doc.tsx
 msgid "directory notes above this page"
 msgstr ""
+
+#: viewer/Security.tsx
+msgid "dropped by factcheck"
+msgstr "件ファクトチェックで除外"
 
 #: viewer/Doc.tsx
 msgid "edit"
@@ -176,9 +200,29 @@ msgstr "サイドバーを開く"
 msgid "file"
 msgstr "ファイル"
 
+#: viewer/Security.tsx
+msgid "files"
+msgstr "ファイル"
+
+#: viewer/Security.tsx
+msgid "filter by severity"
+msgstr "重要度で絞り込み"
+
 #: viewer/App.tsx
 msgid "filter paths…"
 msgstr "パスをフィルター…"
+
+#: viewer/Security.tsx
+msgid "filtered"
+msgstr "絞り込み中"
+
+#: viewer/App.tsx
+msgid "findings"
+msgstr "件の指摘"
+
+#: viewer/Security.tsx
+msgid "fix"
+msgstr "修正："
 
 #: viewer/App.tsx
 msgid "fresh"
@@ -248,9 +292,17 @@ msgstr "ポーリング中のエージェントなし"
 msgid "no anchor — this note has never been stamped"
 msgstr "anchor なし——このノートは一度も stamp されていない"
 
+#: viewer/Security.tsx
+msgid "no audited units yet"
+msgstr "監査済みユニットはまだありません"
+
 #: viewer/Preview.tsx
 msgid "no changes since the note was stamped"
 msgstr "ノートの stamp 以降、変更なし"
+
+#: viewer/Concept.tsx
+msgid "no concept pages yet"
+msgstr ""
 
 #: viewer/Doc.tsx
 msgid "no description yet"
@@ -259,6 +311,14 @@ msgstr "説明はまだありません"
 #: viewer/Preview.tsx
 msgid "no diff — change review needs <0>repo-atlas serve</0> (the static build has no git access)"
 msgstr "diff なし——変更レビューには <0>repo-atlas serve</0> が必要（静的ビルドは git にアクセスできない）"
+
+#: viewer/Security.tsx
+msgid "no findings — clean"
+msgstr "指摘なし——クリーン"
+
+#: viewer/Security.tsx
+msgid "no findings match the current filter"
+msgstr "現在のフィルターに一致する指摘はありません"
 
 #: viewer/Tree.tsx
 msgid "no matches"
@@ -347,6 +407,22 @@ msgstr "保存してスタンプ"
 msgid "saving…"
 msgstr "保存中…"
 
+#: viewer/Security.tsx
+msgid "scanned"
+msgstr "スキャン"
+
+#: viewer/Security.tsx
+msgid "security"
+msgstr "セキュリティ"
+
+#: viewer/Security.tsx
+msgid "security audit"
+msgstr "セキュリティ監査"
+
+#: viewer/App.tsx
+msgid "security audit findings across all units — open the security view"
+msgstr "全ユニットの監査指摘——セキュリティビューを開く"
+
 #: viewer/Chat.tsx
 msgid "send"
 msgstr "送信"
@@ -376,6 +452,14 @@ msgstr "並べ替え: 読み順"
 msgid "sources →"
 msgstr "ソース →"
 
+#: viewer/Security.tsx
+msgid "stale"
+msgstr "ドリフト"
+
+#: viewer/Security.tsx
+msgid "stale — re-audit needed"
+msgstr "ドリフト——再監査が必要"
+
 #: viewer/Concept.tsx
 #: viewer/Doc.tsx
 msgid "stamped"
@@ -389,6 +473,10 @@ msgstr "読み始める ↘"
 msgid "the directory notes above this page — the frame it is written within"
 msgstr ""
 
+#: viewer/Security.tsx
+msgid "the factcheck gate could not confirm this from source"
+msgstr "ファクトチェックゲートがソースから確認できませんでした"
+
 #: viewer/App.tsx
 msgid "tree layout: alphabetical or reading order"
 msgstr "ツリーのレイアウト: アルファベット順または読み順"
@@ -396,6 +484,10 @@ msgstr "ツリーのレイアウト: アルファベット順または読み順"
 #: viewer/Preview.tsx
 msgid "truncated"
 msgstr "切り詰め"
+
+#: viewer/Security.tsx
+msgid "unverified"
+msgstr "未検証"
 
 #: viewer/Concept.tsx
 #: viewer/Doc.tsx
