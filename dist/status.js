@@ -1,5 +1,7 @@
 import { loadNotes, noteFileFor } from './notes.js';
 import { conceptStatusEntries } from './conceptPages.js';
+import { auditStatusEntries } from './audits.js';
+import { readabilityStatus } from './readability.js';
 import { detectMoves, attachDeltas } from './reconcile.js';
 import { checkRefs } from './refs.js';
 export function computeStatus(root, scanResult, opts = {}) {
@@ -79,6 +81,8 @@ export function computeStatus(root, scanResult, opts = {}) {
         orphans,
         brokenRefs: checkRefs(root, scanResult, notes, moved),
         concepts: conceptStatusEntries(root, scanResult),
+        audits: opts.audits === false ? [] : auditStatusEntries(root, scanResult),
+        readability: opts.readability === false ? null : readabilityStatus(root, scanResult),
     };
 }
 export function summarize(status) {

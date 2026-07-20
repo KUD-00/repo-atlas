@@ -12,6 +12,9 @@
 import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
+import { relevantGlossary } from "./glossary.mjs";
+
+export { relevantGlossary };
 
 export function findRepoRoot(): string {
   let d = process.cwd();
@@ -223,18 +226,30 @@ export function assertOnlyAtlasWrites(repo: string, agentCwd: string, sessionId:
 // ---------- agent 调用（grok 参数面） ----------
 export interface AgentOpts { cwd: string; schema?: string; maxTurns: number; disallowed?: string; approve?: boolean; timeoutMs: number }
 export async function runAgent(promptText: string, o: AgentOpts): Promise<any> {
-  const pf = join(mkdtempSync(join(tmpdir(), "atlas-qa-")), "prompt.md");
-  writeFileSync(pf, promptText);
-  const argv = [AGENT_BIN, "--prompt-file", pf, "--no-memory", "--disable-web-search", "--no-subagents", "--max-turns", String(o.maxTurns), "--output-format", "json"];
-  if (o.schema) argv.push("--json-schema", o.schema);
-  if (o.disallowed) argv.push("--disallowed-tools", o.disallowed);
-  if (o.approve !== false) argv.push("--always-approve");
-  const proc = Bun.spawn(argv, { cwd: o.cwd, stdout: "pipe", stderr: "pipe" });
-  const t = setTimeout(() => proc.kill(), o.timeoutMs);
-  const out = await new Response(proc.stdout).text();
-  clearTimeout(t); await proc.exited;
-  rmSync(dirname(pf), { recursive: true, force: true });
-  try { return JSON.parse(out); } catch { return { text: out, structuredOutput: null }; }
+  const temp = mkdtempSync(join(tmpdir(), "atlas-qa-"));
+  const pf = join(temp, "prompt.md");
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let timedOut = false;
+  try {
+    writeFileSync(pf, promptText);
+    const argv = [AGENT_BIN, "--prompt-file", pf, "--no-memory", "--disable-web-search", "--no-subagents", "--max-turns", String(o.maxTurns), "--output-format", "json"];
+    if (o.schema) argv.push("--json-schema", o.schema);
+    if (o.disallowed) argv.push("--disallowed-tools", o.disallowed);
+    if (o.approve !== false) argv.push("--always-approve");
+    const proc = Bun.spawn(argv, { cwd: o.cwd, stdout: "pipe", stderr: "pipe" });
+    timer = setTimeout(() => { timedOut = true; proc.kill(); }, o.timeoutMs);
+    const [out, err, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    if (timedOut) throw new Error(`agent timed out after ${o.timeoutMs}ms${err.trim() ? `: ${err.trim().slice(-1000)}` : ""}`);
+    if (exitCode !== 0) throw new Error(`agent exited ${exitCode}${err.trim() ? `: ${err.trim().slice(-1000)}` : ""}`);
+    try { return JSON.parse(out); } catch { return { text: out, structuredOutput: null }; }
+  } finally {
+    if (timer) clearTimeout(timer);
+    rmSync(temp, { recursive: true, force: true });
+  }
 }
 export function lenientParse(g: any): any | null {
   if (g?.structuredOutput) return g.structuredOutput;

@@ -9,7 +9,8 @@
   "files": [
     "dist",
     "src/vendor",
-    "qa"
+    "qa",
+    "docs/readability-audit.md"
   ],
   "engines": {
     "node": ">=20"
@@ -44,6 +45,7 @@
     "build": "pnpm build:cli && pnpm build:viewer",
     "build:cli": "tsc -p tsconfig.json",
     "build:viewer": "lingui compile && node viewer/build.mjs",
+    "test": "pnpm build:cli && node --test test/*.test.mjs",
     "dev:viewer": "lingui compile && node viewer/build.mjs --watch",
     "i18n:extract": "lingui extract",
     "i18n:compile": "lingui compile",

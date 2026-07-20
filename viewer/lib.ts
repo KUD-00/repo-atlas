@@ -770,11 +770,11 @@ function placePopover(anchor: HTMLElement): void {
 }
 
 // A hash link to a note path; clicking navigates and dismisses a pinned popover.
-function conceptLink(repoPath: string): HTMLAnchorElement {
+function conceptLink(repoPath: string, label?: string): HTMLAnchorElement {
   const a = document.createElement('a')
   a.href = '#' + encodeURI(repoPath)
   a.className = 'pathlink'
-  a.textContent = repoPath
+  a.textContent = label ?? repoPath
   a.addEventListener('click', () => unpin())
   return a
 }
@@ -793,7 +793,11 @@ function showPopover(anchor: HTMLElement, entry: GlossaryEntry): void {
   if (entry.home) {
     const row = document.createElement('div')
     row.className = 'glossary-home'
-    row.append(document.createTextNode('canonical home  '), conceptLink(entry.home))
+    // home 可以是代码路径，也可以是 concept:<slug>（概念页 = 该词的展开目标）。
+    // 概念页用标题显示，链接照旧走 #concept:<slug> 路由。
+    const isConcept = entry.home.startsWith('concept:')
+    const label = isConcept ? (entry.homeTitle ?? entry.home.slice('concept:'.length)) : entry.home
+    row.append(document.createTextNode('canonical home  '), conceptLink(entry.home, label))
     pop.appendChild(row)
   }
   if (entry.refs?.length) {

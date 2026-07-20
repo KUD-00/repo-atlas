@@ -1,16 +1,16 @@
-import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { scan, headCommit, hashFor } from './scan.js';
+import { scan, headCommit, hashFor, readRepoFile } from './scan.js';
 import { loadNotes, writeNoteBody, updateNoteBody } from './notes.js';
 import { computeStatus } from './status.js';
 import { buildHtml, buildPayload } from './build.js';
 import { buildImportGraph } from './deps.js';
 import { loadGlossaryRaw, parseGlossary } from './glossary.js';
 import { loadArtifacts } from './artifacts.js';
+import { loadAudits } from './audits.js';
 const POLL_MS = 1500;
 const PREVIEW_CAP = 500_000;
 export function serve(root, config, port, host = '127.0.0.1') {
@@ -18,9 +18,10 @@ export function serve(root, config, port, host = '127.0.0.1') {
     const render = () => {
         const scanResult = scan(root, config);
         lastScan = scanResult;
-        const status = computeStatus(root, scanResult);
+        const status = computeStatus(root, scanResult, { readability: false });
         const glossaryRaw = loadGlossaryRaw(root);
         const artifacts = loadArtifacts(root);
+        const audits = loadAudits(root, status.audits);
         const input = {
             repoName: path.basename(root),
             commit: headCommit(root),
@@ -29,12 +30,14 @@ export function serve(root, config, port, host = '127.0.0.1') {
             glossary: parseGlossary(glossaryRaw),
             basePoints: config.basePoints ?? [],
             artifacts,
+            audits,
         };
         const payload = buildPayload(input);
         const html = buildHtml({ ...input, payload });
         const digest = createHash('sha1')
             .update(JSON.stringify(status.entries) + JSON.stringify(status.orphans) +
-            JSON.stringify(status.concepts) + glossaryRaw + JSON.stringify(artifacts))
+            JSON.stringify(status.concepts) + glossaryRaw + JSON.stringify(artifacts) +
+            JSON.stringify(audits))
             .digest('hex');
         return { html, digest, payloadJson: JSON.stringify(payload) };
     };
@@ -221,7 +224,12 @@ export function serve(root, config, port, host = '127.0.0.1') {
                 return;
             }
             try {
-                const buf = fs.readFileSync(path.join(root, p));
+                const opened = readRepoFile(root, p, PREVIEW_CAP * 4 + 1);
+                if (!opened) {
+                    res.writeHead(404, { 'content-type': 'text/plain' }).end('not a safe repository file');
+                    return;
+                }
+                const buf = opened.buffer;
                 const headers = {
                     'content-type': 'text/plain; charset=utf-8',
                     'cache-control': 'no-store',
@@ -232,7 +240,7 @@ export function serve(root, config, port, host = '127.0.0.1') {
                     return;
                 }
                 let text = buf.toString('utf8');
-                if (text.length > PREVIEW_CAP) {
+                if (opened.truncated || text.length > PREVIEW_CAP) {
                     text = text.slice(0, PREVIEW_CAP);
                     headers['x-atlas-truncated'] = '1';
                 }

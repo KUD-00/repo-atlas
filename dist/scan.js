@@ -1,9 +1,112 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
-import picomatch from 'picomatch';
+const picomatch = createRequire(import.meta.url)('picomatch');
 const MAX_BUFFER = 1024 * 1024 * 512;
+class UnsafeRepoFileError extends Error {
+}
+function createRepoFileReader(root) {
+    const rootPath = path.resolve(root);
+    const rootReal = fs.realpathSync(rootPath);
+    const inside = (candidate, parent) => candidate !== parent && candidate.startsWith(parent + path.sep);
+    const open = (relPath) => {
+        const absolute = path.resolve(rootPath, relPath);
+        if (!relPath || path.isAbsolute(relPath) || !inside(absolute, rootPath))
+            throw new UnsafeRepoFileError(`unsafe repository path: ${relPath}`);
+        let fd = null;
+        try {
+            fd = fs.openSync(absolute, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+            const opened = fs.fstatSync(fd);
+            const real = fs.realpathSync(absolute);
+            const resolved = fs.statSync(real);
+            const expected = path.resolve(rootReal, relPath);
+            if (!opened.isFile() || real !== expected || !inside(real, rootReal) ||
+                opened.dev !== resolved.dev || opened.ino !== resolved.ino) {
+                throw new UnsafeRepoFileError(`repository path is symlinked, outside the repository, or not a regular file: ${relPath}`);
+            }
+            return { fd, stat: opened };
+        }
+        catch (error) {
+            if (fd !== null)
+                fs.closeSync(fd);
+            if (error instanceof UnsafeRepoFileError)
+                throw error;
+            const code = error.code;
+            if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'ELOOP')
+                throw new UnsafeRepoFileError(`unsafe or missing repository path: ${relPath}`);
+            throw error;
+        }
+    };
+    const hash = (relPath) => {
+        const { fd, stat } = open(relPath);
+        try {
+            const digest = createHash('sha1').update(`blob ${stat.size}\0`);
+            const chunk = Buffer.allocUnsafe(64 * 1024);
+            let total = 0;
+            while (total < stat.size) {
+                const read = fs.readSync(fd, chunk, 0, Math.min(chunk.length, stat.size - total), null);
+                if (!read)
+                    throw new Error(`repository file changed while hashing: ${relPath}`);
+                digest.update(chunk.subarray(0, read));
+                total += read;
+            }
+            const extra = fs.readSync(fd, chunk, 0, 1, null);
+            const after = fs.fstatSync(fd);
+            if (extra || after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || after.ctimeMs !== stat.ctimeMs) {
+                throw new Error(`repository file changed while hashing: ${relPath}`);
+            }
+            return digest.digest('hex');
+        }
+        finally {
+            fs.closeSync(fd);
+        }
+    };
+    const read = (relPath, maxBytes = Number.POSITIVE_INFINITY) => {
+        const { fd, stat } = open(relPath);
+        try {
+            const bounded = Number.isFinite(maxBytes);
+            const capacity = bounded ? Math.min(stat.size, Math.max(0, Math.floor(maxBytes))) : stat.size;
+            const buffer = Buffer.allocUnsafe(capacity);
+            let total = 0;
+            while (total < capacity) {
+                const count = fs.readSync(fd, buffer, total, capacity - total, null);
+                if (!count)
+                    break;
+                total += count;
+            }
+            const extra = Buffer.allocUnsafe(1);
+            const hasExtra = fs.readSync(fd, extra, 0, 1, null) > 0;
+            return { buffer: buffer.subarray(0, total), size: stat.size, truncated: hasExtra || total < stat.size };
+        }
+        finally {
+            fs.closeSync(fd);
+        }
+    };
+    const validate = (relPath) => {
+        const { fd } = open(relPath);
+        fs.closeSync(fd);
+    };
+    return { hash, read, validate };
+}
+export function readRepoFile(root, relPath, maxBytes = Number.POSITIVE_INFINITY) {
+    try {
+        return createRepoFileReader(root).read(relPath, maxBytes);
+    }
+    catch {
+        return null;
+    }
+}
+export function isSafeRepoFile(root, relPath) {
+    try {
+        createRepoFileReader(root).validate(relPath);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
 export function git(root, args, input) {
     return execFileSync('git', args, {
         cwd: root,
@@ -107,29 +210,23 @@ export function scan(root, config) {
     const ignored = new Set();
     const candidates = [...new Set([...tracked, ...untracked])]
         .filter((p) => p && !isAtlas(p))
-        .filter((p) => {
-        try {
-            return fs.lstatSync(path.join(root, p)).isFile();
-        }
-        catch {
-            return false;
-        }
-    })
-        .filter((p) => {
-        if (!isExcluded(p))
-            return true;
-        ignored.add(p);
-        return false;
-    })
         .sort();
     const files = new Map();
-    if (candidates.length > 0) {
-        const out = git(root, ['hash-object', '--stdin-paths'], candidates.join('\n') + '\n');
-        const hashes = out.trim().split('\n');
-        if (hashes.length !== candidates.length) {
-            throw new Error(`git hash-object returned ${hashes.length} hashes for ${candidates.length} paths`);
+    const reader = createRepoFileReader(root);
+    for (const repoPath of candidates) {
+        try {
+            if (isExcluded(repoPath)) {
+                reader.validate(repoPath);
+                ignored.add(repoPath);
+            }
+            else {
+                files.set(repoPath, reader.hash(repoPath));
+            }
         }
-        candidates.forEach((p, i) => files.set(p, hashes[i]));
+        catch {
+            // A missing, unreadable, symlinked, or concurrently changing path does
+            // not enter the trusted scan. Callers may retry on the next scan.
+        }
     }
     const children = new Map();
     children.set('', new Map());
@@ -161,4 +258,41 @@ export function hashFor(scanResult, relPath) {
     if (scanResult.dirs.has(relPath))
         return { type: 'dir', hash: scanResult.dirs.get(relPath) };
     return null;
+}
+/** Hash an explicit file scope independently of atlas presentation excludes.
+ * Scan hashes are reused when available; excluded paths fall back to bounded
+ * `git hash-object` batches. Symlinks and realpath escapes are never followed. */
+export function hashFilePaths(root, relPaths, scanResult) {
+    const hashes = new Map();
+    const missing = [];
+    const failed = [];
+    let reader;
+    try {
+        reader = createRepoFileReader(root);
+    }
+    catch {
+        return { hashes, missing: [...relPaths], failed };
+    }
+    for (const relPath of relPaths) {
+        try {
+            const found = scanResult ? hashFor(scanResult, relPath) : null;
+            if (found?.type === 'file') {
+                // Revalidate containment at consumption time; the hash itself belongs
+                // to the caller's trusted scan snapshot, keeping status internally
+                // consistent without rereading every included file.
+                reader.validate(relPath);
+                hashes.set(relPath, found.hash);
+            }
+            else {
+                hashes.set(relPath, reader.hash(relPath));
+            }
+        }
+        catch (error) {
+            if (error instanceof UnsafeRepoFileError)
+                missing.push(relPath);
+            else
+                failed.push(relPath);
+        }
+    }
+    return { hashes, missing, failed };
 }

@@ -21,7 +21,7 @@ function loadMermaid() {
 }
 /** The data the viewer runs on — also served as JSON by `serve`'s /data so
  * open pages can refresh in place instead of reloading. */
-export function buildPayload({ repoName, commit, status, graph = null, glossary = [], basePoints = [], artifacts = [], }) {
+export function buildPayload({ repoName, commit, status, graph = null, glossary = [], basePoints = [], artifacts = [], audits = [], }) {
     const byPath = new Map(status.entries.map((e) => [e.path, e]));
     const makeNode = (p) => {
         const e = byPath.get(p);
@@ -70,6 +70,17 @@ export function buildPayload({ repoName, commit, status, graph = null, glossary 
         html: c.body ? String(marked.parse(c.body)) : null,
         source: c.body || null,
     }));
+    // Resolve `home: concept:<slug>` to the concept's title so the glossary popover
+    // renders "canonical home → 《title》" and links to the concept page — concepts
+    // become the expand target for any note (code doc included) that uses the term.
+    const conceptTitleBySlug = new Map(concepts.map((c) => [c.slug, c.title]));
+    for (const g of glossary) {
+        if (g.home?.startsWith('concept:')) {
+            const title = conceptTitleBySlug.get(g.home.slice('concept:'.length));
+            if (title)
+                g.homeTitle = title;
+        }
+    }
     // md artifacts render through the same markdown pipeline as notes; json
     // stays raw — the viewer shows it as a (collapsible) code block
     const artifactIndex = {};
@@ -93,6 +104,7 @@ export function buildPayload({ repoName, commit, status, graph = null, glossary 
         basePoints,
         concepts,
         artifacts: artifactIndex,
+        audits,
     };
 }
 export function buildHtml(input) {

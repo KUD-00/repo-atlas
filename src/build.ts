@@ -107,6 +107,17 @@ export function buildPayload({
     source: c.body || null,
   }))
 
+  // Resolve `home: concept:<slug>` to the concept's title so the glossary popover
+  // renders "canonical home → 《title》" and links to the concept page — concepts
+  // become the expand target for any note (code doc included) that uses the term.
+  const conceptTitleBySlug = new Map(concepts.map((c) => [c.slug, c.title]))
+  for (const g of glossary) {
+    if (g.home?.startsWith('concept:')) {
+      const title = conceptTitleBySlug.get(g.home.slice('concept:'.length))
+      if (title) g.homeTitle = title
+    }
+  }
+
   // md artifacts render through the same markdown pipeline as notes; json
   // stays raw — the viewer shows it as a (collapsible) code block
   const artifactIndex: Record<string, ArtifactNode[]> = {}

@@ -80,6 +80,8 @@ export interface ComputeStatusResult {
   orphans: Orphan[]
   brokenRefs: BrokenRef[]
   concepts: ConceptStatusEntry[]
+  audits: import('./audits.js').AuditStatusEntry[]
+  readability: import('./readability.js').ReadabilityStatus | null
 }
 
 export type ConceptAudience = 'dev' | 'general'
@@ -133,8 +135,11 @@ export interface GlossaryEntry {
   term: string
   aliases: string[]
   def: string
-  /** Canonical home note for this concept (a repo path), declared via `归属:`/`home:`. */
+  /** Canonical home for this concept, declared via `归属:`/`home:`. Either a repo
+   * path, or `concept:<slug>` to point at a concept page (its expand target). */
   home?: string
+  /** Display title of `home` when it is a `concept:<slug>` page — filled at build. */
+  homeTitle?: string
   /** Repo paths of notes whose prose references this term/alias — filled at build time. */
   refs?: string[]
 }
@@ -226,6 +231,8 @@ export interface AtlasPayload {
   /** Pipeline-produced files attached to pages, keyed by page key
    * (repo path, or `concepts/<slug>` for concept pages). */
   artifacts: Record<string, ArtifactNode[]>
+  /** Security-audit units from `.atlas/audits/`, freshness-checked at load. */
+  audits: AuditUnit[]
 }
 
 export interface ChatMessage {

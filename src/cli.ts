@@ -8,7 +8,7 @@ import {
 import { noteFileFor, loadNotes, stampNote, moveNoteFile, notesRoot } from './notes.js'
 import { loadConceptPages, sourcesHashFor, stampConceptPage, conceptFileFor } from './conceptPages.js'
 import { loadArtifacts } from './artifacts.js'
-import { loadAudits } from './audits.js'
+import { importLegacyAudit, loadAudits } from './audits.js'
 import { computeStatus, summarize, summarizeConcepts } from './status.js'
 import { buildHtml, writeAtlas } from './build.js'
 import { serve } from './serve.js'
@@ -16,6 +16,8 @@ import { buildImportGraph } from './deps.js'
 import { loadGlossaryRaw, parseGlossary } from './glossary.js'
 import { computeCheck, type CheckFinding } from './check.js'
 import { concepts } from './concepts.js'
+import { assertCanonicalReadabilityOutput, assertReadabilityAuditOwnership, assertReadabilityReportOutput, computeReadability, formatReadabilitySummary, isSupportedReadabilityReport, readReadabilityReport, writeCanonicalReadabilityReport, writeReadabilityArtifacts, writeReadabilityAuditLedger, writeReadabilityReport, diffReadabilityReports } from './readability.js'
+import { stampAudits } from './audits.js'
 import type { AtlasConfig, PathType } from './types.js'
 
 const USAGE = `repo-atlas — incremental codebase atlas with staleness tracking
@@ -29,6 +31,10 @@ usage: repo-atlas <command> [args]
   stamp [paths...|--all]   stamp note(s) with the current git hash + HEAD anchor;
                            concept pages too: stamp .atlas/concepts/<slug>.md
                            (or concepts/<slug>) recomputes their sources_hash
+  audit-stamp [names...]   (re)stamp audit ledgers in .atlas/audits/*.json with
+                           per-file git hashes, so status tracks per-file drift
+  audit-import <files...>  import legacy scans[] ledgers into atlas-audit-v1;
+                           scan-time hashes are preserved (safe on stale audits)
   migrate [--apply]        relocate notes whose targets moved (dry-run by default);
                            also rewrites references to the old paths in note prose
   build [-o <file>]        generate the self-contained HTML atlas (default .atlas/atlas.html)
@@ -37,6 +43,12 @@ usage: repo-atlas <command> [args]
                            find cross-cutting concepts (terms bolded across many
                            notes) + glossary gaps: candidates for one canonical
                            home note + a glossary essence (no-LLM, default min 4)
+  readability [--json] [--out <file>] [--top N] [--exclude <glob>]... [--artifacts]
+                           mechanical code-readability features per file/function
+                           (line length, nesting, naming style, comments, entropy,
+                           duplication, barrel) + repo-relative outliers — no LLM,
+                           works without .atlas/ too (design: docs/readability-audit.md);
+                           --artifacts writes per-file/dir cards to .atlas/artifacts/
   serve [-p <port>] [--host [addr]]
                            dev server with auto-reload (default 127.0.0.1:4400;
                            --host with no addr binds 0.0.0.0 for LAN access)
@@ -73,6 +85,9 @@ function dispatch(cmd: string | undefined, args: string[]) {
     case 'build': return build(root!, args)
     case 'check': return check(root!, args)
     case 'concepts': return concepts(root!, args)
+    case 'readability': return readability(root!, args)
+    case 'audit-stamp': return auditStamp(root!, args)
+    case 'audit-import': return auditImport(root!, args)
     case 'serve': {
       const pIdx = args.indexOf('-p')
       const hIdx = args.indexOf('--host')
@@ -133,6 +148,9 @@ function status(root: string, args: string[]) {
         pages: result.concepts.map(({ slug, title, audience, status, sources, brokenSources, stamped, file }) =>
           ({ slug, title, audience, status, sources, brokenSources, stamped, file })),
       },
+      audits: result.audits.map(({ name, status, scannedAt, fileCount, findingCount, missingFiles, changedFiles, failedFiles, findingsWithDrift, detailAvailable, invalidReason, file }) =>
+        ({ name, status, scannedAt, fileCount, findingCount, missingFiles, changedFiles, failedFiles, findingsWithDrift, detailAvailable, invalidReason, file })),
+      readability: result.readability,
     }, null, 2))
     return
   }
@@ -168,6 +186,36 @@ function status(root: string, args: string[]) {
         : 'a source changed since stamped'
       console.log(`  C ${c.slug} — ${c.title} (${detail})`)
     }
+  }
+  if (result.audits.length) {
+    const st = result.audits.filter((a) => a.status === 'stale').length
+    console.log(`\naudits: ${result.audits.length} ledger(s) · ${result.audits.length - st} fresh · ${st} stale`)
+    for (const a of result.audits) {
+      if (a.status === 'fresh' && !a.findingsWithDrift) continue
+      if (a.invalidReason) {
+        console.log(`  A ${a.name} — invalid ledger: ${a.invalidReason}`)
+        continue
+      }
+      const detail = [
+        a.changedFiles.length ? `${a.changedFiles.length} changed` : null,
+        a.missingFiles.length ? `${a.missingFiles.length} gone` : null,
+        a.failedFiles.length ? `${a.failedFiles.length} unreadable` : null,
+        a.findingsWithDrift === null
+          ? `${a.findingCount} findings: drift detail unavailable until audit-stamp`
+          : `${a.findingsWithDrift}/${a.findingCount} findings drifted`,
+      ].filter(Boolean).join(' · ')
+      console.log(`  A ${a.name} — ${detail}`)
+    }
+  }
+  if (result.readability) {
+    const readability = result.readability
+    const latest = readability.latestTrend
+    console.log(`\nreadability: ${readability.trackedFiles} tracked · ${readability.changedFiles.length} changed · ${readability.missingFiles.length} gone · ${readability.failedFiles.length} unreadable` +
+      (latest ? ` · last run ${latest.worsenedCount} worsened / ${latest.improvedCount} improved / ${latest.addedFiles.length} added / ${latest.removedFiles.length} removed` : ''))
+    for (const file of readability.changedFiles.slice(0, 10)) console.log(`  R ${file} — changed since readability scan`)
+    for (const file of readability.missingFiles.slice(0, 10)) console.log(`  R ${file} — gone since readability scan`)
+    for (const file of readability.failedFiles.slice(0, 10)) console.log(`  R ${file} — could not hash current bytes`)
+    if (readability.changedFiles.length > 10) console.log(`  … and ${readability.changedFiles.length - 10} more changed (use --json for the full list)`)
   }
   for (const o of result.orphans) console.log(`\norphan note (target gone): ${o.noteFile}`)
   if (result.brokenRefs.length) {
@@ -386,12 +434,85 @@ function check(root: string, args: string[]) {
   if (summary.total) process.exitCode = 1
 }
 
+function auditStamp(root: string, args: string[]) {
+  const names = args.filter((a) => !a.startsWith('--'))
+  const { stamped, skipped, notFound } = stampAudits(root, scan(root, requireConfig(root)), names.length ? names : undefined)
+  for (const s of stamped) console.log(`stamped: ${s}`)
+  for (const s of skipped) console.error(`refused: ${s}`)
+  for (const name of notFound) console.error(`refused: ${name}: audit ledger not found`)
+  if (!stamped.length) console.log('no ledgers to stamp (check .atlas/audits/*.json)')
+  if (skipped.length || notFound.length) process.exitCode = 1
+}
+
+function auditImport(root: string, args: string[]) {
+  const sources = args.filter((arg) => !arg.startsWith('--'))
+  if (!sources.length) throw new Error('usage: repo-atlas audit-import <legacy-ledger.json>...')
+  for (const source of sources) {
+    const imported = importLegacyAudit(root, source)
+    console.log(`imported: ${imported.name} · ${imported.fileCount} files · ${imported.findingCount} finding(s) → ${imported.file}`)
+  }
+}
+
+function readability(root: string, args: string[]) {
+  const config = loadConfig(root) ?? {}
+  const json = args.includes('--json')
+  const outIdx = args.indexOf('--out')
+  if (outIdx >= 0 && (!args[outIdx + 1] || args[outIdx + 1].startsWith('--'))) throw new Error('--out requires a file path')
+  const target = outIdx >= 0 ? path.resolve(args[outIdx + 1]) : null
+  const canonicalTarget = target !== null && target === path.resolve(atlasDir(root), 'readability.json')
+  if (canonicalTarget) {
+    assertCanonicalReadabilityOutput(root)
+    assertReadabilityAuditOwnership(root)
+  } else if (target !== null) assertReadabilityReportOutput(root, target)
+  const topIdx = args.indexOf('--top')
+  const top = topIdx >= 0 ? Number(args[topIdx + 1]) : 10
+  if (!Number.isSafeInteger(top) || top <= 0) throw new Error('--top requires a positive integer')
+  const extraExcludes: string[] = []
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] !== '--exclude') continue
+    if (!args[i + 1] || args[i + 1].startsWith('--')) throw new Error('--exclude requires a pattern')
+    extraExcludes.push(args[i + 1])
+  }
+  const report = computeReadability(root, { exclude: [...(config.exclude ?? []), ...extraExcludes] }, top)
+  const log = json ? console.error : console.log
+  if (target !== null) {
+    // trend vs the previous report at the same path (per-file git hash comparison)
+    if (fs.existsSync(target)) {
+      let prev: unknown
+      try {
+        prev = readReadabilityReport(root, target)
+      } catch {
+        throw new Error(`refusing to overwrite unreadable readability report: ${target}`)
+      }
+      if (!isSupportedReadabilityReport(prev)) throw new Error(`refusing to overwrite unsupported readability report: ${target}`)
+      const trend = diffReadabilityReports(prev, report, top)
+      report.trend = { comparedTo: prev.generatedAt ?? null, ...trend }
+      if (trend.changedFiles || trend.addedFiles.length || trend.removedFiles.length) {
+        log(`trend vs ${prev.generatedAt}: ${trend.changedFiles} changed · ${trend.addedFiles.length} added · ${trend.removedFiles.length} removed · ${trend.improvedCount} improved · ${trend.worsenedCount} worsened (composite, |Δ|>=1)`)
+        for (const w of trend.worsened.slice(0, 5)) log(`  ↓ ${w.path}  ${w.before.toFixed(1)} → ${w.after.toFixed(1)}`)
+        for (const im of trend.improved.slice(0, 5)) log(`  ↑ ${im.path}  ${im.before.toFixed(1)} → ${im.after.toFixed(1)}`)
+      }
+    }
+    if (canonicalTarget) writeCanonicalReadabilityReport(root, report)
+    else writeReadabilityReport(root, target, report)
+    if (canonicalTarget) writeReadabilityAuditLedger(root, report)
+    log(`wrote ${target}`)
+  }
+  if (args.includes('--artifacts')) {
+    const n = writeReadabilityArtifacts(root, report)
+    log(n ? `wrote ${n} readability artifact(s) under .atlas/artifacts/`
+      : 'no .atlas/ (or no changes) — artifacts skipped')
+  }
+  if (json) console.log(JSON.stringify(report, null, 2))
+  else console.log(formatReadabilitySummary(report, top))
+}
+
 function build(root: string, args: string[]) {
   const config = requireConfig(root)
   const oIdx = args.indexOf('-o')
   const outFile = oIdx >= 0 ? args[oIdx + 1] : (config.output ?? '.atlas/atlas.html')
   const scanResult = scan(root, config)
-  const status = computeStatus(root, scanResult)
+  const status = computeStatus(root, scanResult, { readability: false })
   const html = buildHtml({
     repoName: path.basename(root),
     commit: headCommit(root),
@@ -400,7 +521,7 @@ function build(root: string, args: string[]) {
     glossary: parseGlossary(loadGlossaryRaw(root)),
     basePoints: config.basePoints ?? [],
     artifacts: loadArtifacts(root),
-    audits: loadAudits(root),
+    audits: loadAudits(root, status.audits),
   })
   const target = writeAtlas(root, outFile, html)
   const sum = summarize(status)

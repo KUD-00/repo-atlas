@@ -64,6 +64,11 @@ repo-atlas stamp               # stamp all notes with current hashes + HEAD anch
 repo-atlas stamp apps/x.ts     # or stamp specific paths ("." = repo root)
 repo-atlas build               # write .atlas/atlas.html (open in a browser)
 repo-atlas check               # validate code: anchors (links + embeds) in note bodies
+repo-atlas audit-stamp         # per-file hashes into .atlas/audits/*.json (drift detail)
+repo-atlas audit-import audits/security-scan/ledger.json
+                               # convert a legacy scans[] ledger without losing scan-time hashes
+repo-atlas readability         # mechanical code-readability features + repo-relative
+                               # outliers (no LLM; design: docs/readability-audit.md)
 repo-atlas serve               # dev server at http://localhost:4400 (-p to change)
 ```
 
@@ -78,6 +83,40 @@ breadcrumb (every ancestor segment navigates), and inline code in a note that
 resolves to a scanned path — absolute (`packages/kernel/core`), relative to the
 note's directory (`core`, `src/queue.ts`), or with a `/`/`*` tail — renders as
 a link to that path's page. Notes stay plain markdown; linking is view-side.
+
+### Live audit ledgers
+
+Completed audits can live at `.atlas/audits/<name>.json` with the
+`atlas-audit-v1` fields `ruleset`, `scanned_at`, `scope_hash`, `files`,
+`hashes`, `findings`, and `stamped`. `status` compares those scan-time blob
+hashes with the working tree and reports stale scopes, exact changed/missing
+files, and findings that point at drifted files. The security viewer keeps its
+stricter `finalPass` + security-finding schema; generic design/readability
+ledgers still participate in status without being rendered as security cards.
+
+`audit-stamp` only adds per-file detail when the ledger's existing
+`scope_hash` still matches current bytes. It refuses stale ledgers, so a dated
+verdict cannot be made fresh by stamping it after the code changed. Historical
+`{ scans: [...] }` ledgers should use `audit-import`; it preserves their
+original `git_blob_sha1` values and needs no after-the-fact stamp. Import is
+all-or-nothing: malformed/duplicate scope entries or invalid finding counts
+reject the migration instead of silently shrinking it. Ledger scope hashing is
+independent of `.atlas/config.json` excludes, so an excluded but existing audit
+target is not mislabeled as gone. Corrupt/unsupported ledgers remain visible in
+`status` as stale + invalid; if a stale ledger has no complete per-file hash set,
+finding drift is reported as unknown rather than `0/N`.
+
+The canonical readability recipe is:
+
+```sh
+repo-atlas readability --out .atlas/readability.json --artifacts
+```
+
+That versioned report records the blob hash of the exact bytes analysed, writes
+a thin `.atlas/audits/readability.json` index, and retains its comparison with
+the previous report (modified/added/removed plus exact improved/worsened counts
+and top-N detail). `status` reads the thin index rather than reparsing the full
+feature corpus, so it stays cheap while still showing drift and the last trend.
 
 On a file page, notes can also anchor into the file's own source. Both forms
 take content markers (symbol names), resolved against the CURRENT source at
@@ -237,7 +276,7 @@ The core tool deliberately does **not** call an LLM. Description quality comes f
 coding agent (Claude Code etc.) actually read the code:
 
 1. `repo-atlas status --json` → lists `missing`, `outdated` (with diff size), `moved`,
-   and `brokenRefs`.
+   `brokenRefs`, audit drift, and readability drift/trend.
 2. `repo-atlas migrate --apply` → notes follow moved paths mechanically; only genuinely
    changed content is left for reading.
 3. Agent reads the code for each remaining path, writes/updates the note body in

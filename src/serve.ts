@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { scan, headCommit, hashFor } from './scan.js'
+import { scan, headCommit, hashFor, readRepoFile } from './scan.js'
 import { loadNotes, writeNoteBody, updateNoteBody } from './notes.js'
 import { computeStatus } from './status.js'
 import { buildHtml, buildPayload } from './build.js'
@@ -37,10 +37,10 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
   const render = () => {
     const scanResult = scan(root, config)
     lastScan = scanResult
-    const status = computeStatus(root, scanResult)
+    const status = computeStatus(root, scanResult, { readability: false })
     const glossaryRaw = loadGlossaryRaw(root)
     const artifacts = loadArtifacts(root)
-    const audits = loadAudits(root)
+    const audits = loadAudits(root, status.audits)
     const input = {
       repoName: path.basename(root),
       commit: headCommit(root),
@@ -237,7 +237,12 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
         return
       }
       try {
-        const buf = fs.readFileSync(path.join(root, p))
+        const opened = readRepoFile(root, p, PREVIEW_CAP * 4 + 1)
+        if (!opened) {
+          res.writeHead(404, { 'content-type': 'text/plain' }).end('not a safe repository file')
+          return
+        }
+        const buf = opened.buffer
         const headers: Record<string, string> = {
           'content-type': 'text/plain; charset=utf-8',
           'cache-control': 'no-store',
@@ -248,7 +253,7 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
           return
         }
         let text = buf.toString('utf8')
-        if (text.length > PREVIEW_CAP) {
+        if (opened.truncated || text.length > PREVIEW_CAP) {
           text = text.slice(0, PREVIEW_CAP)
           headers['x-atlas-truncated'] = '1'
         }
