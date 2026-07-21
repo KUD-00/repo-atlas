@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { auditStatusEntries, loadAudits, stampAudits } from '../dist/audits.js'
+import { auditStatusEntries, loadAuditPortfolios, loadAudits, stampAudits } from '../dist/audits.js'
 import { scan } from '../dist/scan.js'
 import { cleanup, commitAll, makeRepo, scopeHash, write } from './helpers.mjs'
 
@@ -19,6 +19,18 @@ function finding(file, severity = 'medium') {
     locations: [`${file}#handler`, `${file}:1`],
     dataflow: 'input to sink',
     fix: 'validate it',
+  }
+}
+
+function testFinding(file, impact = 'blocking') {
+  return {
+    impact,
+    category: 'missing-invariant',
+    title: `${file} test finding`,
+    invariant: 'handler rejects unauthenticated callers',
+    evidence: 'suite mocks auth away',
+    fix: 'assert the real gate',
+    locations: [`${file}:1`],
   }
 }
 
@@ -42,6 +54,190 @@ function ledger(root, name, files, extra = {}) {
   write(root, `.atlas/audits/${name}.json`, JSON.stringify(value, null, 2) + '\n')
   return value
 }
+
+function v2Envelope(root, domain, slug, files, findings, extra = {}) {
+  const value = {
+    formatVersion: 2,
+    format: 'atlas-audit-v2',
+    domain,
+    reviewState: 'complete',
+    slug,
+    title: slug,
+    ruleset: `fixture-${domain}-v1`,
+    scanned_at: '2026-07-21',
+    scope_hash: scopeHash(root, files),
+    file_count: files.length,
+    files,
+    findings,
+    ...extra,
+  }
+  write(root, `.atlas/audits/${slug}.json`, JSON.stringify(value, null, 2) + '\n')
+  return value
+}
+
+test('v2 security and test ledgers project into domain portfolios', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const answer = 1\n')
+    commitAll(root)
+    v2Envelope(root, 'security', 'security-runtime', ['src/a.ts'], [finding('src/a.ts', 'high')], {
+      conceptSlug: 'auth',
+    })
+    v2Envelope(root, 'test', 'test-runtime', ['src/a.ts'], [testFinding('src/a.ts', 'blocking')])
+
+    const portfolios = loadAuditPortfolios(root)
+    assert.equal(portfolios.security[0].slug, 'security-runtime')
+    assert.equal(portfolios.security[0].domain, 'security')
+    assert.equal(portfolios.security[0].formatVersion, 2)
+    assert.equal(portfolios.security[0].conceptSlug, 'auth')
+    assert.equal(portfolios.tests[0].slug, 'test-runtime')
+    assert.equal(portfolios.tests[0].domain, 'test')
+    assert.equal(portfolios.tests[0].findings[0].impact, 'blocking')
+    assert.equal(loadAudits(root)[0].slug, 'security-runtime')
+    assert.equal(loadAudits(root).length, 1)
+
+    const statuses = auditStatusEntries(root, scan(root, { exclude: [] }))
+    assert.deepEqual(statuses.map((status) => ({ name: status.name, status: status.status, invalid: status.invalidReason })), [
+      { name: 'security-runtime', status: 'fresh', invalid: null },
+      { name: 'test-runtime', status: 'fresh', invalid: null },
+    ])
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('v2 domain validation fails closed for crossover, unknown domain, incomplete, and schema errors', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const answer = 1\n')
+    commitAll(root)
+
+    const cases = [
+      {
+        slug: 'crossover',
+        domain: 'test',
+        findings: [finding('src/a.ts')],
+        match: /finding|schema|impact|invariant/i,
+      },
+      {
+        slug: 'unknown-domain',
+        domain: 'ops',
+        findings: [],
+        match: /unsupported audit domain|domain/i,
+      },
+      {
+        slug: 'incomplete',
+        domain: 'security',
+        findings: [],
+        extra: { reviewState: 'in-progress' },
+        match: /reviewState must be complete/i,
+      },
+      {
+        slug: 'unknown-category',
+        domain: 'test',
+        findings: [{ ...testFinding('src/a.ts'), category: 'not-a-category' }],
+        match: /categor/i,
+      },
+      {
+        slug: 'empty-locations',
+        domain: 'test',
+        findings: [{ ...testFinding('src/a.ts'), locations: [] }],
+        match: /location/i,
+      },
+      {
+        slug: 'version-format-mismatch',
+        domain: 'security',
+        findings: [finding('src/a.ts')],
+        extra: { format: 'atlas-audit-v1' },
+        match: /version 2|atlas-audit-v2|format/i,
+      },
+    ]
+
+    for (const item of cases) {
+      for (const entry of fs.readdirSync(path.join(root, '.atlas/audits'))) {
+        fs.unlinkSync(path.join(root, '.atlas/audits', entry))
+      }
+      v2Envelope(root, item.domain, item.slug, ['src/a.ts'], item.findings, item.extra ?? {})
+      const [status] = auditStatusEntries(root, scan(root, { exclude: [] }))
+      assert.equal(status.status, 'stale', item.slug)
+      assert.match(status.invalidReason ?? '', item.match, item.slug)
+      assert.deepEqual(loadAuditPortfolios(root), { security: [], tests: [] }, item.slug)
+      assert.deepEqual(loadAudits(root), [], item.slug)
+    }
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('v2 finding locations require normalized repository-relative paths and positive line numbers', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const answer = 1\n')
+    commitAll(root)
+
+    const cases = [
+      { slug: 'escape-parent', locations: ['../outside.ts:1'] },
+      { slug: 'absolute-path', locations: ['/abs.ts:1'] },
+      { slug: 'zero-line', locations: ['src/a.ts:0'] },
+    ]
+
+    for (const item of cases) {
+      for (const entry of fs.readdirSync(path.join(root, '.atlas/audits'))) {
+        fs.unlinkSync(path.join(root, '.atlas/audits', entry))
+      }
+      v2Envelope(root, 'security', item.slug, ['src/a.ts'], [{
+        ...finding('src/a.ts'),
+        locations: item.locations,
+      }])
+      const [status] = auditStatusEntries(root, scan(root, { exclude: [] }))
+      assert.equal(status.status, 'stale', item.slug)
+      assert.match(status.invalidReason ?? '', /location|path|schema/i, item.slug)
+      assert.deepEqual(loadAuditPortfolios(root), { security: [], tests: [] }, item.slug)
+
+      for (const entry of fs.readdirSync(path.join(root, '.atlas/audits'))) {
+        fs.unlinkSync(path.join(root, '.atlas/audits', entry))
+      }
+      v2Envelope(root, 'test', `test-${item.slug}`, ['src/a.ts'], [{
+        ...testFinding('src/a.ts'),
+        locations: item.locations,
+      }])
+      const [testStatus] = auditStatusEntries(root, scan(root, { exclude: [] }))
+      assert.equal(testStatus.status, 'stale', `test-${item.slug}`)
+      assert.match(testStatus.invalidReason ?? '', /location|path|schema/i, `test-${item.slug}`)
+      assert.deepEqual(loadAuditPortfolios(root), { security: [], tests: [] }, `test-${item.slug}`)
+    }
+
+    // Still accepts path, path:line>=1, and path#symbol forms.
+    v2Envelope(root, 'security', 'location-ok', ['src/a.ts'], [{
+      ...finding('src/a.ts'),
+      locations: ['src/a.ts', 'src/a.ts:1', 'src/a.ts#handler'],
+    }])
+    assert.equal(loadAuditPortfolios(root).security[0]?.slug, 'location-ok')
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('v2 ledger slugs must be lowercase kebab for namespaced routes', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const answer = 1\n')
+    commitAll(root)
+    v2Envelope(root, 'security', 'Bad Slug', ['src/a.ts'], [finding('src/a.ts')])
+
+    const [status] = auditStatusEntries(root, scan(root, { exclude: [] }))
+    assert.equal(status.status, 'stale')
+    assert.match(status.invalidReason ?? '', /slug/i)
+    assert.deepEqual(loadAuditPortfolios(root), { security: [], tests: [] })
+    assert.deepEqual(loadAudits(root), [])
+
+    // Legacy v1 remains un-tightened for slug character set.
+    ledger(root, 'Legacy_Name', ['src/a.ts'])
+    assert.equal(loadAudits(root)[0]?.slug, 'Legacy_Name')
+  } finally {
+    cleanup(root)
+  }
+})
 
 test('unstamped audit still becomes stale when its scope hash drifts', () => {
   const root = makeRepo()
@@ -108,7 +304,7 @@ test('viewer loader fails closed on malformed security ledgers and preserves sev
     ledger(root, 'malformed-finding', ['src/a.ts'], { findings: [finding('src/a.ts'), { nope: true }] })
     ledger(root, 'count-mismatch', ['src/a.ts'], { file_count: 999 })
     ledger(root, 'unfinished', ['src/a.ts'], { finalPass: false })
-    ledger(root, 'future', ['src/a.ts'], { formatVersion: 2 })
+    ledger(root, 'future', ['src/a.ts'], { formatVersion: 99 })
     ledger(root, 'malformed-findings', ['src/a.ts'], { findings: { clean: true } })
 
     const audits = loadAudits(root)

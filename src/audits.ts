@@ -2,18 +2,20 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { atlasDir, hashFilePaths, isSafeRepoFile, readRepoFile } from './scan.js'
-import type { AuditFinding, AuditUnit, ScanResult } from './types.js'
+import type {
+  AuditFinding,
+  AuditUnit,
+  ScanResult,
+  SecurityAuditUnit,
+  TestAuditFinding,
+  TestAuditUnit,
+} from './types.js'
 
 /**
  * Audit ledger loader + freshness for `.atlas/audits/<slug>.json`.
- * `atlas-audit-v1` is a producer-neutral status contract: repo-atlas owns
- * freshness calculation, while each audit pipeline owns its verdict data.
- * Security ledgers that opt into the richer viewer contract are validated
- * strictly before they enter the generated HTML.
+ * Shared envelope (`atlas-audit-v1` / `atlas-audit-v2`) owns freshness;
+ * domain validators decide which complete units enter viewer portfolios.
  *
- * Ledger 形状（atlas-audit-v1 兼容）：
- *   { slug, title, ruleset, scanned_at, scope_hash, sources, file_count, files,
- *     findings[{severity,category,title,locations,dataflow,fix}], dropped, rounds, finalPass }
  * scope_hash = sorted "<blobSha>  <path>" 行的 sha1（与 qa/audit.ts 同一算法）——
  * 加载时重算：scope 字节漂移或文件消失 → stale → 该重审了。
  *
@@ -47,6 +49,9 @@ export interface AuditStatusEntry {
 interface RawLedger {
   formatVersion?: number
   format?: string
+  domain?: string
+  reviewState?: string
+  conceptSlug?: string
   slug: string
   name?: string
   title: string
@@ -64,7 +69,17 @@ interface RawLedger {
   finalPass?: boolean
 }
 
+export interface AuditPortfolios {
+  security: SecurityAuditUnit[]
+  tests: TestAuditUnit[]
+}
+
 const SEVERITIES = new Set(['info', 'low', 'medium', 'high', 'critical'])
+const TEST_IMPACTS = new Set(['blocking', 'warning', 'advisory'])
+const TEST_CATEGORIES = new Set([
+  'missing-invariant', 'weak-assertion', 'mock-only', 'nondeterminism',
+  'isolation-leak', 'fixture-drift', 'coverage-gap', 'privileged-side-effect',
+])
 
 export function auditsRoot(root: string): string {
   return path.join(atlasDir(root), 'audits')
@@ -192,9 +207,37 @@ function validRepoPath(repoPath: string): boolean {
     path.posix.normalize(repoPath) === repoPath && repoPath !== '.' && !repoPath.startsWith('../')
 }
 
+function isV2(j: RawLedger): boolean {
+  return j.formatVersion === 2 && j.format === 'atlas-audit-v2'
+}
+
+function isV1(j: RawLedger): boolean {
+  return (j.formatVersion ?? 1) === 1 && (!j.format || j.format === 'atlas-audit-v1')
+}
+
+/** v2 unit slugs must be route-safe lowercase kebab (audit:domain/<slug>). */
+const V2_SLUG_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u
+
+function v2EnvelopeError(j: RawLedger): string | null {
+  if (j.formatVersion === 2 && j.format !== 'atlas-audit-v2') {
+    return 'version 2 ledgers must use format atlas-audit-v2'
+  }
+  if (!isV2(j)) return 'version 2 ledgers must use format atlas-audit-v2'
+  if (j.domain !== 'security' && j.domain !== 'test') return 'unsupported audit domain'
+  if (j.reviewState !== 'complete') return 'reviewState must be complete'
+  if (!V2_SLUG_RE.test(j.slug)) return 'slug must be lowercase kebab-case for namespaced routes'
+  return null
+}
+
 function ledgerContractError(j: RawLedger): string | null {
-  if ((j.formatVersion ?? 1) !== 1) return `formatVersion ${String(j.formatVersion)} is unsupported (known: 1)`
-  if (j.format && j.format !== 'atlas-audit-v1') return `format ${j.format} is unsupported`
+  const version = j.formatVersion ?? 1
+  if (version === 1) {
+    if (j.format && j.format !== 'atlas-audit-v1') return `format ${j.format} is unsupported`
+  } else if (version === 2) {
+    if (j.format !== 'atlas-audit-v2') return 'version 2 ledgers must use format atlas-audit-v2'
+  } else {
+    return `formatVersion ${String(j.formatVersion)} is unsupported (known: 1, 2)`
+  }
   if (!j.files.every(validRepoPath) || new Set(j.files).size !== j.files.length) return 'files must be unique normalized repository-relative paths'
   if (typeof j.scope_hash !== 'string' || !/^[0-9a-f]{40}$/u.test(j.scope_hash)) return 'scope_hash must be a lowercase SHA-1'
   if (j.file_count !== undefined && (nonnegativeInteger(j.file_count) === null || j.file_count !== j.files.length)) return 'file_count must equal files.length'
@@ -208,6 +251,10 @@ function ledgerContractError(j: RawLedger): string | null {
         j.files.some((repoPath) => !/^[0-9a-f]{40}$/u.test(j.hashes![repoPath] ?? ''))) {
       return 'hashes must contain one lowercase SHA-1 for every scope file'
     }
+  }
+  if (version === 2) {
+    const envelope = v2EnvelopeError(j)
+    if (envelope) return envelope
   }
   return null
 }
@@ -224,6 +271,25 @@ function readLedger(root: string, file: string): LedgerRead {
   }
 }
 
+function nonemptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+/** v2 finding location: repo-relative path, optional `:positive-line` or `#nonempty-symbol`. */
+function validAuditLocation(location: unknown): location is string {
+  if (typeof location !== 'string' || !location.trim()) return false
+  const match = /^([^:#]+)(?::([0-9]+)|#(.+))?$/u.exec(location)
+  if (!match) return false
+  if (!validRepoPath(match[1])) return false
+  if (match[2] !== undefined && !/^[1-9]\d*$/u.test(match[2])) return false
+  if (location.includes('#') && !(match[3] && match[3].length > 0)) return false
+  return true
+}
+
+function normalizedLocations(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length > 0 && value.every(validAuditLocation)
+}
+
 function validFinding(f: unknown): f is AuditFinding {
   if (!f || typeof f !== 'object') return false
   const finding = f as Partial<AuditFinding>
@@ -233,16 +299,38 @@ function validFinding(f: unknown): f is AuditFinding {
     typeof finding.dataflow === 'string' && typeof finding.fix === 'string'
 }
 
-function isSupportedFormat(j: RawLedger): boolean {
-  return (j.formatVersion ?? 1) === 1 && (!j.format || j.format === 'atlas-audit-v1')
+function validStrictSecurityFinding(f: unknown): f is AuditFinding {
+  if (!f || typeof f !== 'object') return false
+  const finding = f as Partial<AuditFinding>
+  return typeof finding.severity === 'string' && SEVERITIES.has(finding.severity) &&
+    nonemptyString(finding.category) && nonemptyString(finding.title) &&
+    normalizedLocations(finding.locations) &&
+    nonemptyString(finding.dataflow) && nonemptyString(finding.fix) &&
+    (finding.confidence === undefined || nonemptyString(finding.confidence))
 }
 
-function isSecurityLedger(j: RawLedger): boolean {
-  return isSupportedFormat(j) && j.finalPass === true && Array.isArray(j.findings)
+function validTestFinding(f: unknown): f is TestAuditFinding {
+  if (!f || typeof f !== 'object') return false
+  const finding = f as Partial<TestAuditFinding>
+  return typeof finding.impact === 'string' && TEST_IMPACTS.has(finding.impact) &&
+    typeof finding.category === 'string' && TEST_CATEGORIES.has(finding.category) &&
+    nonemptyString(finding.title) && nonemptyString(finding.invariant) &&
+    nonemptyString(finding.evidence) && nonemptyString(finding.fix) &&
+    normalizedLocations(finding.locations) &&
+    (finding.confidence === undefined || nonemptyString(finding.confidence))
+}
+
+function isSupportedFormat(j: RawLedger): boolean {
+  return isV1(j) || isV2(j)
+}
+
+function isLegacySecurityLedger(j: RawLedger): boolean {
+  return isV1(j) && j.finalPass === true && Array.isArray(j.findings)
 }
 
 function isStatusLedger(j: RawLedger): boolean {
-  return isSupportedFormat(j) && j.finalPass !== false
+  if (isV2(j)) return true
+  return isV1(j) && j.finalPass !== false
 }
 
 function findingPaths(finding: unknown): string[] {
@@ -281,27 +369,112 @@ function hasValidFindingCounts(findings: unknown[]): boolean {
   return true
 }
 
-function securityLedgerError(root: string, j: RawLedger, raw: unknown, entry: string): string | null {
-  const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null
-  if (record?.formatVersion !== 1) return 'security formatVersion must be 1'
-  if (record.format !== undefined && record.format !== 'atlas-audit-v1') return 'unsupported security format'
-  if (j.slug !== path.basename(entry, '.json')) return 'security slug must match its ledger filename'
+function viewerMetadataError(root: string, j: RawLedger, entry: string, label: string): string | null {
+  if (j.slug !== path.basename(entry, '.json')) return `${label} slug must match its ledger filename`
   if (![j.title, j.ruleset, j.scanned_at].every((value) => typeof value === 'string' && value.trim())) {
-    return 'security title, ruleset, and scanned_at must be nonempty strings'
+    return `${label} title, ruleset, and scanned_at must be nonempty strings`
   }
-  if (!j.files.length) return 'security scope must contain at least one file'
+  if (!j.files.length) return `${label} scope must contain at least one file`
   for (const repoPath of j.files) {
     try {
       fs.lstatSync(path.resolve(root, repoPath))
-      if (!isSafeRepoFile(root, repoPath)) return `security scope path is not a safe regular file: ${repoPath}`
+      if (!isSafeRepoFile(root, repoPath)) return `${label} scope path is not a safe regular file: ${repoPath}`
     } catch { /* a formerly audited file may be gone; freshness reports it stale */ }
   }
-  if (!Array.isArray(j.findings)) return 'security findings must be an array'
-  if (j.findings.length > 100_000) return 'security findings exceed the 100000 entry limit'
-  if (!j.findings.every(validFinding)) return 'every security finding must satisfy the strict viewer schema'
-  if (j.dropped !== undefined && !Array.isArray(j.dropped)) return 'security dropped must be an array'
-  if (j.rounds !== undefined && !Array.isArray(j.rounds)) return 'security rounds must be an array'
+  if (!Array.isArray(j.findings)) return `${label} findings must be an array`
+  if (j.findings.length > 100_000) return `${label} findings exceed the 100000 entry limit`
+  if (j.dropped !== undefined && !Array.isArray(j.dropped)) return `${label} dropped must be an array`
+  if (j.rounds !== undefined && !Array.isArray(j.rounds)) return `${label} rounds must be an array`
   return null
+}
+
+function securityLedgerError(root: string, j: RawLedger, raw: unknown, entry: string): string | null {
+  const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null
+  if (isV2(j)) {
+    if (j.domain !== 'security') return 'unsupported audit domain'
+    const meta = viewerMetadataError(root, j, entry, 'security')
+    if (meta) return meta
+    if (j.conceptSlug !== undefined && !nonemptyString(j.conceptSlug)) {
+      return 'security conceptSlug must be a nonempty string when present'
+    }
+    if (!findingsOf(j).every(validStrictSecurityFinding)) {
+      return 'every security finding must satisfy the strict viewer schema'
+    }
+    return null
+  }
+  if (record?.formatVersion !== 1) return 'security formatVersion must be 1'
+  if (record.format !== undefined && record.format !== 'atlas-audit-v1') return 'unsupported security format'
+  const meta = viewerMetadataError(root, j, entry, 'security')
+  if (meta) return meta
+  if (!findingsOf(j).every(validFinding)) return 'every security finding must satisfy the strict viewer schema'
+  return null
+}
+
+function testLedgerError(root: string, j: RawLedger, entry: string): string | null {
+  if (!isV2(j) || j.domain !== 'test') return 'unsupported audit domain'
+  const meta = viewerMetadataError(root, j, entry, 'test')
+  if (meta) return meta
+  if (!findingsOf(j).every(validTestFinding)) {
+    return 'every test finding must satisfy the strict test schema (impact, category, locations)'
+  }
+  return null
+}
+
+function domainLedgerError(root: string, j: RawLedger, raw: unknown, entry: string): string | null {
+  if (isV2(j)) {
+    if (j.domain === 'security') return securityLedgerError(root, j, raw, entry)
+    if (j.domain === 'test') return testLedgerError(root, j, entry)
+    return 'unsupported audit domain'
+  }
+  if (isLegacySecurityLedger(j)) return securityLedgerError(root, j, raw, entry)
+  return null
+}
+
+function unitStale(
+  root: string,
+  j: RawLedger,
+  file: string,
+  statusByFile: Map<string, AuditStatusEntry> | null,
+): boolean {
+  const knownStatus = statusByFile?.get(path.resolve(file))
+  if (knownStatus) return knownStatus.status !== 'fresh'
+  const current = scopeHash(root, j.files)
+  return current.missing.length > 0 || current.hash !== j.scope_hash
+}
+
+function toSecurityUnit(root: string, j: RawLedger, file: string, statusByFile: Map<string, AuditStatusEntry> | null): SecurityAuditUnit {
+  const findings = findingsOf(j) as AuditFinding[]
+  const unit: SecurityAuditUnit = {
+    formatVersion: isV2(j) ? 2 : 1,
+    domain: 'security',
+    slug: j.slug,
+    title: typeof j.title === 'string' ? j.title : j.slug,
+    ruleset: typeof j.ruleset === 'string' ? j.ruleset : 'unknown',
+    scannedAt: typeof j.scanned_at === 'string' ? j.scanned_at : '',
+    fileCount: j.files.length,
+    findings,
+    droppedCount: Array.isArray(j.dropped) ? j.dropped.length : 0,
+    roundCount: Array.isArray(j.rounds) ? j.rounds.length : 0,
+    stale: unitStale(root, j, file, statusByFile),
+  }
+  if (isV2(j) && nonemptyString(j.conceptSlug)) unit.conceptSlug = j.conceptSlug
+  return unit
+}
+
+function toTestUnit(root: string, j: RawLedger, file: string, statusByFile: Map<string, AuditStatusEntry> | null): TestAuditUnit {
+  return {
+    formatVersion: 2,
+    domain: 'test',
+    slug: j.slug,
+    title: typeof j.title === 'string' ? j.title : j.slug,
+    ruleset: typeof j.ruleset === 'string' ? j.ruleset : 'unknown',
+    scannedAt: typeof j.scanned_at === 'string' ? j.scanned_at : '',
+    fileCount: j.files.length,
+    findings: findingsOf(j) as TestAuditFinding[],
+    droppedCount: Array.isArray(j.dropped) ? j.dropped.length : 0,
+    roundCount: Array.isArray(j.rounds) ? j.rounds.length : 0,
+    stale: unitStale(root, j, file, statusByFile),
+  }
 }
 
 function invalidStatus(file: string, reason: string): AuditStatusEntry {
@@ -324,11 +497,12 @@ function invalidStatus(file: string, reason: string): AuditStatusEntry {
   }
 }
 
-/** Build/serve 契约：加载所有 ledger，加载时重算 stale（types.ts 的 AuditUnit）。 */
-export function loadAudits(root: string, statuses?: AuditStatusEntry[]): AuditUnit[] {
+/** Build/serve 契约：一次目录遍历加载 security + test 两个 portfolio。 */
+export function loadAuditPortfolios(root: string, statuses?: AuditStatusEntry[]): AuditPortfolios {
   const base = existingAuditsRoot(root, true)
-  if (!base) return []
-  const out: AuditUnit[] = []
+  if (!base) return { security: [], tests: [] }
+  const security: SecurityAuditUnit[] = []
+  const tests: TestAuditUnit[] = []
   const statusByFile = statuses ? new Map(statuses.map((status) => [path.resolve(status.file), status])) : null
   for (const entry of fs.readdirSync(base).sort()) {
     if (!entry.endsWith('.json')) continue
@@ -339,35 +513,55 @@ export function loadAudits(root: string, statuses?: AuditStatusEntry[]): AuditUn
       continue
     }
     const j = read.ledger
-    if (j.finalPass !== true) continue
+    if (isV2(j)) {
+      if (j.domain === 'security') {
+        const securityError = securityLedgerError(root, j, read.raw, entry)
+        if (securityError) {
+          console.warn(`  ⚠ .atlas/audits/${entry}: malformed security ledger (${securityError}), skipped`)
+          continue
+        }
+        security.push(toSecurityUnit(root, j, file, statusByFile))
+      } else if (j.domain === 'test') {
+        const testError = testLedgerError(root, j, entry)
+        if (testError) {
+          console.warn(`  ⚠ .atlas/audits/${entry}: malformed test ledger (${testError}), skipped`)
+          continue
+        }
+        tests.push(toTestUnit(root, j, file, statusByFile))
+      } else {
+        console.warn(`  ⚠ .atlas/audits/${entry}: unsupported audit domain, skipped`)
+      }
+      continue
+    }
+    if (!isLegacySecurityLedger(j)) continue
     const securityError = securityLedgerError(root, j, read.raw, entry)
     if (securityError) {
       console.warn(`  ⚠ .atlas/audits/${entry}: malformed security ledger (${securityError}), skipped`)
       continue
     }
-    const knownStatus = statusByFile?.get(path.resolve(file))
-    const current = knownStatus ? null : scopeHash(root, j.files)
-    const findings = findingsOf(j)
-    out.push({
-      slug: j.slug,
-      title: typeof j.title === 'string' ? j.title : j.slug,
-      ruleset: typeof j.ruleset === 'string' ? j.ruleset : 'unknown',
-      scannedAt: typeof j.scanned_at === 'string' ? j.scanned_at : '',
-      fileCount: j.files.length,
-      findings: findings as AuditFinding[],
-      droppedCount: Array.isArray(j.dropped) ? j.dropped.length : 0,
-      roundCount: Array.isArray(j.rounds) ? j.rounds.length : 0,
-      stale: knownStatus ? knownStatus.status !== 'fresh' : current!.missing.length > 0 || current!.hash !== j.scope_hash,
-    })
+    security.push(toSecurityUnit(root, j, file, statusByFile))
   }
-  const rank = (severity: string) => ['critical', 'high', 'medium', 'low', 'info'].indexOf(severity)
-  out.sort((left, right) => {
-    const worst = (findings: AuditFinding[]) => findings.reduce((value, finding) => Math.min(value, rank(finding.severity)), 5)
-    const leftRank = worst(left.findings)
-    const rightRank = worst(right.findings)
-    return leftRank - rightRank || left.slug.localeCompare(right.slug)
+  const severityRank = (severity: string) => ['critical', 'high', 'medium', 'low', 'info'].indexOf(severity)
+  security.sort((left, right) => {
+    const worst = (findings: AuditFinding[]) => findings.reduce((value, finding) => Math.min(value, severityRank(finding.severity)), 5)
+    return worst(left.findings) - worst(right.findings) || left.slug.localeCompare(right.slug)
   })
-  return out
+  const impactRank = (impact: string) => ['blocking', 'warning', 'advisory'].indexOf(impact)
+  tests.sort((left, right) => {
+    const staleRank = Number(right.stale) - Number(left.stale)
+    if (staleRank) return staleRank
+    const worst = (findings: TestAuditFinding[]) => findings.reduce((value, finding) => {
+      const rank = impactRank(finding.impact)
+      return rank === -1 ? value : Math.min(value, rank)
+    }, 3)
+    return worst(left.findings) - worst(right.findings) || left.slug.localeCompare(right.slug)
+  })
+  return { security, tests }
+}
+
+/** Build/serve 契约：security portfolio（types.ts 的 AuditUnit）。 */
+export function loadAudits(root: string, statuses?: AuditStatusEntry[]): AuditUnit[] {
+  return loadAuditPortfolios(root, statuses).security
 }
 
 /** status 的细节层：fresh/stale + （stamp 后的）逐文件漂移。 */
@@ -388,13 +582,12 @@ export function auditStatusEntries(root: string, scanResult: ScanResult): AuditS
     }
     const j = read.ledger
     if (!isStatusLedger(j)) continue
-    if (j.finalPass === true) {
-      const securityError = securityLedgerError(root, j, read.raw, entry)
-      if (securityError) {
-        console.warn(`  ⚠ .atlas/audits/${entry}: malformed security ledger (${securityError}); reported stale/invalid`)
-        out.push(invalidStatus(file, securityError))
-        continue
-      }
+    const domainError = domainLedgerError(root, j, read.raw, entry)
+    if (domainError) {
+      const kind = isV2(j) && j.domain === 'test' ? 'test' : 'security'
+      console.warn(`  ⚠ .atlas/audits/${entry}: malformed ${kind} ledger (${domainError}); reported stale/invalid`)
+      out.push(invalidStatus(file, domainError))
+      continue
     }
     const findings = findingsOf(j)
     const currentScope = scopeHashFromScan(root, scanResult, j.files)

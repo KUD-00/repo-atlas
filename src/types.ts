@@ -203,20 +203,50 @@ export interface AuditFinding {
   confidence?: string
 }
 
-/** A security-audit unit (one `.atlas/audits/<slug>.json`), produced by qa/audit.ts.
- * The engine loads and freshness-checks it; the producing pipeline owns everything else. */
-export interface AuditUnit {
+export type AuditDomain = 'security' | 'test'
+export type TestAuditImpact = 'blocking' | 'warning' | 'advisory'
+export type TestAuditCategory =
+  | 'missing-invariant' | 'weak-assertion' | 'mock-only' | 'nondeterminism'
+  | 'isolation-leak' | 'fixture-drift' | 'coverage-gap' | 'privileged-side-effect'
+
+export interface TestAuditFinding {
+  impact: TestAuditImpact
+  category: TestAuditCategory
+  title: string
+  invariant: string
+  evidence: string
+  fix: string
+  locations: string[]
+  confidence?: string
+}
+
+export interface BaseAuditUnit {
+  formatVersion: 1 | 2
+  domain: AuditDomain
   slug: string
   title: string
   ruleset: string
   scannedAt: string
   fileCount: number
-  findings: AuditFinding[]
   droppedCount: number
   roundCount: number
   /** Scope bytes drifted since the audit (recomputed at load) → needs a re-audit. */
   stale: boolean
 }
+
+export interface SecurityAuditUnit extends BaseAuditUnit {
+  domain: 'security'
+  findings: AuditFinding[]
+  conceptSlug?: string
+}
+
+export interface TestAuditUnit extends BaseAuditUnit {
+  domain: 'test'
+  findings: TestAuditFinding[]
+}
+
+/** Legacy alias: security portfolio units only during the domain migration. */
+export type AuditUnit = SecurityAuditUnit
 
 export interface AtlasPayload {
   repoName: string
