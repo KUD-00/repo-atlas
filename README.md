@@ -95,9 +95,10 @@ layer on top of that shared envelope — never a bypass.
 **Viewer-grade ledgers use `atlas-audit-v2`.** `domain` is required
 (`security` | `test`). `reviewState` must be exactly `complete` before a ledger
 enters a viewer portfolio; incomplete or partial runs must not publish an empty
-`findings: []` as clean. The filename stem must equal `slug`. Unknown domains,
-format/version mismatches, and domain-invalid findings stay out of the
-portfolio and remain visible in `status` as stale + invalid.
+`findings: []` as if the review were finished with no issues. The filename stem
+must equal `slug`. Unknown domains, format/version mismatches, and
+domain-invalid findings stay out of the portfolio and remain visible in
+`status` as stale + invalid.
 
 Security v2 (optional `conceptSlug` associates the unit with a concept page —
 slug equality alone is not enough for v2). Digest values below are illustrative
@@ -175,10 +176,55 @@ finding schema still load as legacy security units. v1 generic ledgers
 `finalPass: false` is never viewer-grade. There is no filename or `ruleset`
 prefix inference of domain.
 
-**Empty vs clean:** an empty domain portfolio shows "No completed audits yet"
-and is never labeled clean. Only a fresh, completed unit with zero findings may
-say clean. A stale unit keeps historical findings but is marked for re-audit.
-Malformed ledgers never become empty clean units.
+**Empty portfolio:** an empty domain portfolio shows "No completed audit evidence"
+and never claims zero findings or complete coverage. A stale unit keeps
+historical findings but is marked for re-audit. Malformed ledgers never become
+empty finished units. A fresh unit with zero open findings is shown as
+"No actionable findings in current completed review" only when a current coverage
+report has repository verdict `complete` — never from ledger absence or from a
+domain that merely looks complete in isolation.
+
+### Review coverage report
+
+`.atlas/review-coverage.json` is the optional closed-world coverage join
+(`format: atlas-review-coverage-v1`, `formatVersion: 1`). The report is
+deterministic (no generation timestamp). Its `verdict` is one of:
+
+- **complete** — zero unclassified paths, conflicts, invalid ledgers, missing
+  evidence, and stale evidence for the claimed inventory;
+- **incomplete** — structurally valid report with one or more explicit gaps
+  (allowed so progress is visible; enforcement still fails until complete);
+- **invalid** — deterministic analysis could not produce trustworthy
+  classifications or evidence joins; at least one `reportErrors` entry is
+  required, and Atlas ignores all embedded fresh/covered claims.
+
+**Ownership:** the report owns *what must be reviewed* (required paths,
+classifications, per-domain evidence status). Audit units under
+`.atlas/audits/` own *what was reviewed* (exact files/hashes, findings,
+ruleset, scan time, optional `evidenceRefs`). Neither substitutes for the
+other.
+
+**Missing report:** when the file is absent or unreadable, coverage is
+**unknown** — never treated as zero required paths or as fully covered.
+Primary Security/Tests suffix priority is: **unknown** → **gaps** → **open**
+→ **covered**.
+
+**Code / config excludes never define audit coverage.** `.atlas/config.json`
+`exclude` only filters the Code tree and note scan. Ledger scope hashing is
+independent of those excludes. An excluded-from-Code path can still be
+required for Security or Tests by the coverage report.
+
+**v1 ledgers** (`finalPass: true` security schema) remain recorded evidence for
+compatibility and still load as legacy security units, but they **cannot
+establish closed-world coverage** on their own. Only a validated
+`atlas-review-coverage-v1` report can assert required scope completeness.
+
+**v2 dispositions and evidenceRefs:** Security findings may carry
+`disposition` ∈ `open | accepted-risk | separate-design` (default `open`).
+Accepted-risk and separate-design findings are retained risk, not attention
+queue items. Units may carry `evidenceRefs` (unique safe repo-relative paths)
+identifying producer-owned evidence accepted when the ledger was built; the
+repository checker—not mere presence in the viewer—decides authenticity.
 
 **Viewer routes** (hash paths; valid even when the portfolio is empty):
 

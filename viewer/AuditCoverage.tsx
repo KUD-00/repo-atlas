@@ -4,11 +4,17 @@ import { useLingui } from '@lingui/react/macro'
 import {
   auditUnitRows,
   coverageCountsAvailable,
-  coverageStatementText,
   type AuditFileRow,
   type AuditUnitEvidence,
   type DomainAssurance,
 } from '../src/audit-assurance'
+import {
+  localizedAcceptanceLabel,
+  localizedCoverageLabel,
+  localizedCoverageStatement,
+  localizedFileStatusLabel,
+  localizedRiskLabel,
+} from './audit-copy'
 import { AuditLocation } from './AuditLocation'
 
 const SECTION =
@@ -32,7 +38,8 @@ const INPUT =
  * Receives derived DomainAssurance only — never invents coverage.
  */
 export function CoverageStatement({ model }: { model: DomainAssurance }) {
-  const statement = coverageStatementText(model)
+  const { i18n } = useLingui()
+  const statement = localizedCoverageStatement(i18n, model)
   return (
     <p
       className="text-[0.95rem] font-semibold m-0 mb-4 leading-snug"
@@ -171,8 +178,8 @@ export function AuditUnitPortfolio({
                   <span className="font-semibold">{row.title}</span>
                 )}
               </td>
-              <td className={TD + ' text-muted'}>{row.coverage.label}</td>
-              <td className={TD + ' text-muted'}>{row.risk.label}</td>
+              <td className={TD + ' text-muted'}>{localizedCoverageLabel(i18n, row.coverage)}</td>
+              <td className={TD + ' text-muted'}>{localizedRiskLabel(i18n, row.risk)}</td>
               <td className={TD + ' text-muted'}>
                 {row.evidenceAccepted
                   ? t(i18n)`accepted`
@@ -243,7 +250,9 @@ export function AuditFileTable({
                 <td className={TD}>
                   <AuditLocation loc={row.path} />
                 </td>
-                <td className={TD + ' text-muted'}>{row.label}</td>
+                <td className={TD + ' text-muted'}>
+                  {localizedFileStatusLabel(i18n, row.status)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -288,7 +297,7 @@ export function AuditEvidenceSummary({ row }: { row: AuditUnitEvidence }) {
       </div>
       <div className="flex flex-wrap gap-x-2">
         <dt className="text-muted font-semibold m-0">{t(i18n)`acceptance`}</dt>
-        <dd className="m-0 text-text">{row.acceptanceLabel}</dd>
+        <dd className="m-0 text-text">{localizedAcceptanceLabel(i18n, row)}</dd>
       </div>
       <div>
         <dt className="text-muted font-semibold m-0 mb-1">{t(i18n)`evidence refs`}</dt>

@@ -26,6 +26,110 @@ msgstr "(산출물)"
 msgid "(directory)"
 msgstr "(디렉터리)"
 
+#. placeholder {0}: risk.acceptedRiskCount
+#: viewer/audit-copy.ts
+msgid "{0} accepted risk"
+msgstr "수용된 위험 {0}건"
+
+#. placeholder {0}: coverage.invalid
+#: viewer/audit-copy.ts
+msgid "{0} invalid"
+msgstr "무효 {0}건"
+
+#. placeholder {0}: coverage.invalid
+#: viewer/audit-copy.ts
+msgid "{0} invalid evidence"
+msgstr "무효 증거 {0}건"
+
+#. placeholder {0}: coverage.missing
+#: viewer/audit-copy.ts
+msgid "{0} missing"
+msgstr "누락 {0}건"
+
+#. placeholder {0}: model.openCount
+#: viewer/audit-copy.ts
+msgid "{0} open"
+msgstr "미처리 {0}건"
+
+#. placeholder {0}: risk.openCount
+#: viewer/audit-copy.ts
+msgid "{0} open (highest {highest})"
+msgstr "미처리 {0}건（최고 {highest}）"
+
+#. placeholder {0}: row.risk.openCount
+#: viewer/audit-copy.ts
+msgid "{0} open findings"
+msgstr "미처리 발견 {0}건"
+
+#. placeholder {0}: row.risk.openCount
+#. placeholder {1}: row.risk.highestOpen
+#: viewer/audit-copy.ts
+msgid "{0} open findings (highest {1})"
+msgstr "미처리 발견 {0}건（최고 {1}）"
+
+#. placeholder {0}: risk.separateDesignCount
+#: viewer/audit-copy.ts
+msgid "{0} separate design"
+msgstr "separate design {0}건"
+
+#. placeholder {0}: coverage.stale
+#: viewer/audit-copy.ts
+msgid "{0} stale"
+msgstr "오래됨 {0}건"
+
+#. placeholder {0}: action.impact
+#. placeholder {0}: action.severity
+#. placeholder {1}: action.title
+#: viewer/audit-copy.ts
+msgid "{0}: {1}"
+msgstr "{0}: {1}"
+
+#. placeholder {0}: action.path
+#: viewer/audit-copy.ts
+msgid "{0}: {status}"
+msgstr "{0}: {status}"
+
+#. placeholder {0}: coverage.fresh
+#. placeholder {1}: coverage.required
+#: viewer/audit-copy.ts
+msgid "{0}/{1} fresh"
+msgstr "{0}/{1} 최신"
+
+#: viewer/audit-copy.ts
+msgid "{n} coverage gaps"
+msgstr "coverage 공백 {n}건"
+
+#: viewer/audit-copy.ts
+msgid "{n} gaps"
+msgstr "공백 {n}건"
+
+#. placeholder {0}: model.openCount
+#: viewer/audit-copy.ts
+msgid "{name} {0} open findings"
+msgstr "{name} 미처리 발견 {0}건"
+
+#: viewer/audit-copy.ts
+msgid "{name} {n} coverage gaps"
+msgstr "{name} coverage 공백 {n}건"
+
+#: viewer/audit-copy.ts
+msgid "{name} coverage complete"
+msgstr "{name} coverage 완료"
+
+#: viewer/audit-copy.ts
+msgid "{name} coverage unknown or unavailable"
+msgstr "{name} coverage 알 수 없거나 사용 불가"
+
+#. placeholder {0}: action.path
+#: viewer/audit-copy.ts
+msgid "{unitTitle}: {0} {status}"
+msgstr "{unitTitle}: {0} {status}"
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "← overview"
+msgstr "← 개요"
+
 #: viewer/Doc.tsx
 msgid "← prev"
 msgstr "← 이전"
@@ -50,17 +154,39 @@ msgstr "▸ 프레임"
 msgid "⤷ attach to chat"
 msgstr "⤷ 채팅에 연결"
 
+#: viewer/audit-copy.ts
+msgid "1 accepted risk"
+msgstr "수용된 위험 1건"
+
+#: viewer/audit-copy.ts
+msgid "1 open ({highest})"
+msgstr "미처리 1건（{highest}）"
+
+#: viewer/audit-copy.ts
+msgid "1 separate design"
+msgstr "separate design 1건"
+
+#: viewer/AuditCoverage.tsx
+msgid "acceptance"
+msgstr "수락"
+
+#: viewer/AuditCoverage.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "accepted"
+msgstr "수락됨"
+
+#: viewer/audit-copy.ts
+msgid "Accepted by current coverage report"
+msgstr "현재 coverage 보고서에서 수락됨"
+
+#: viewer/Security.tsx
+msgid "accepted risk"
+msgstr "수용된 위험"
+
 #: viewer/Chat.tsx
 msgid "agent connected"
 msgstr "에이전트 연결됨"
-
-#: viewer/AuditNav.tsx
-msgid "all security units"
-msgstr "모든 보안 유닛"
-
-#: viewer/AuditNav.tsx
-msgid "all test units"
-msgstr "모든 테스트 유닛"
 
 #: viewer/Security.tsx
 msgid "all units →"
@@ -77,11 +203,6 @@ msgstr "소속 페이지"
 #: viewer/Preview.tsx
 msgid "Artifacts"
 msgstr "산출물"
-
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
-msgid "audited units"
-msgstr "감사된 유닛"
 
 #: viewer/Print.tsx
 msgid "back"
@@ -116,11 +237,6 @@ msgstr "채팅"
 msgid "chat with the attached agent session"
 msgstr "연결된 에이전트 세션과 채팅"
 
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
-msgid "clean"
-msgstr "클린"
-
 #: viewer/Doc.tsx
 msgid "close"
 msgstr "닫기"
@@ -149,6 +265,11 @@ msgstr "사이드바 접기"
 msgid "commit"
 msgstr "커밋"
 
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "completed units"
+msgstr "완료된 유닛"
+
 #: viewer/Concept.tsx
 msgid "concept"
 msgstr "개념"
@@ -160,6 +281,10 @@ msgstr "개념 색인"
 #: viewer/App.tsx
 msgid "concepts"
 msgstr "개념"
+
+#: viewer/AuditCoverage.tsx
+msgid "conflicted"
+msgstr "충돌"
 
 #: viewer/Preview.tsx
 msgid "content hash changed but git shows no diff against the anchor"
@@ -173,6 +298,82 @@ msgstr "목차"
 #: viewer/Preview.tsx
 msgid "Contents"
 msgstr "목차"
+
+#: viewer/AuditCoverage.tsx
+msgid "coverage"
+msgstr "coverage"
+
+#: viewer/AuditCoverage.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Coverage"
+msgstr "Coverage"
+
+#: viewer/App.tsx
+msgid "coverage action — open the relevant security coverage view"
+msgstr "coverage 작업 — 관련 Security coverage 보기 열기"
+
+#: viewer/audit-copy.ts
+msgid "Coverage complete and current"
+msgstr "Coverage가 완전하고 최신입니다"
+
+#: viewer/AuditCoverage.tsx
+msgid "Coverage counts unavailable"
+msgstr "Coverage 수치를 사용할 수 없습니다"
+
+#: viewer/App.tsx
+msgid "coverage gaps"
+msgstr "coverage 공백"
+
+#: viewer/AuditNav.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Coverage gaps"
+msgstr "Coverage 공백"
+
+#: viewer/audit-copy.ts
+msgid "Coverage has not been established"
+msgstr "Coverage가 확립되지 않았습니다"
+
+#: viewer/audit-copy.ts
+msgid "Coverage incomplete — {missingCount} required reviews are missing"
+msgstr "Coverage 불완전 — 필수 검토 {missingCount}건 누락"
+
+#: viewer/audit-copy.ts
+msgid "Coverage incomplete — 1 required review is missing"
+msgstr "Coverage 불완전 — 필수 검토 1건 누락"
+
+#: viewer/audit-copy.ts
+msgid "Coverage incomplete — required reviews are missing"
+msgstr "Coverage 불완전 — 필수 검토가 누락됨"
+
+#: viewer/audit-copy.ts
+msgid "Coverage incomplete for this unit"
+msgstr "이 유닛의 coverage가 불완전합니다"
+
+#: viewer/audit-copy.ts
+msgid "Coverage invalid — diagnostics present; no trusted coverage numerator"
+msgstr "Coverage 무효 — 진단 있음；신뢰할 수 있는 coverage 분자 없음"
+
+#: viewer/audit-copy.ts
+msgid "Coverage invalid for this unit"
+msgstr "이 유닛의 coverage가 무효입니다"
+
+#: viewer/audit-copy.ts
+msgid "Coverage stale — recorded evidence is visible but not current"
+msgstr "Coverage가 오래됨 — 기록된 증거는 보이지만 최신이 아님"
+
+#: viewer/audit-copy.ts
+msgid "coverage unknown"
+msgstr "coverage 알 수 없음"
+
+#: viewer/audit-copy.ts
+msgid "Coverage unknown because no review coverage report exists"
+msgstr "review coverage 보고서가 없어 coverage를 알 수 없습니다"
+
+#: viewer/audit-copy.ts
+msgid "covered"
+msgstr "커버됨"
 
 #: viewer/Security.tsx
 msgid "dataflow"
@@ -190,10 +391,9 @@ msgstr "디렉터리 프레임"
 msgid "directory notes above this page"
 msgstr "이 페이지 상위 디렉터리 노트"
 
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
-msgid "dropped by factcheck"
-msgstr "건 팩트체크에서 제외됨"
+#: viewer/AuditCoverage.tsx
+msgid "dual-domain"
+msgstr "이중 도메인"
 
 #: viewer/Doc.tsx
 msgid "edit"
@@ -203,9 +403,23 @@ msgstr "편집"
 msgid "entire repository"
 msgstr "저장소 전체"
 
+#: viewer/AuditCoverage.tsx
 #: viewer/TestAudit.tsx
 msgid "evidence"
 msgstr "근거:"
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Evidence"
+msgstr "증거"
+
+#: viewer/AuditCoverage.tsx
+msgid "evidence refs"
+msgstr "증거 참조"
+
+#: viewer/AuditCoverage.tsx
+msgid "excluded"
+msgstr "제외됨"
 
 #: viewer/App.tsx
 msgid "expand panel"
@@ -240,18 +454,22 @@ msgstr "심각도로 필터"
 msgid "filter concepts…"
 msgstr "개념 필터…"
 
+#: viewer/AuditCoverage.tsx
+msgid "filter files"
+msgstr "파일 필터"
+
+#: viewer/AuditCoverage.tsx
+msgid "filter files…"
+msgstr "파일 필터…"
+
 #: viewer/App.tsx
 msgid "filter paths…"
 msgstr "경로 필터…"
 
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
-msgid "filtered"
-msgstr "필터됨"
-
-#: viewer/App.tsx
-msgid "findings"
-msgstr "건의 지적"
+msgid "Findings"
+msgstr "발견"
 
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
@@ -259,8 +477,19 @@ msgid "fix"
 msgstr "수정:"
 
 #: viewer/App.tsx
+#: viewer/AuditCoverage.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "fresh"
 msgstr "최신"
+
+#: viewer/audit-copy.ts
+msgid "fresh evidence"
+msgstr "최신 증거"
+
+#: viewer/AuditCoverage.tsx
+msgid "gaps"
+msgstr "공백"
 
 #: viewer/Print.tsx
 msgid "generated"
@@ -282,6 +511,22 @@ msgstr "제외됨"
 msgid "ignored — excluded by .atlas/config.json"
 msgstr "제외됨 — .atlas/config.json에서 제외됨"
 
+#: viewer/AuditCoverage.tsx
+msgid "invalid"
+msgstr "무효"
+
+#: viewer/audit-copy.ts
+msgid "invalid coverage"
+msgstr "무효 coverage"
+
+#: viewer/audit-copy.ts
+msgid "invalid evidence"
+msgstr "무효 증거"
+
+#: viewer/Security.tsx
+msgid "invalid units"
+msgstr "무효 유닛"
+
 #: viewer/TestAudit.tsx
 msgid "invariant"
 msgstr "불변조건:"
@@ -289,6 +534,11 @@ msgstr "불변조건:"
 #: viewer/Settings.tsx
 msgid "Language"
 msgstr "언어"
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "latest scan"
+msgstr "최근 스캔"
 
 #: viewer/Preview.tsx
 msgid "lines"
@@ -311,16 +561,33 @@ msgid "Messages go to whichever agent session is polling <0>/chat/poll</0>."
 msgstr "메시지는 <0>/chat/poll</0>을 폴링하는 에이전트 세션으로 전송됩니다."
 
 #: viewer/App.tsx
+#: viewer/AuditCoverage.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "missing"
 msgstr "누락"
+
+#: viewer/audit-copy.ts
+msgid "missing evidence"
+msgstr "증거 누락"
 
 #: viewer/Doc.tsx
 msgid "moved"
 msgstr "이동됨"
 
+#: viewer/AuditNav.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Needs attention"
+msgstr "주의 필요"
+
 #: viewer/Doc.tsx
 msgid "next →"
 msgstr "다음 →"
+
+#: viewer/audit-copy.ts
+msgid "No actionable findings in current completed review"
+msgstr "현재 완료된 검토에 조치 가능한 발견이 없습니다"
 
 #: viewer/Chat.tsx
 msgid "no agent polling"
@@ -330,19 +597,17 @@ msgstr "폴링 중인 에이전트 없음"
 msgid "no anchor — this note has never been stamped"
 msgstr "anchor 없음 — 이 노트는 한 번도 stamp되지 않았습니다"
 
-#: viewer/Security.tsx
-#~ msgid "no audited units yet"
-#~ msgstr "아직 감사된 유닛이 없습니다"
-
 #: viewer/Preview.tsx
 msgid "no changes since the note was stamped"
 msgstr "노트 stamp 이후 변경 없음"
 
+#: viewer/audit-copy.ts
+#: viewer/AuditCoverage.tsx
 #: viewer/AuditNav.tsx
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
-msgid "No completed audits yet"
-msgstr "완료된 감사가 아직 없습니다"
+msgid "No completed audit evidence"
+msgstr "완료된 감사 증거가 없습니다"
 
 #: viewer/App.tsx
 #: viewer/Concept.tsx
@@ -357,13 +622,9 @@ msgstr "설명 없음"
 msgid "no diff — change review needs <0>repo-atlas serve</0> (the static build has no git access)"
 msgstr "diff 없음 — 변경 검토에는 <0>repo-atlas serve</0>가 필요합니다(정적 빌드는 git에 접근할 수 없음)"
 
-#: viewer/Security.tsx
-msgid "no findings"
-msgstr "지적 없음"
-
-#: viewer/Security.tsx
-msgid "no findings — clean"
-msgstr "지적 없음 — 클린"
+#: viewer/AuditCoverage.tsx
+msgid "no files match the current filter"
+msgstr "현재 필터와 일치하는 파일이 없습니다"
 
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
@@ -379,17 +640,53 @@ msgstr "일치 항목 없음"
 msgid "No note for this path. Write one at <0>{0}</0> and run <1>repo-atlas stamp</1>."
 msgstr "이 경로에 노트가 없습니다. <0>{0}</0>에 작성한 뒤 <1>repo-atlas stamp</1>를 실행하세요."
 
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "No open actions in this view"
+msgstr "이 보기에 미처리 작업이 없습니다"
+
+#: viewer/audit-copy.ts
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "No open findings recorded"
+msgstr "기록된 미처리 발견이 없습니다"
+
 #: viewer/Preview.tsx
 msgid "no preview — file contents are served by <0>repo-atlas serve</0>; the static build only carries descriptions"
 msgstr "미리보기 없음 — 파일 내용은 <0>repo-atlas serve</0>로 제공됩니다. 정적 빌드에는 설명만 포함됩니다"
+
+#: viewer/AuditCoverage.tsx
+msgid "No unit file coverage rows"
+msgstr "유닛 파일 coverage 행이 없습니다"
+
+#: viewer/AuditCoverage.tsx
+msgid "none"
+msgstr "없음"
 
 #: viewer/Chat.tsx
 msgid "None is right now — attach one first."
 msgstr "현재 연결된 것이 없습니다 — 먼저 연결하세요."
 
-#: viewer/Doc.tsx
-#~ msgid "open this directory's page"
-#~ msgstr "이 디렉터리 페이지 열기"
+#: viewer/audit-copy.ts
+msgid "Not accepted by current coverage report"
+msgstr "현재 coverage 보고서에서 수락되지 않음"
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "open"
+msgstr "미처리"
+
+#: viewer/App.tsx
+msgid "open finding — open the relevant security unit"
+msgstr "미처리 발견 — 관련 Security 유닛 열기"
+
+#: viewer/App.tsx
+msgid "open findings"
+msgstr "미처리 발견"
+
+#: viewer/App.tsx
+msgid "open the security assurance overview"
+msgstr "Security 보증 개요 열기"
 
 #: viewer/App.tsx
 msgid "outdated"
@@ -403,9 +700,21 @@ msgstr "오래됨 — 스탬프 이후 소스가 변경되었습니다"
 msgid "outdated — code changed since this was written"
 msgstr "오래됨 — 작성 후 코드가 변경됨"
 
+#: viewer/AuditNav.tsx
+msgid "Overview"
+msgstr "개요"
+
+#: viewer/AuditCoverage.tsx
+msgid "path"
+msgstr "경로"
+
 #: viewer/Tree.tsx
 msgid "pinned reading order"
 msgstr "고정된 읽기 순서"
+
+#: viewer/audit-copy.ts
+msgid "policy conflict"
+msgstr "정책 충돌"
 
 #: viewer/App.tsx
 msgid "primary"
@@ -432,10 +741,31 @@ msgstr "이 페이지를 PDF로 인쇄"
 msgid "reading order"
 msgstr "읽기 순서"
 
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Recent accepted audits"
+msgstr "최근 수락된 감사"
+
+#: viewer/AuditCoverage.tsx
+msgid "recorded"
+msgstr "기록됨"
+
+#: viewer/audit-copy.ts
+msgid "Recorded audit evidence"
+msgstr "기록된 감사 증거"
+
 #. placeholder {0}: g.refs.length
 #: viewer/Doc.tsx
 msgid "referenced in {0} notes"
 msgstr "{0}개 노트에서 참조됨"
+
+#: viewer/AuditCoverage.tsx
+msgid "required"
+msgstr "필수"
+
+#: viewer/Security.tsx
+msgid "Retained risk"
+msgstr "유지된 위험"
 
 #: viewer/Chat.tsx
 msgid "retract last message"
@@ -449,6 +779,28 @@ msgstr "마지막 메시지 취소 (에이전트가 이미 처리 중)"
 msgid "retracted"
 msgstr "취소됨"
 
+#: viewer/AuditCoverage.tsx
+msgid "risk"
+msgstr "위험"
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Risk"
+msgstr "위험"
+
+#: viewer/AuditCoverage.tsx
+msgid "rounds"
+msgstr "라운드"
+
+#: viewer/AuditCoverage.tsx
+msgid "ruleset"
+msgstr "규칙 집합"
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "rulesets"
+msgstr "규칙 집합"
+
 #: viewer/Doc.tsx
 msgid "save"
 msgstr "저장"
@@ -461,27 +813,35 @@ msgstr "저장 및 스탬프"
 msgid "saving…"
 msgstr "저장 중…"
 
+#: viewer/AuditCoverage.tsx
 #: viewer/Security.tsx
-#: viewer/TestAudit.tsx
 msgid "scanned"
 msgstr "스캔"
+
+#: viewer/AuditCoverage.tsx
+msgid "scope hash"
+msgstr "범위 해시"
 
 #: viewer/App.tsx
 #: viewer/Security.tsx
 msgid "security"
 msgstr "보안"
 
+#: viewer/audit-copy.ts
+msgid "Security"
+msgstr "Security"
+
 #: viewer/Security.tsx
 msgid "security audit"
 msgstr "보안 감사"
 
-#: viewer/App.tsx
-msgid "security audit findings across all units — open the security view"
-msgstr "모든 유닛의 감사 지적 — 보안 뷰 열기"
-
 #: viewer/Chat.tsx
 msgid "send"
 msgstr "전송"
+
+#: viewer/Security.tsx
+msgid "separate design"
+msgstr "separate design"
 
 #: viewer/Settings.tsx
 msgid "Settings"
@@ -508,9 +868,7 @@ msgstr "정렬: 읽기 순서"
 msgid "sources →"
 msgstr "소스 →"
 
-#: viewer/AuditNav.tsx
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
+#: viewer/AuditCoverage.tsx
 msgid "stale"
 msgstr "드리프트됨"
 
@@ -518,6 +876,14 @@ msgstr "드리프트됨"
 #: viewer/TestAudit.tsx
 msgid "stale — re-audit needed"
 msgstr "드리프트 — 재감사 필요"
+
+#: viewer/audit-copy.ts
+msgid "Stale audit evidence — re-audit needed"
+msgstr "오래된 감사 증거 — 재감사 필요"
+
+#: viewer/audit-copy.ts
+msgid "stale evidence"
+msgstr "오래된 증거"
 
 #: viewer/Concept.tsx
 #: viewer/Doc.tsx
@@ -528,6 +894,10 @@ msgstr "스탬프됨"
 msgid "start reading ↘"
 msgstr "읽기 시작 ↘"
 
+#: viewer/AuditCoverage.tsx
+msgid "status"
+msgstr "상태"
+
 #: viewer/TestAudit.tsx
 msgid "test audit"
 msgstr "테스트 감사"
@@ -536,6 +906,10 @@ msgstr "테스트 감사"
 #: viewer/TestAudit.tsx
 msgid "tests"
 msgstr "테스트"
+
+#: viewer/audit-copy.ts
+msgid "Tests"
+msgstr "Tests"
 
 #: viewer/Doc.tsx
 msgid "the directory notes above this page — the frame it is written within"
@@ -553,6 +927,26 @@ msgstr "트리 레이아웃: 알파벳 순서 또는 읽기 순서"
 #: viewer/Preview.tsx
 msgid "truncated"
 msgstr "잘림"
+
+#: viewer/AuditCoverage.tsx
+msgid "unclassified"
+msgstr "미분류"
+
+#: viewer/audit-copy.ts
+msgid "unclassified path"
+msgstr "미분류 경로"
+
+#: viewer/AuditCoverage.tsx
+msgid "unit"
+msgstr "유닛"
+
+#: viewer/AuditCoverage.tsx
+msgid "Units"
+msgstr "유닛"
+
+#: viewer/audit-copy.ts
+msgid "unknown"
+msgstr "알 수 없음"
 
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx

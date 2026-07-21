@@ -24,6 +24,12 @@ import type {
   TestAuditUnit,
 } from '../src/types'
 import {
+  localizedActionLabel,
+  localizedCoverageLabel,
+  localizedOutcomeLabel,
+  localizedStrongZeroFindingPhrase,
+} from './audit-copy'
+import {
   AuditEvidenceSummary,
   AuditFileTable,
   AuditUnitPortfolio,
@@ -175,12 +181,15 @@ function EvidenceFacts({ model }: { model: DomainAssurance }) {
 
 function ActionQueue({
   actions,
+  model,
   onAction,
 }: {
   actions: AuditAction[]
+  model: DomainAssurance
   onAction: (action: AuditAction) => void
 }) {
   const { i18n } = useLingui()
+  const unitTitleBySlug = new Map(model.unitRows.map((u) => [u.slug, u.title]))
   return (
     <div className={SECTION}>
       <h2 className="text-[0.85rem] font-semibold m-0 mb-2">{t(i18n)`Needs attention`}</h2>
@@ -191,7 +200,11 @@ function ActionQueue({
           {actions.map((action) => (
             <li key={action.id} className="border-b border-border last:border-b-0">
               <button type="button" className={ACTION_BTN} onClick={() => onAction(action)}>
-                {action.label}
+                {localizedActionLabel(
+                  i18n,
+                  action,
+                  action.unitSlug ? unitTitleBySlug.get(action.unitSlug) : null,
+                )}
               </button>
             </li>
           ))}
@@ -230,7 +243,7 @@ function RecentAudits({
               {row.fileCount} {t(i18n)`files`}
               {row.ruleset ? ` · ${row.ruleset}` : ''}
               {' · '}
-              {row.outcomeLabel}
+              {localizedOutcomeLabel(i18n, row, model.verdict)}
             </span>
           </li>
         ))}
@@ -292,7 +305,11 @@ function UnitDetail({
       {unit.stale && (
         <p className={META + ' m-0 mb-3 text-[#c4222e]'}>{t(i18n)`stale — re-audit needed`}</p>
       )}
-      {unitRow && <p className={META + ' m-0 mb-4'}>{unitRow.outcomeLabel}</p>}
+      {unitRow && (
+        <p className={META + ' m-0 mb-4'}>
+          {localizedOutcomeLabel(i18n, unitRow, model.verdict)}
+        </p>
+      )}
 
       <section className={SECTION} aria-labelledby="test-findings">
         <h2 id="test-findings" className="text-[0.85rem] font-semibold m-0 mb-2">
@@ -358,7 +375,7 @@ function UnitDetail({
           <p className={META + ' m-0 mb-2'}>
             {unitRow.coverage.fresh}/{unitRow.coverage.required} {t(i18n)`fresh`}
             {' · '}
-            {unitRow.coverage.label}
+            {localizedCoverageLabel(i18n, unitRow.coverage)}
           </p>
         )}
         <AuditFileTable rows={fileRows} query={fileQuery} onQueryChange={setFileQuery} />
@@ -402,8 +419,10 @@ function OverviewHome({
         </div>
         <h1 className="text-[1.25rem] font-[650] my-1 mb-3">{t(i18n)`Needs attention`}</h1>
         <CoverageStatement model={model} />
-        {strong && <p className={META + ' m-0 mb-4'}>{strong}</p>}
-        <ActionQueue actions={actions} onAction={onAction} />
+        {strong && (
+          <p className={META + ' m-0 mb-4'}>{localizedStrongZeroFindingPhrase(i18n)}</p>
+        )}
+        <ActionQueue actions={actions} model={model} onAction={onAction} />
       </div>
     )
   }
@@ -437,11 +456,15 @@ function OverviewHome({
       </div>
       <h1 className="text-[1.25rem] font-[650] my-1 mb-3">{t(i18n)`test audit`}</h1>
       <CoverageStatement model={model} />
-      {strong && <p className="text-[0.9rem] font-semibold m-0 mb-4">{strong}</p>}
+      {strong && (
+        <p className="text-[0.9rem] font-semibold m-0 mb-4">
+          {localizedStrongZeroFindingPhrase(i18n)}
+        </p>
+      )}
       <CoverageSummary model={model} />
       <RiskSummary model={model} />
       <EvidenceFacts model={model} />
-      <ActionQueue actions={actions} onAction={onAction} />
+      <ActionQueue actions={actions} model={model} onAction={onAction} />
       <AuditUnitPortfolio model={model} onSelect={onSelectUnit} />
       <RecentAudits model={model} onSelect={onSelectUnit} />
     </div>
@@ -477,7 +500,11 @@ function RegisteredUnitShell({
         {t(i18n)`← overview`}
       </button>
       <h1 className="text-[1.25rem] font-[650] m-0 mb-3">{title}</h1>
-      {unitRow && <p className={META + ' m-0 mb-4'}>{unitRow.outcomeLabel}</p>}
+      {unitRow && (
+        <p className={META + ' m-0 mb-4'}>
+          {localizedOutcomeLabel(i18n, unitRow, model.verdict)}
+        </p>
+      )}
       <section className={SECTION}>
         <h2 className="text-[0.85rem] font-semibold m-0 mb-2">{t(i18n)`Findings`}</h2>
         <p className={META + ' m-0'}>{t(i18n)`No completed audit evidence`}</p>

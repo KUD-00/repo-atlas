@@ -26,6 +26,110 @@ msgstr "（产物）"
 msgid "(directory)"
 msgstr "（目录）"
 
+#. placeholder {0}: risk.acceptedRiskCount
+#: viewer/audit-copy.ts
+msgid "{0} accepted risk"
+msgstr "{0} 项已接受风险"
+
+#. placeholder {0}: coverage.invalid
+#: viewer/audit-copy.ts
+msgid "{0} invalid"
+msgstr "{0} 项无效"
+
+#. placeholder {0}: coverage.invalid
+#: viewer/audit-copy.ts
+msgid "{0} invalid evidence"
+msgstr "{0} 项无效证据"
+
+#. placeholder {0}: coverage.missing
+#: viewer/audit-copy.ts
+msgid "{0} missing"
+msgstr "{0} 项缺失"
+
+#. placeholder {0}: model.openCount
+#: viewer/audit-copy.ts
+msgid "{0} open"
+msgstr "{0} 项未处理"
+
+#. placeholder {0}: risk.openCount
+#: viewer/audit-copy.ts
+msgid "{0} open (highest {highest})"
+msgstr "{0} 项未处理（最高 {highest}）"
+
+#. placeholder {0}: row.risk.openCount
+#: viewer/audit-copy.ts
+msgid "{0} open findings"
+msgstr "{0} 项未处理发现"
+
+#. placeholder {0}: row.risk.openCount
+#. placeholder {1}: row.risk.highestOpen
+#: viewer/audit-copy.ts
+msgid "{0} open findings (highest {1})"
+msgstr "{0} 项未处理发现（最高 {1}）"
+
+#. placeholder {0}: risk.separateDesignCount
+#: viewer/audit-copy.ts
+msgid "{0} separate design"
+msgstr "{0} 项单独设计"
+
+#. placeholder {0}: coverage.stale
+#: viewer/audit-copy.ts
+msgid "{0} stale"
+msgstr "{0} 项已漂移"
+
+#. placeholder {0}: action.impact
+#. placeholder {0}: action.severity
+#. placeholder {1}: action.title
+#: viewer/audit-copy.ts
+msgid "{0}: {1}"
+msgstr "{0}：{1}"
+
+#. placeholder {0}: action.path
+#: viewer/audit-copy.ts
+msgid "{0}: {status}"
+msgstr "{0}：{status}"
+
+#. placeholder {0}: coverage.fresh
+#. placeholder {1}: coverage.required
+#: viewer/audit-copy.ts
+msgid "{0}/{1} fresh"
+msgstr "{0}/{1} 项最新"
+
+#: viewer/audit-copy.ts
+msgid "{n} coverage gaps"
+msgstr "{n} 项 coverage 缺口"
+
+#: viewer/audit-copy.ts
+msgid "{n} gaps"
+msgstr "{n} 项缺口"
+
+#. placeholder {0}: model.openCount
+#: viewer/audit-copy.ts
+msgid "{name} {0} open findings"
+msgstr "{name} {0} 项未处理发现"
+
+#: viewer/audit-copy.ts
+msgid "{name} {n} coverage gaps"
+msgstr "{name} {n} 项 coverage 缺口"
+
+#: viewer/audit-copy.ts
+msgid "{name} coverage complete"
+msgstr "{name} coverage 已完整"
+
+#: viewer/audit-copy.ts
+msgid "{name} coverage unknown or unavailable"
+msgstr "{name} coverage 未知或不可用"
+
+#. placeholder {0}: action.path
+#: viewer/audit-copy.ts
+msgid "{unitTitle}: {0} {status}"
+msgstr "{unitTitle}：{0} {status}"
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "← overview"
+msgstr "← 总览"
+
 #: viewer/Doc.tsx
 msgid "← prev"
 msgstr "← 上一项"
@@ -50,17 +154,39 @@ msgstr "▸ 框架"
 msgid "⤷ attach to chat"
 msgstr "⤷ 连接到聊天"
 
+#: viewer/audit-copy.ts
+msgid "1 accepted risk"
+msgstr "1 项已接受风险"
+
+#: viewer/audit-copy.ts
+msgid "1 open ({highest})"
+msgstr "1 项未处理（{highest}）"
+
+#: viewer/audit-copy.ts
+msgid "1 separate design"
+msgstr "1 项单独设计"
+
+#: viewer/AuditCoverage.tsx
+msgid "acceptance"
+msgstr "验收"
+
+#: viewer/AuditCoverage.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "accepted"
+msgstr "已接受"
+
+#: viewer/audit-copy.ts
+msgid "Accepted by current coverage report"
+msgstr "已被当前 coverage 报告接受"
+
+#: viewer/Security.tsx
+msgid "accepted risk"
+msgstr "已接受风险"
+
 #: viewer/Chat.tsx
 msgid "agent connected"
 msgstr "代理已连接"
-
-#: viewer/AuditNav.tsx
-msgid "all security units"
-msgstr "全部安全单元"
-
-#: viewer/AuditNav.tsx
-msgid "all test units"
-msgstr "全部测试单元"
 
 #: viewer/Security.tsx
 msgid "all units →"
@@ -77,11 +203,6 @@ msgstr "所属页面"
 #: viewer/Preview.tsx
 msgid "Artifacts"
 msgstr "产物"
-
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
-msgid "audited units"
-msgstr "个已审计单元"
 
 #: viewer/Print.tsx
 msgid "back"
@@ -116,11 +237,6 @@ msgstr "聊天"
 msgid "chat with the attached agent session"
 msgstr "与已连接的代理会话聊天"
 
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
-msgid "clean"
-msgstr "干净"
-
 #: viewer/Doc.tsx
 msgid "close"
 msgstr "关闭"
@@ -149,6 +265,11 @@ msgstr "收起侧栏"
 msgid "commit"
 msgstr "提交"
 
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "completed units"
+msgstr "已完成单元"
+
 #: viewer/Concept.tsx
 msgid "concept"
 msgstr "概念"
@@ -160,6 +281,10 @@ msgstr "概念索引"
 #: viewer/App.tsx
 msgid "concepts"
 msgstr "概念"
+
+#: viewer/AuditCoverage.tsx
+msgid "conflicted"
+msgstr "冲突"
 
 #: viewer/Preview.tsx
 msgid "content hash changed but git shows no diff against the anchor"
@@ -173,6 +298,82 @@ msgstr "目录"
 #: viewer/Preview.tsx
 msgid "Contents"
 msgstr "目录"
+
+#: viewer/AuditCoverage.tsx
+msgid "coverage"
+msgstr "coverage"
+
+#: viewer/AuditCoverage.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Coverage"
+msgstr "Coverage"
+
+#: viewer/App.tsx
+msgid "coverage action — open the relevant security coverage view"
+msgstr "coverage 操作 — 打开相关安全 coverage 视图"
+
+#: viewer/audit-copy.ts
+msgid "Coverage complete and current"
+msgstr "Coverage 完整且为最新"
+
+#: viewer/AuditCoverage.tsx
+msgid "Coverage counts unavailable"
+msgstr "Coverage 计数不可用"
+
+#: viewer/App.tsx
+msgid "coverage gaps"
+msgstr "coverage 缺口"
+
+#: viewer/AuditNav.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Coverage gaps"
+msgstr "Coverage 缺口"
+
+#: viewer/audit-copy.ts
+msgid "Coverage has not been established"
+msgstr "尚未建立 coverage"
+
+#: viewer/audit-copy.ts
+msgid "Coverage incomplete — {missingCount} required reviews are missing"
+msgstr "Coverage 不完整 — 缺少 {missingCount} 项必需审查"
+
+#: viewer/audit-copy.ts
+msgid "Coverage incomplete — 1 required review is missing"
+msgstr "Coverage 不完整 — 缺少 1 项必需审查"
+
+#: viewer/audit-copy.ts
+msgid "Coverage incomplete — required reviews are missing"
+msgstr "Coverage 不完整 — 缺少必需审查"
+
+#: viewer/audit-copy.ts
+msgid "Coverage incomplete for this unit"
+msgstr "此单元的 coverage 不完整"
+
+#: viewer/audit-copy.ts
+msgid "Coverage invalid — diagnostics present; no trusted coverage numerator"
+msgstr "Coverage 无效 — 存在诊断信息；无可信 coverage 分子"
+
+#: viewer/audit-copy.ts
+msgid "Coverage invalid for this unit"
+msgstr "此单元的 coverage 无效"
+
+#: viewer/audit-copy.ts
+msgid "Coverage stale — recorded evidence is visible but not current"
+msgstr "Coverage 过时 — 可查看已记录证据但非当前"
+
+#: viewer/audit-copy.ts
+msgid "coverage unknown"
+msgstr "coverage 未知"
+
+#: viewer/audit-copy.ts
+msgid "Coverage unknown because no review coverage report exists"
+msgstr "Coverage 未知，因为不存在 review coverage 报告"
+
+#: viewer/audit-copy.ts
+msgid "covered"
+msgstr "已覆盖"
 
 #: viewer/Security.tsx
 msgid "dataflow"
@@ -190,10 +391,9 @@ msgstr "目录框架"
 msgid "directory notes above this page"
 msgstr "本页之上的目录说明"
 
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
-msgid "dropped by factcheck"
-msgstr "条被核查丢弃"
+#: viewer/AuditCoverage.tsx
+msgid "dual-domain"
+msgstr "双域"
 
 #: viewer/Doc.tsx
 msgid "edit"
@@ -203,9 +403,23 @@ msgstr "编辑"
 msgid "entire repository"
 msgstr "整个仓库"
 
+#: viewer/AuditCoverage.tsx
 #: viewer/TestAudit.tsx
 msgid "evidence"
 msgstr "证据："
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Evidence"
+msgstr "证据"
+
+#: viewer/AuditCoverage.tsx
+msgid "evidence refs"
+msgstr "证据引用"
+
+#: viewer/AuditCoverage.tsx
+msgid "excluded"
+msgstr "已排除"
 
 #: viewer/App.tsx
 msgid "expand panel"
@@ -240,18 +454,22 @@ msgstr "按严重度筛选"
 msgid "filter concepts…"
 msgstr "筛选概念…"
 
+#: viewer/AuditCoverage.tsx
+msgid "filter files"
+msgstr "筛选文件"
+
+#: viewer/AuditCoverage.tsx
+msgid "filter files…"
+msgstr "筛选文件…"
+
 #: viewer/App.tsx
 msgid "filter paths…"
 msgstr "筛选路径…"
 
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
-msgid "filtered"
-msgstr "已筛选"
-
-#: viewer/App.tsx
-msgid "findings"
-msgstr "个发现"
+msgid "Findings"
+msgstr "发现"
 
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
@@ -259,8 +477,19 @@ msgid "fix"
 msgstr "修法："
 
 #: viewer/App.tsx
+#: viewer/AuditCoverage.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "fresh"
 msgstr "最新"
+
+#: viewer/audit-copy.ts
+msgid "fresh evidence"
+msgstr "最新证据"
+
+#: viewer/AuditCoverage.tsx
+msgid "gaps"
+msgstr "缺口"
 
 #: viewer/Print.tsx
 msgid "generated"
@@ -282,6 +511,22 @@ msgstr "已忽略"
 msgid "ignored — excluded by .atlas/config.json"
 msgstr "已忽略 — 被 .atlas/config.json 排除"
 
+#: viewer/AuditCoverage.tsx
+msgid "invalid"
+msgstr "无效"
+
+#: viewer/audit-copy.ts
+msgid "invalid coverage"
+msgstr "无效 coverage"
+
+#: viewer/audit-copy.ts
+msgid "invalid evidence"
+msgstr "无效证据"
+
+#: viewer/Security.tsx
+msgid "invalid units"
+msgstr "无效单元"
+
 #: viewer/TestAudit.tsx
 msgid "invariant"
 msgstr "不变量："
@@ -289,6 +534,11 @@ msgstr "不变量："
 #: viewer/Settings.tsx
 msgid "Language"
 msgstr "语言"
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "latest scan"
+msgstr "最近扫描"
 
 #: viewer/Preview.tsx
 msgid "lines"
@@ -311,16 +561,33 @@ msgid "Messages go to whichever agent session is polling <0>/chat/poll</0>."
 msgstr "消息将发送到正在轮询 <0>/chat/poll</0> 的代理会话。"
 
 #: viewer/App.tsx
+#: viewer/AuditCoverage.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "missing"
 msgstr "缺失"
+
+#: viewer/audit-copy.ts
+msgid "missing evidence"
+msgstr "缺失证据"
 
 #: viewer/Doc.tsx
 msgid "moved"
 msgstr "已移动"
 
+#: viewer/AuditNav.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Needs attention"
+msgstr "需要关注"
+
 #: viewer/Doc.tsx
 msgid "next →"
 msgstr "下一项 →"
+
+#: viewer/audit-copy.ts
+msgid "No actionable findings in current completed review"
+msgstr "当前已完成审查中无待处理发现"
 
 #: viewer/Chat.tsx
 msgid "no agent polling"
@@ -330,19 +597,17 @@ msgstr "没有代理在轮询"
 msgid "no anchor — this note has never been stamped"
 msgstr "没有 anchor——这篇笔记从未 stamp 过"
 
-#: viewer/Security.tsx
-#~ msgid "no audited units yet"
-#~ msgstr "还没有已审计的单元"
-
 #: viewer/Preview.tsx
 msgid "no changes since the note was stamped"
 msgstr "笔记 stamp 之后代码没有变更"
 
+#: viewer/audit-copy.ts
+#: viewer/AuditCoverage.tsx
 #: viewer/AuditNav.tsx
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
-msgid "No completed audits yet"
-msgstr "尚无已完成的审计"
+msgid "No completed audit evidence"
+msgstr "尚无已完成的审计证据"
 
 #: viewer/App.tsx
 #: viewer/Concept.tsx
@@ -357,13 +622,9 @@ msgstr "尚无描述"
 msgid "no diff — change review needs <0>repo-atlas serve</0> (the static build has no git access)"
 msgstr "没有 diff——变更审阅需要 <0>repo-atlas serve</0>（静态构建没有 git 访问）"
 
-#: viewer/Security.tsx
-msgid "no findings"
-msgstr "无发现"
-
-#: viewer/Security.tsx
-msgid "no findings — clean"
-msgstr "无发现——干净"
+#: viewer/AuditCoverage.tsx
+msgid "no files match the current filter"
+msgstr "没有文件匹配当前筛选"
 
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
@@ -379,17 +640,53 @@ msgstr "无匹配项"
 msgid "No note for this path. Write one at <0>{0}</0> and run <1>repo-atlas stamp</1>."
 msgstr "此路径尚无笔记。请在 <0>{0}</0> 中编写，然后运行 <1>repo-atlas stamp</1>。"
 
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "No open actions in this view"
+msgstr "此视图中无待处理操作"
+
+#: viewer/audit-copy.ts
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "No open findings recorded"
+msgstr "未记录未处理发现"
+
 #: viewer/Preview.tsx
 msgid "no preview — file contents are served by <0>repo-atlas serve</0>; the static build only carries descriptions"
 msgstr "无法预览 — 文件内容由 <0>repo-atlas serve</0> 提供；静态构建仅包含描述"
+
+#: viewer/AuditCoverage.tsx
+msgid "No unit file coverage rows"
+msgstr "无单元文件 coverage 行"
+
+#: viewer/AuditCoverage.tsx
+msgid "none"
+msgstr "无"
 
 #: viewer/Chat.tsx
 msgid "None is right now — attach one first."
 msgstr "当前没有连接 — 请先连接一个。"
 
-#: viewer/Doc.tsx
-#~ msgid "open this directory's page"
-#~ msgstr "打开此目录页面"
+#: viewer/audit-copy.ts
+msgid "Not accepted by current coverage report"
+msgstr "未被当前 coverage 报告接受"
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "open"
+msgstr "未处理"
+
+#: viewer/App.tsx
+msgid "open finding — open the relevant security unit"
+msgstr "未处理发现 — 打开相关安全单元"
+
+#: viewer/App.tsx
+msgid "open findings"
+msgstr "未处理发现"
+
+#: viewer/App.tsx
+msgid "open the security assurance overview"
+msgstr "打开安全保证总览"
 
 #: viewer/App.tsx
 msgid "outdated"
@@ -403,9 +700,21 @@ msgstr "已过期 — 盖章后有来源发生了变化"
 msgid "outdated — code changed since this was written"
 msgstr "已过时 — 编写后代码已更改"
 
+#: viewer/AuditNav.tsx
+msgid "Overview"
+msgstr "总览"
+
+#: viewer/AuditCoverage.tsx
+msgid "path"
+msgstr "路径"
+
 #: viewer/Tree.tsx
 msgid "pinned reading order"
 msgstr "固定的阅读顺序"
+
+#: viewer/audit-copy.ts
+msgid "policy conflict"
+msgstr "策略冲突"
 
 #: viewer/App.tsx
 msgid "primary"
@@ -432,10 +741,31 @@ msgstr "将此页打印为 PDF"
 msgid "reading order"
 msgstr "阅读顺序"
 
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Recent accepted audits"
+msgstr "最近接受的审计"
+
+#: viewer/AuditCoverage.tsx
+msgid "recorded"
+msgstr "已记录"
+
+#: viewer/audit-copy.ts
+msgid "Recorded audit evidence"
+msgstr "已记录的审计证据"
+
 #. placeholder {0}: g.refs.length
 #: viewer/Doc.tsx
 msgid "referenced in {0} notes"
 msgstr "在 {0} 条说明中被引用"
+
+#: viewer/AuditCoverage.tsx
+msgid "required"
+msgstr "必需"
+
+#: viewer/Security.tsx
+msgid "Retained risk"
+msgstr "保留风险"
 
 #: viewer/Chat.tsx
 msgid "retract last message"
@@ -449,6 +779,28 @@ msgstr "撤回上一条消息（代理已在处理）"
 msgid "retracted"
 msgstr "已撤回"
 
+#: viewer/AuditCoverage.tsx
+msgid "risk"
+msgstr "风险"
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Risk"
+msgstr "风险"
+
+#: viewer/AuditCoverage.tsx
+msgid "rounds"
+msgstr "轮次"
+
+#: viewer/AuditCoverage.tsx
+msgid "ruleset"
+msgstr "规则集"
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "rulesets"
+msgstr "规则集"
+
 #: viewer/Doc.tsx
 msgid "save"
 msgstr "保存"
@@ -461,27 +813,35 @@ msgstr "保存并标记"
 msgid "saving…"
 msgstr "保存中…"
 
+#: viewer/AuditCoverage.tsx
 #: viewer/Security.tsx
-#: viewer/TestAudit.tsx
 msgid "scanned"
 msgstr "扫描于"
+
+#: viewer/AuditCoverage.tsx
+msgid "scope hash"
+msgstr "范围哈希"
 
 #: viewer/App.tsx
 #: viewer/Security.tsx
 msgid "security"
 msgstr "安全"
 
+#: viewer/audit-copy.ts
+msgid "Security"
+msgstr "Security"
+
 #: viewer/Security.tsx
 msgid "security audit"
 msgstr "安全审计"
 
-#: viewer/App.tsx
-msgid "security audit findings across all units — open the security view"
-msgstr "所有单元的安全审计发现——打开安全视图"
-
 #: viewer/Chat.tsx
 msgid "send"
 msgstr "发送"
+
+#: viewer/Security.tsx
+msgid "separate design"
+msgstr "单独设计"
 
 #: viewer/Settings.tsx
 msgid "Settings"
@@ -508,9 +868,7 @@ msgstr "排序: 阅读顺序"
 msgid "sources →"
 msgstr "来源 →"
 
-#: viewer/AuditNav.tsx
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
+#: viewer/AuditCoverage.tsx
 msgid "stale"
 msgstr "已漂移"
 
@@ -518,6 +876,14 @@ msgstr "已漂移"
 #: viewer/TestAudit.tsx
 msgid "stale — re-audit needed"
 msgstr "已漂移——需要重审"
+
+#: viewer/audit-copy.ts
+msgid "Stale audit evidence — re-audit needed"
+msgstr "已漂移的审计证据 — 需要重新审计"
+
+#: viewer/audit-copy.ts
+msgid "stale evidence"
+msgstr "已漂移证据"
 
 #: viewer/Concept.tsx
 #: viewer/Doc.tsx
@@ -528,6 +894,10 @@ msgstr "已标记"
 msgid "start reading ↘"
 msgstr "开始阅读 ↘"
 
+#: viewer/AuditCoverage.tsx
+msgid "status"
+msgstr "状态"
+
 #: viewer/TestAudit.tsx
 msgid "test audit"
 msgstr "测试审计"
@@ -536,6 +906,10 @@ msgstr "测试审计"
 #: viewer/TestAudit.tsx
 msgid "tests"
 msgstr "测试"
+
+#: viewer/audit-copy.ts
+msgid "Tests"
+msgstr "Tests"
 
 #: viewer/Doc.tsx
 msgid "the directory notes above this page — the frame it is written within"
@@ -553,6 +927,26 @@ msgstr "树形布局：按字母顺序或阅读顺序"
 #: viewer/Preview.tsx
 msgid "truncated"
 msgstr "已截断"
+
+#: viewer/AuditCoverage.tsx
+msgid "unclassified"
+msgstr "未分类"
+
+#: viewer/audit-copy.ts
+msgid "unclassified path"
+msgstr "未分类路径"
+
+#: viewer/AuditCoverage.tsx
+msgid "unit"
+msgstr "单元"
+
+#: viewer/AuditCoverage.tsx
+msgid "Units"
+msgstr "单元"
+
+#: viewer/audit-copy.ts
+msgid "unknown"
+msgstr "未知"
 
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx

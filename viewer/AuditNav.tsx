@@ -8,6 +8,11 @@ import {
   type DomainAssurance,
 } from '../src/audit-assurance'
 import { auditRoute, auditUnitRoute } from '../src/audit-routes'
+import {
+  localizedCoverageLabel,
+  localizedRiskLabel,
+  localizedSidebarSuffix,
+} from './audit-copy'
 
 const ROW =
   'w-full flex items-center gap-1.5 py-1 pr-2 pl-1.5 rounded-md select-none text-[0.8rem] text-left font-inherit border-none'
@@ -43,11 +48,13 @@ export function AuditNav({
   const modeActive = selectedUnitSlug === null
   const modeRows = rows.filter((row): row is AuditSidebarModeRow => row.kind !== 'unit')
   const unitRows = rows.filter((row): row is AuditSidebarUnitRow => row.kind === 'unit')
+  const unitBySlug = new Map(model.unitRows.map((u) => [u.slug, u]))
 
   return (
     <div className="flex flex-col gap-0.5">
       {modeRows.map((row) => {
         const selected = modeActive && selectedMode === row.mode
+        const suffix = localizedSidebarSuffix(i18n, row.suffix)
         const label =
           row.kind === 'overview'
             ? t(i18n)`Overview`
@@ -69,8 +76,8 @@ export function AuditNav({
             <span className="flex-1 min-w-0 overflow-hidden text-ellipsis font-semibold">
               {label}
             </span>
-            {row.suffix !== null && (
-              <span className={META}>{row.suffix}</span>
+            {suffix !== null && (
+              <span className={META}>{suffix}</span>
             )}
           </button>
         )
@@ -87,15 +94,20 @@ export function AuditNav({
       {unitRows.map((row) => {
         const selected = selectedUnitSlug === row.slug
         const route = auditUnitRoute(domain, row.slug)
+        const unit = unitBySlug.get(row.slug)
+        const coverageText = unit
+          ? localizedCoverageLabel(i18n, unit.coverage)
+          : ''
+        const riskText = unit ? localizedRiskLabel(i18n, unit.risk) : ''
         const body = (
           <>
             <span className="flex-1 min-w-0 overflow-hidden text-ellipsis">{row.title}</span>
             <span className="flex flex-col items-end gap-0.5 min-w-0 shrink-0">
-              <span className={UNIT_META} title={row.coverageLabel}>
-                {row.coverageLabel}
+              <span className={UNIT_META} title={coverageText}>
+                {coverageText}
               </span>
-              <span className={UNIT_META} title={row.riskLabel}>
-                {row.riskLabel}
+              <span className={UNIT_META} title={riskText}>
+                {riskText}
               </span>
             </span>
           </>
@@ -128,7 +140,7 @@ export function AuditNav({
 
       {unitRows.length === 0 && (
         <div className="text-[0.78rem] text-muted px-2 py-3">
-          {t(i18n)`No completed audits yet`}
+          {t(i18n)`No completed audit evidence`}
         </div>
       )}
     </div>

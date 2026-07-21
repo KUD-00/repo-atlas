@@ -26,6 +26,110 @@ msgstr "(artifact)"
 msgid "(directory)"
 msgstr "(directory)"
 
+#. placeholder {0}: risk.acceptedRiskCount
+#: viewer/audit-copy.ts
+msgid "{0} accepted risk"
+msgstr "{0} accepted risk"
+
+#. placeholder {0}: coverage.invalid
+#: viewer/audit-copy.ts
+msgid "{0} invalid"
+msgstr "{0} invalid"
+
+#. placeholder {0}: coverage.invalid
+#: viewer/audit-copy.ts
+msgid "{0} invalid evidence"
+msgstr "{0} invalid evidence"
+
+#. placeholder {0}: coverage.missing
+#: viewer/audit-copy.ts
+msgid "{0} missing"
+msgstr "{0} missing"
+
+#. placeholder {0}: model.openCount
+#: viewer/audit-copy.ts
+msgid "{0} open"
+msgstr "{0} open"
+
+#. placeholder {0}: risk.openCount
+#: viewer/audit-copy.ts
+msgid "{0} open (highest {highest})"
+msgstr "{0} open (highest {highest})"
+
+#. placeholder {0}: row.risk.openCount
+#: viewer/audit-copy.ts
+msgid "{0} open findings"
+msgstr "{0} open findings"
+
+#. placeholder {0}: row.risk.openCount
+#. placeholder {1}: row.risk.highestOpen
+#: viewer/audit-copy.ts
+msgid "{0} open findings (highest {1})"
+msgstr "{0} open findings (highest {1})"
+
+#. placeholder {0}: risk.separateDesignCount
+#: viewer/audit-copy.ts
+msgid "{0} separate design"
+msgstr "{0} separate design"
+
+#. placeholder {0}: coverage.stale
+#: viewer/audit-copy.ts
+msgid "{0} stale"
+msgstr "{0} stale"
+
+#. placeholder {0}: action.impact
+#. placeholder {0}: action.severity
+#. placeholder {1}: action.title
+#: viewer/audit-copy.ts
+msgid "{0}: {1}"
+msgstr "{0}: {1}"
+
+#. placeholder {0}: action.path
+#: viewer/audit-copy.ts
+msgid "{0}: {status}"
+msgstr "{0}: {status}"
+
+#. placeholder {0}: coverage.fresh
+#. placeholder {1}: coverage.required
+#: viewer/audit-copy.ts
+msgid "{0}/{1} fresh"
+msgstr "{0}/{1} fresh"
+
+#: viewer/audit-copy.ts
+msgid "{n} coverage gaps"
+msgstr "{n} coverage gaps"
+
+#: viewer/audit-copy.ts
+msgid "{n} gaps"
+msgstr "{n} gaps"
+
+#. placeholder {0}: model.openCount
+#: viewer/audit-copy.ts
+msgid "{name} {0} open findings"
+msgstr "{name} {0} open findings"
+
+#: viewer/audit-copy.ts
+msgid "{name} {n} coverage gaps"
+msgstr "{name} {n} coverage gaps"
+
+#: viewer/audit-copy.ts
+msgid "{name} coverage complete"
+msgstr "{name} coverage complete"
+
+#: viewer/audit-copy.ts
+msgid "{name} coverage unknown or unavailable"
+msgstr "{name} coverage unknown or unavailable"
+
+#. placeholder {0}: action.path
+#: viewer/audit-copy.ts
+msgid "{unitTitle}: {0} {status}"
+msgstr "{unitTitle}: {0} {status}"
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "← overview"
+msgstr "← overview"
+
 #: viewer/Doc.tsx
 msgid "← prev"
 msgstr "← prev"
@@ -50,17 +154,39 @@ msgstr "▸ frame"
 msgid "⤷ attach to chat"
 msgstr "⤷ attach to chat"
 
+#: viewer/audit-copy.ts
+msgid "1 accepted risk"
+msgstr "1 accepted risk"
+
+#: viewer/audit-copy.ts
+msgid "1 open ({highest})"
+msgstr "1 open ({highest})"
+
+#: viewer/audit-copy.ts
+msgid "1 separate design"
+msgstr "1 separate design"
+
+#: viewer/AuditCoverage.tsx
+msgid "acceptance"
+msgstr "acceptance"
+
+#: viewer/AuditCoverage.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "accepted"
+msgstr "accepted"
+
+#: viewer/audit-copy.ts
+msgid "Accepted by current coverage report"
+msgstr "Accepted by current coverage report"
+
+#: viewer/Security.tsx
+msgid "accepted risk"
+msgstr "accepted risk"
+
 #: viewer/Chat.tsx
 msgid "agent connected"
 msgstr "agent connected"
-
-#: viewer/AuditNav.tsx
-msgid "all security units"
-msgstr "all security units"
-
-#: viewer/AuditNav.tsx
-msgid "all test units"
-msgstr "all test units"
 
 #: viewer/Security.tsx
 msgid "all units →"
@@ -77,11 +203,6 @@ msgstr "artifact of"
 #: viewer/Preview.tsx
 msgid "Artifacts"
 msgstr "Artifacts"
-
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
-msgid "audited units"
-msgstr "audited units"
 
 #: viewer/Print.tsx
 msgid "back"
@@ -116,11 +237,6 @@ msgstr "chat"
 msgid "chat with the attached agent session"
 msgstr "chat with the attached agent session"
 
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
-msgid "clean"
-msgstr "clean"
-
 #: viewer/Doc.tsx
 msgid "close"
 msgstr "close"
@@ -149,6 +265,11 @@ msgstr "collapse sidebar"
 msgid "commit"
 msgstr "commit"
 
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "completed units"
+msgstr "completed units"
+
 #: viewer/Concept.tsx
 msgid "concept"
 msgstr "concept"
@@ -160,6 +281,10 @@ msgstr "concept index"
 #: viewer/App.tsx
 msgid "concepts"
 msgstr "concepts"
+
+#: viewer/AuditCoverage.tsx
+msgid "conflicted"
+msgstr "conflicted"
 
 #: viewer/Preview.tsx
 msgid "content hash changed but git shows no diff against the anchor"
@@ -173,6 +298,82 @@ msgstr "contents"
 #: viewer/Preview.tsx
 msgid "Contents"
 msgstr "Contents"
+
+#: viewer/AuditCoverage.tsx
+msgid "coverage"
+msgstr "coverage"
+
+#: viewer/AuditCoverage.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Coverage"
+msgstr "Coverage"
+
+#: viewer/App.tsx
+msgid "coverage action — open the relevant security coverage view"
+msgstr "coverage action — open the relevant security coverage view"
+
+#: viewer/audit-copy.ts
+msgid "Coverage complete and current"
+msgstr "Coverage complete and current"
+
+#: viewer/AuditCoverage.tsx
+msgid "Coverage counts unavailable"
+msgstr "Coverage counts unavailable"
+
+#: viewer/App.tsx
+msgid "coverage gaps"
+msgstr "coverage gaps"
+
+#: viewer/AuditNav.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Coverage gaps"
+msgstr "Coverage gaps"
+
+#: viewer/audit-copy.ts
+msgid "Coverage has not been established"
+msgstr "Coverage has not been established"
+
+#: viewer/audit-copy.ts
+msgid "Coverage incomplete — {missingCount} required reviews are missing"
+msgstr "Coverage incomplete — {missingCount} required reviews are missing"
+
+#: viewer/audit-copy.ts
+msgid "Coverage incomplete — 1 required review is missing"
+msgstr "Coverage incomplete — 1 required review is missing"
+
+#: viewer/audit-copy.ts
+msgid "Coverage incomplete — required reviews are missing"
+msgstr "Coverage incomplete — required reviews are missing"
+
+#: viewer/audit-copy.ts
+msgid "Coverage incomplete for this unit"
+msgstr "Coverage incomplete for this unit"
+
+#: viewer/audit-copy.ts
+msgid "Coverage invalid — diagnostics present; no trusted coverage numerator"
+msgstr "Coverage invalid — diagnostics present; no trusted coverage numerator"
+
+#: viewer/audit-copy.ts
+msgid "Coverage invalid for this unit"
+msgstr "Coverage invalid for this unit"
+
+#: viewer/audit-copy.ts
+msgid "Coverage stale — recorded evidence is visible but not current"
+msgstr "Coverage stale — recorded evidence is visible but not current"
+
+#: viewer/audit-copy.ts
+msgid "coverage unknown"
+msgstr "coverage unknown"
+
+#: viewer/audit-copy.ts
+msgid "Coverage unknown because no review coverage report exists"
+msgstr "Coverage unknown because no review coverage report exists"
+
+#: viewer/audit-copy.ts
+msgid "covered"
+msgstr "covered"
 
 #: viewer/Security.tsx
 msgid "dataflow"
@@ -190,10 +391,9 @@ msgstr "directory frame"
 msgid "directory notes above this page"
 msgstr "directory notes above this page"
 
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
-msgid "dropped by factcheck"
-msgstr "dropped by factcheck"
+#: viewer/AuditCoverage.tsx
+msgid "dual-domain"
+msgstr "dual-domain"
 
 #: viewer/Doc.tsx
 msgid "edit"
@@ -203,9 +403,23 @@ msgstr "edit"
 msgid "entire repository"
 msgstr "entire repository"
 
+#: viewer/AuditCoverage.tsx
 #: viewer/TestAudit.tsx
 msgid "evidence"
 msgstr "evidence"
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Evidence"
+msgstr "Evidence"
+
+#: viewer/AuditCoverage.tsx
+msgid "evidence refs"
+msgstr "evidence refs"
+
+#: viewer/AuditCoverage.tsx
+msgid "excluded"
+msgstr "excluded"
 
 #: viewer/App.tsx
 msgid "expand panel"
@@ -240,18 +454,22 @@ msgstr "filter by severity"
 msgid "filter concepts…"
 msgstr "filter concepts…"
 
+#: viewer/AuditCoverage.tsx
+msgid "filter files"
+msgstr "filter files"
+
+#: viewer/AuditCoverage.tsx
+msgid "filter files…"
+msgstr "filter files…"
+
 #: viewer/App.tsx
 msgid "filter paths…"
 msgstr "filter paths…"
 
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
-msgid "filtered"
-msgstr "filtered"
-
-#: viewer/App.tsx
-msgid "findings"
-msgstr "findings"
+msgid "Findings"
+msgstr "Findings"
 
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
@@ -259,8 +477,19 @@ msgid "fix"
 msgstr "fix"
 
 #: viewer/App.tsx
+#: viewer/AuditCoverage.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "fresh"
 msgstr "fresh"
+
+#: viewer/audit-copy.ts
+msgid "fresh evidence"
+msgstr "fresh evidence"
+
+#: viewer/AuditCoverage.tsx
+msgid "gaps"
+msgstr "gaps"
 
 #: viewer/Print.tsx
 msgid "generated"
@@ -282,6 +511,22 @@ msgstr "ignored"
 msgid "ignored — excluded by .atlas/config.json"
 msgstr "ignored — excluded by .atlas/config.json"
 
+#: viewer/AuditCoverage.tsx
+msgid "invalid"
+msgstr "invalid"
+
+#: viewer/audit-copy.ts
+msgid "invalid coverage"
+msgstr "invalid coverage"
+
+#: viewer/audit-copy.ts
+msgid "invalid evidence"
+msgstr "invalid evidence"
+
+#: viewer/Security.tsx
+msgid "invalid units"
+msgstr "invalid units"
+
 #: viewer/TestAudit.tsx
 msgid "invariant"
 msgstr "invariant"
@@ -289,6 +534,11 @@ msgstr "invariant"
 #: viewer/Settings.tsx
 msgid "Language"
 msgstr "Language"
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "latest scan"
+msgstr "latest scan"
 
 #: viewer/Preview.tsx
 msgid "lines"
@@ -311,16 +561,33 @@ msgid "Messages go to whichever agent session is polling <0>/chat/poll</0>."
 msgstr "Messages go to whichever agent session is polling <0>/chat/poll</0>."
 
 #: viewer/App.tsx
+#: viewer/AuditCoverage.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "missing"
 msgstr "missing"
+
+#: viewer/audit-copy.ts
+msgid "missing evidence"
+msgstr "missing evidence"
 
 #: viewer/Doc.tsx
 msgid "moved"
 msgstr "moved"
 
+#: viewer/AuditNav.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Needs attention"
+msgstr "Needs attention"
+
 #: viewer/Doc.tsx
 msgid "next →"
 msgstr "next →"
+
+#: viewer/audit-copy.ts
+msgid "No actionable findings in current completed review"
+msgstr "No actionable findings in current completed review"
 
 #: viewer/Chat.tsx
 msgid "no agent polling"
@@ -330,19 +597,17 @@ msgstr "no agent polling"
 msgid "no anchor — this note has never been stamped"
 msgstr "no anchor — this note has never been stamped"
 
-#: viewer/Security.tsx
-#~ msgid "no audited units yet"
-#~ msgstr "no audited units yet"
-
 #: viewer/Preview.tsx
 msgid "no changes since the note was stamped"
 msgstr "no changes since the note was stamped"
 
+#: viewer/audit-copy.ts
+#: viewer/AuditCoverage.tsx
 #: viewer/AuditNav.tsx
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
-msgid "No completed audits yet"
-msgstr "No completed audits yet"
+msgid "No completed audit evidence"
+msgstr "No completed audit evidence"
 
 #: viewer/App.tsx
 #: viewer/Concept.tsx
@@ -357,13 +622,9 @@ msgstr "no description yet"
 msgid "no diff — change review needs <0>repo-atlas serve</0> (the static build has no git access)"
 msgstr "no diff — change review needs <0>repo-atlas serve</0> (the static build has no git access)"
 
-#: viewer/Security.tsx
-msgid "no findings"
-msgstr "no findings"
-
-#: viewer/Security.tsx
-msgid "no findings — clean"
-msgstr "no findings — clean"
+#: viewer/AuditCoverage.tsx
+msgid "no files match the current filter"
+msgstr "no files match the current filter"
 
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
@@ -379,17 +640,53 @@ msgstr "no matches"
 msgid "No note for this path. Write one at <0>{0}</0> and run <1>repo-atlas stamp</1>."
 msgstr "No note for this path. Write one at <0>{0}</0> and run <1>repo-atlas stamp</1>."
 
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "No open actions in this view"
+msgstr "No open actions in this view"
+
+#: viewer/audit-copy.ts
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "No open findings recorded"
+msgstr "No open findings recorded"
+
 #: viewer/Preview.tsx
 msgid "no preview — file contents are served by <0>repo-atlas serve</0>; the static build only carries descriptions"
 msgstr "no preview — file contents are served by <0>repo-atlas serve</0>; the static build only carries descriptions"
+
+#: viewer/AuditCoverage.tsx
+msgid "No unit file coverage rows"
+msgstr "No unit file coverage rows"
+
+#: viewer/AuditCoverage.tsx
+msgid "none"
+msgstr "none"
 
 #: viewer/Chat.tsx
 msgid "None is right now — attach one first."
 msgstr "None is right now — attach one first."
 
-#: viewer/Doc.tsx
-#~ msgid "open this directory's page"
-#~ msgstr "open this directory's page"
+#: viewer/audit-copy.ts
+msgid "Not accepted by current coverage report"
+msgstr "Not accepted by current coverage report"
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "open"
+msgstr "open"
+
+#: viewer/App.tsx
+msgid "open finding — open the relevant security unit"
+msgstr "open finding — open the relevant security unit"
+
+#: viewer/App.tsx
+msgid "open findings"
+msgstr "open findings"
+
+#: viewer/App.tsx
+msgid "open the security assurance overview"
+msgstr "open the security assurance overview"
 
 #: viewer/App.tsx
 msgid "outdated"
@@ -403,9 +700,21 @@ msgstr "outdated — a source changed since this page was stamped"
 msgid "outdated — code changed since this was written"
 msgstr "outdated — code changed since this was written"
 
+#: viewer/AuditNav.tsx
+msgid "Overview"
+msgstr "Overview"
+
+#: viewer/AuditCoverage.tsx
+msgid "path"
+msgstr "path"
+
 #: viewer/Tree.tsx
 msgid "pinned reading order"
 msgstr "pinned reading order"
+
+#: viewer/audit-copy.ts
+msgid "policy conflict"
+msgstr "policy conflict"
 
 #: viewer/App.tsx
 msgid "primary"
@@ -432,10 +741,31 @@ msgstr "print this page as a PDF"
 msgid "reading order"
 msgstr "reading order"
 
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Recent accepted audits"
+msgstr "Recent accepted audits"
+
+#: viewer/AuditCoverage.tsx
+msgid "recorded"
+msgstr "recorded"
+
+#: viewer/audit-copy.ts
+msgid "Recorded audit evidence"
+msgstr "Recorded audit evidence"
+
 #. placeholder {0}: g.refs.length
 #: viewer/Doc.tsx
 msgid "referenced in {0} notes"
 msgstr "referenced in {0} notes"
+
+#: viewer/AuditCoverage.tsx
+msgid "required"
+msgstr "required"
+
+#: viewer/Security.tsx
+msgid "Retained risk"
+msgstr "Retained risk"
 
 #: viewer/Chat.tsx
 msgid "retract last message"
@@ -449,6 +779,28 @@ msgstr "retract last message (agent is already on it)"
 msgid "retracted"
 msgstr "retracted"
 
+#: viewer/AuditCoverage.tsx
+msgid "risk"
+msgstr "risk"
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "Risk"
+msgstr "Risk"
+
+#: viewer/AuditCoverage.tsx
+msgid "rounds"
+msgstr "rounds"
+
+#: viewer/AuditCoverage.tsx
+msgid "ruleset"
+msgstr "ruleset"
+
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "rulesets"
+msgstr "rulesets"
+
 #: viewer/Doc.tsx
 msgid "save"
 msgstr "save"
@@ -461,27 +813,35 @@ msgstr "save & stamp"
 msgid "saving…"
 msgstr "saving…"
 
+#: viewer/AuditCoverage.tsx
 #: viewer/Security.tsx
-#: viewer/TestAudit.tsx
 msgid "scanned"
 msgstr "scanned"
+
+#: viewer/AuditCoverage.tsx
+msgid "scope hash"
+msgstr "scope hash"
 
 #: viewer/App.tsx
 #: viewer/Security.tsx
 msgid "security"
 msgstr "security"
 
+#: viewer/audit-copy.ts
+msgid "Security"
+msgstr "Security"
+
 #: viewer/Security.tsx
 msgid "security audit"
 msgstr "security audit"
 
-#: viewer/App.tsx
-msgid "security audit findings across all units — open the security view"
-msgstr "security audit findings across all units — open the security view"
-
 #: viewer/Chat.tsx
 msgid "send"
 msgstr "send"
+
+#: viewer/Security.tsx
+msgid "separate design"
+msgstr "separate design"
 
 #: viewer/Settings.tsx
 msgid "Settings"
@@ -508,9 +868,7 @@ msgstr "sort: reading"
 msgid "sources →"
 msgstr "sources →"
 
-#: viewer/AuditNav.tsx
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
+#: viewer/AuditCoverage.tsx
 msgid "stale"
 msgstr "stale"
 
@@ -518,6 +876,14 @@ msgstr "stale"
 #: viewer/TestAudit.tsx
 msgid "stale — re-audit needed"
 msgstr "stale — re-audit needed"
+
+#: viewer/audit-copy.ts
+msgid "Stale audit evidence — re-audit needed"
+msgstr "Stale audit evidence — re-audit needed"
+
+#: viewer/audit-copy.ts
+msgid "stale evidence"
+msgstr "stale evidence"
 
 #: viewer/Concept.tsx
 #: viewer/Doc.tsx
@@ -528,6 +894,10 @@ msgstr "stamped"
 msgid "start reading ↘"
 msgstr "start reading ↘"
 
+#: viewer/AuditCoverage.tsx
+msgid "status"
+msgstr "status"
+
 #: viewer/TestAudit.tsx
 msgid "test audit"
 msgstr "test audit"
@@ -536,6 +906,10 @@ msgstr "test audit"
 #: viewer/TestAudit.tsx
 msgid "tests"
 msgstr "tests"
+
+#: viewer/audit-copy.ts
+msgid "Tests"
+msgstr "Tests"
 
 #: viewer/Doc.tsx
 msgid "the directory notes above this page — the frame it is written within"
@@ -553,6 +927,26 @@ msgstr "tree layout: alphabetical or reading order"
 #: viewer/Preview.tsx
 msgid "truncated"
 msgstr "truncated"
+
+#: viewer/AuditCoverage.tsx
+msgid "unclassified"
+msgstr "unclassified"
+
+#: viewer/audit-copy.ts
+msgid "unclassified path"
+msgstr "unclassified path"
+
+#: viewer/AuditCoverage.tsx
+msgid "unit"
+msgstr "unit"
+
+#: viewer/AuditCoverage.tsx
+msgid "Units"
+msgstr "Units"
+
+#: viewer/audit-copy.ts
+msgid "unknown"
+msgstr "unknown"
 
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx

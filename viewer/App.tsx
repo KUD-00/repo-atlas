@@ -17,10 +17,10 @@ import {
 } from '../src/audit-a11y'
 import {
   domainAssurance,
-  domainNavSuffix,
   type AuditAction,
   type AuditViewMode,
 } from '../src/audit-assurance'
+import { localizedDomainNavSuffix } from './audit-copy'
 import {
   initialPanelOpen,
   shouldClosePanelOnPrimaryTransition,
@@ -143,8 +143,14 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
     () => domainAssurance('test', reviewCoverage, testAudits),
     [reviewCoverage, testAudits],
   )
-  const securitySuffix = useMemo(() => domainNavSuffix(securityModel), [securityModel])
-  const testSuffix = useMemo(() => domainNavSuffix(testModel), [testModel])
+  const localizedSecuritySuffix = useMemo(
+    () => localizedDomainNavSuffix(i18n, securityModel),
+    [i18n, securityModel],
+  )
+  const localizedTestSuffix = useMemo(
+    () => localizedDomainNavSuffix(i18n, testModel),
+    [i18n, testModel],
+  )
   const [securityMode, setSecurityMode] = useState<AuditViewMode>('overview')
   const [testMode, setTestMode] = useState<AuditViewMode>('overview')
   const isRoute = useCallback(
@@ -399,15 +405,15 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
       case 'concepts':
         return String(concepts.length)
       case 'security':
-        return securitySuffix.text
+        return localizedSecuritySuffix.text
       case 'tests':
-        return testSuffix.text
+        return localizedTestSuffix.text
     }
   }
 
   const primaryAriaLabel = (view: PrimaryView, label: string): string | undefined => {
-    if (view === 'security') return `${label}: ${securitySuffix.ariaLabel}`
-    if (view === 'tests') return `${label}: ${testSuffix.ariaLabel}`
+    if (view === 'security') return `${label}: ${localizedSecuritySuffix.ariaLabel}`
+    if (view === 'tests') return `${label}: ${localizedTestSuffix.ariaLabel}`
     return undefined
   }
 
@@ -517,7 +523,7 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
                     </>
                   ) : (
                     <>
-                      <b className="text-text">{securitySuffix.text}</b> {t(i18n)`security`}
+                      {t(i18n)`security`} · {localizedSecuritySuffix.text}
                     </>
                   )}
                 </button>
