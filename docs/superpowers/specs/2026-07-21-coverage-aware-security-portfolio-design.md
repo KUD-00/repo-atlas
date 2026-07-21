@@ -234,6 +234,12 @@ Git-tracked paths with NUL-safe handling and recomputes current blob IDs. It
 reports added, removed, and changed paths relative to the coverage report
 before trusting the embedded verdict.
 
+Atlas may use stage-zero blobs from `git ls-files --stage -z` for index-clean
+regular files and rehash only paths reported by `git diff-files -z`. This is an
+exact Git/worktree snapshot, not a timestamp cache, and avoids rereading every
+tracked file during each live-server poll. Symlink mode, gitlinks, unresolved
+index stages, unreadable dirty paths, or duplicate aliases fail closed.
+
 The report's own tracked path uses one reserved generated-proof exclusion and
 has no self-referential blob. For that exact entry only, both producer and
 Atlas substitute the literal blob field `GENERATED-PROOF` in the inventory-hash
