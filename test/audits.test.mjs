@@ -7,7 +7,7 @@ import test from 'node:test'
 
 import { auditStatusEntries, loadAuditPortfolios, loadAudits, stampAudits } from '../dist/audits.js'
 import { scan } from '../dist/scan.js'
-import { cleanup, commitAll, makeRepo, scopeHash, write } from './helpers.mjs'
+import { cleanup, commitAll, gitBlob, makeRepo, scopeHash, write } from './helpers.mjs'
 
 const CLI = new URL('../dist/cli.js', import.meta.url).pathname
 
@@ -74,6 +74,189 @@ function v2Envelope(root, domain, slug, files, findings, extra = {}) {
   write(root, `.atlas/audits/${slug}.json`, JSON.stringify(value, null, 2) + '\n')
   return value
 }
+
+/** Alias used by coverage-aware Task 1 fixtures. */
+const writeV2 = v2Envelope
+
+test('v2 security units expose exact scope, evidence refs, and normalized dispositions', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const a = 1\n')
+    write(root, 'audits/evidence/a.json', '{}\n')
+    commitAll(root)
+    writeV2(root, 'security', 'security-runtime', ['src/a.ts'], [{
+      id: 'SEC-1',
+      severity: 'medium',
+      category: 'boundary',
+      title: 'boundary is open',
+      locations: ['src/a.ts:1'],
+      dataflow: 'input to sink',
+      fix: 'validate it',
+      disposition: 'accepted-risk',
+    }], {
+      hashes: { 'src/a.ts': gitBlob(root, 'src/a.ts') },
+      evidenceRefs: ['audits/evidence/a.json'],
+    })
+    const unit = loadAuditPortfolios(root).security[0]
+    assert.deepEqual(unit.files, ['src/a.ts'])
+    assert.equal(unit.scopeHash, scopeHash(root, ['src/a.ts']))
+    assert.deepEqual(unit.hashes, { 'src/a.ts': gitBlob(root, 'src/a.ts') })
+    assert.deepEqual(unit.evidenceRefs, ['audits/evidence/a.json'])
+    assert.equal(unit.findings[0].id, 'SEC-1')
+    assert.equal(unit.findings[0].disposition, 'accepted-risk')
+  } finally { cleanup(root) }
+})
+
+test('v2 security finding without disposition normalizes to open', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const a = 1\n')
+    commitAll(root)
+    writeV2(root, 'security', 'security-runtime', ['src/a.ts'], [{
+      severity: 'low', category: 'boundary', title: 'open by default',
+      locations: ['src/a.ts:1'], dataflow: 'input to sink', fix: 'validate it',
+    }], { hashes: { 'src/a.ts': gitBlob(root, 'src/a.ts') } })
+    assert.equal(loadAuditPortfolios(root).security[0].findings[0].disposition, 'open')
+  } finally { cleanup(root) }
+})
+
+test('v2 units reject invalid dispositions and unsafe or duplicate evidence refs', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const a = 1\n')
+    commitAll(root)
+    writeV2(root, 'security', 'security-bad', ['src/a.ts'], [{
+      severity: 'low', category: 'boundary', title: 'bad disposition',
+      locations: ['src/a.ts:1'], dataflow: 'input to sink', fix: 'validate it',
+      disposition: 'ignored',
+    }], { evidenceRefs: ['../outside', '../outside'] })
+    assert.equal(loadAuditPortfolios(root).security.length, 0)
+    const invalid = auditStatusEntries(root, scan(root, { exclude: [] }))
+      .find((entry) => entry.name === 'security-bad')
+    assert.match(invalid.invalidReason, /disposition|evidence ref|normalized/i)
+  } finally { cleanup(root) }
+})
+
+test('v2 security findings reject empty or overlong finding ids', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const a = 1\n')
+    commitAll(root)
+
+    writeV2(root, 'security', 'empty-id', ['src/a.ts'], [{
+      ...finding('src/a.ts'),
+      id: '',
+    }], { hashes: { 'src/a.ts': gitBlob(root, 'src/a.ts') } })
+    assert.equal(loadAuditPortfolios(root).security.length, 0)
+    const empty = auditStatusEntries(root, scan(root, { exclude: [] }))
+      .find((entry) => entry.name === 'empty-id')
+    assert.match(empty.invalidReason, /id|finding/i)
+
+    for (const entry of fs.readdirSync(path.join(root, '.atlas/audits'))) {
+      fs.unlinkSync(path.join(root, '.atlas/audits', entry))
+    }
+    writeV2(root, 'security', 'long-id', ['src/a.ts'], [{
+      ...finding('src/a.ts'),
+      id: 'x'.repeat(257),
+    }], { hashes: { 'src/a.ts': gitBlob(root, 'src/a.ts') } })
+    assert.equal(loadAuditPortfolios(root).security.length, 0)
+    const long = auditStatusEntries(root, scan(root, { exclude: [] }))
+      .find((entry) => entry.name === 'long-id')
+    assert.match(long.invalidReason, /id|finding|256/i)
+  } finally { cleanup(root) }
+})
+
+test('v2 units reject duplicate evidence refs', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const a = 1\n')
+    write(root, 'audits/evidence/a.json', '{}\n')
+    commitAll(root)
+    writeV2(root, 'security', 'dup-evidence', ['src/a.ts'], [finding('src/a.ts')], {
+      hashes: { 'src/a.ts': gitBlob(root, 'src/a.ts') },
+      evidenceRefs: ['audits/evidence/a.json', 'audits/evidence/a.json'],
+    })
+    assert.equal(loadAuditPortfolios(root).security.length, 0)
+    const invalid = auditStatusEntries(root, scan(root, { exclude: [] }))
+      .find((entry) => entry.name === 'dup-evidence')
+    assert.match(invalid.invalidReason, /evidence ref|duplicate|normalized/i)
+  } finally { cleanup(root) }
+})
+
+test('v2 units reject missing evidence refs', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const a = 1\n')
+    commitAll(root)
+    writeV2(root, 'security', 'missing-evidence', ['src/a.ts'], [finding('src/a.ts')], {
+      hashes: { 'src/a.ts': gitBlob(root, 'src/a.ts') },
+      evidenceRefs: ['audits/evidence/missing.json'],
+    })
+    assert.equal(loadAuditPortfolios(root).security.length, 0)
+    const invalid = auditStatusEntries(root, scan(root, { exclude: [] }))
+      .find((entry) => entry.name === 'missing-evidence')
+    assert.match(invalid.invalidReason, /evidence ref|missing|safe|regular/i)
+  } finally { cleanup(root) }
+})
+
+test('v2 units reject symlinked evidence refs', () => {
+  const root = makeRepo()
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-atlas-evidence-outside-'))
+  try {
+    write(root, 'src/a.ts', 'export const a = 1\n')
+    const canary = path.join(outside, 'canary.json')
+    fs.writeFileSync(canary, '{}\n')
+    fs.mkdirSync(path.join(root, 'audits/evidence'), { recursive: true })
+    fs.symlinkSync(canary, path.join(root, 'audits/evidence/a.json'))
+    commitAll(root)
+    writeV2(root, 'security', 'symlink-evidence', ['src/a.ts'], [finding('src/a.ts')], {
+      hashes: { 'src/a.ts': gitBlob(root, 'src/a.ts') },
+      evidenceRefs: ['audits/evidence/a.json'],
+    })
+    assert.equal(loadAuditPortfolios(root).security.length, 0)
+    const invalid = auditStatusEntries(root, scan(root, { exclude: [] }))
+      .find((entry) => entry.name === 'symlink-evidence')
+    assert.match(invalid.invalidReason, /evidence ref|symlink|safe|regular/i)
+    assert.equal(fs.readFileSync(canary, 'utf8'), '{}\n')
+  } finally {
+    cleanup(root)
+    fs.rmSync(outside, { recursive: true, force: true })
+  }
+})
+
+test('legacy security units expose scope metadata and normalize disposition to open', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const a = 1\n')
+    commitAll(root)
+    ledger(root, 'legacy-scope', ['src/a.ts'])
+    const unit = loadAuditPortfolios(root).security[0]
+    assert.deepEqual(unit.files, ['src/a.ts'])
+    assert.equal(unit.scopeHash, scopeHash(root, ['src/a.ts']))
+    assert.equal(unit.hashes, null)
+    assert.deepEqual(unit.evidenceRefs, [])
+    assert.equal(unit.findings[0].disposition, 'open')
+  } finally { cleanup(root) }
+})
+
+test('v2 test findings omit disposition while still projecting scope and evidence refs', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const a = 1\n')
+    write(root, 'audits/evidence/t.json', '{}\n')
+    commitAll(root)
+    writeV2(root, 'test', 'test-runtime', ['src/a.ts'], [testFinding('src/a.ts')], {
+      hashes: { 'src/a.ts': gitBlob(root, 'src/a.ts') },
+      evidenceRefs: ['audits/evidence/t.json'],
+    })
+    const unit = loadAuditPortfolios(root).tests[0]
+    assert.deepEqual(unit.files, ['src/a.ts'])
+    assert.equal(unit.scopeHash, scopeHash(root, ['src/a.ts']))
+    assert.deepEqual(unit.hashes, { 'src/a.ts': gitBlob(root, 'src/a.ts') })
+    assert.deepEqual(unit.evidenceRefs, ['audits/evidence/t.json'])
+    assert.equal(Object.hasOwn(unit.findings[0], 'disposition'), false)
+  } finally { cleanup(root) }
+})
 
 test('v2 security and test ledgers project into domain portfolios', () => {
   const root = makeRepo()

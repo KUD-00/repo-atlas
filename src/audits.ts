@@ -7,6 +7,7 @@ import type {
   AuditUnit,
   ScanResult,
   SecurityAuditUnit,
+  SecurityFindingDisposition,
   TestAuditFinding,
   TestAuditUnit,
 } from './types.js'
@@ -64,6 +65,7 @@ interface RawLedger {
   dropped?: unknown[]
   rounds?: unknown[]
   hashes?: Record<string, string>
+  evidenceRefs?: string[]
   stamped?: string
   hashes_stamped?: string
   finalPass?: boolean
@@ -75,11 +77,13 @@ export interface AuditPortfolios {
 }
 
 const SEVERITIES = new Set(['info', 'low', 'medium', 'high', 'critical'])
+const DISPOSITIONS = new Set<SecurityFindingDisposition>(['open', 'accepted-risk', 'separate-design'])
 const TEST_IMPACTS = new Set(['blocking', 'warning', 'advisory'])
 const TEST_CATEGORIES = new Set([
   'missing-invariant', 'weak-assertion', 'mock-only', 'nondeterminism',
   'isolation-leak', 'fixture-drift', 'coverage-gap', 'privileged-side-effect',
 ])
+const MAX_FINDING_ID_LENGTH = 256
 
 export function auditsRoot(root: string): string {
   return path.join(atlasDir(root), 'audits')
@@ -298,23 +302,93 @@ function normalizedLocations(value: unknown): value is string[] {
   return Array.isArray(value) && value.length > 0 && value.every(validAuditLocation)
 }
 
+function validFindingId(value: unknown): boolean {
+  // Optional; when present, non-empty and at most 256 UTF-16 code units.
+  return value === undefined ||
+    (typeof value === 'string' && value.length > 0 && value.length <= MAX_FINDING_ID_LENGTH)
+}
+
+function validDisposition(value: unknown): boolean {
+  return value === undefined ||
+    (typeof value === 'string' && DISPOSITIONS.has(value as SecurityFindingDisposition))
+}
+
+function securityFindingMetaError(f: unknown): string | null {
+  if (!f || typeof f !== 'object') return 'every security finding must satisfy the strict viewer schema'
+  const finding = f as Record<string, unknown>
+  if (!validFindingId(finding.id)) {
+    return 'security finding id must be a nonempty string of at most 256 code units'
+  }
+  if (!validDisposition(finding.disposition)) {
+    return 'security finding disposition must be open, accepted-risk, or separate-design'
+  }
+  return null
+}
+
 function validFinding(f: unknown): f is AuditFinding {
   if (!f || typeof f !== 'object') return false
-  const finding = f as Partial<AuditFinding>
+  const finding = f as Partial<AuditFinding> & { id?: unknown; disposition?: unknown }
   return typeof finding.severity === 'string' && SEVERITIES.has(finding.severity) &&
     typeof finding.category === 'string' && typeof finding.title === 'string' &&
     Array.isArray(finding.locations) && finding.locations.every((loc) => typeof loc === 'string') &&
-    typeof finding.dataflow === 'string' && typeof finding.fix === 'string'
+    typeof finding.dataflow === 'string' && typeof finding.fix === 'string' &&
+    validFindingId(finding.id) &&
+    validDisposition(finding.disposition)
 }
 
 function validStrictSecurityFinding(f: unknown): f is AuditFinding {
   if (!f || typeof f !== 'object') return false
-  const finding = f as Partial<AuditFinding>
+  const finding = f as Partial<AuditFinding> & { id?: unknown; disposition?: unknown }
   return typeof finding.severity === 'string' && SEVERITIES.has(finding.severity) &&
     nonemptyString(finding.category) && nonemptyString(finding.title) &&
     normalizedLocations(finding.locations) &&
     nonemptyString(finding.dataflow) && nonemptyString(finding.fix) &&
-    (finding.confidence === undefined || nonemptyString(finding.confidence))
+    (finding.confidence === undefined || nonemptyString(finding.confidence)) &&
+    validFindingId(finding.id) &&
+    validDisposition(finding.disposition)
+}
+
+function evidenceRefsError(root: string, j: RawLedger): string | null {
+  if (j.evidenceRefs === undefined) return null
+  if (!Array.isArray(j.evidenceRefs) || !j.evidenceRefs.every((item) => typeof item === 'string')) {
+    return 'evidence refs must be unique normalized repository-relative paths'
+  }
+  if (!j.evidenceRefs.every(validRepoPath) || new Set(j.evidenceRefs).size !== j.evidenceRefs.length) {
+    return 'evidence refs must be unique normalized repository-relative paths'
+  }
+  for (const ref of j.evidenceRefs) {
+    if (!isSafeRepoFile(root, ref)) {
+      return `evidence ref is not a safe regular repository file: ${ref}`
+    }
+  }
+  return null
+}
+
+function projectEvidenceRefs(j: RawLedger): string[] {
+  return Array.isArray(j.evidenceRefs) ? [...j.evidenceRefs] : []
+}
+
+function projectHashes(j: RawLedger): Record<string, string> | null {
+  if (!isV2(j) || j.hashes === undefined) return null
+  return { ...j.hashes }
+}
+
+function normalizeSecurityFinding(f: unknown): AuditFinding {
+  const raw = f as AuditFinding & { id?: string; disposition?: SecurityFindingDisposition }
+  const disposition: SecurityFindingDisposition =
+    raw.disposition && DISPOSITIONS.has(raw.disposition) ? raw.disposition : 'open'
+  const finding: AuditFinding = {
+    severity: raw.severity,
+    category: raw.category,
+    title: raw.title,
+    locations: raw.locations,
+    dataflow: raw.dataflow,
+    fix: raw.fix,
+    disposition,
+  }
+  if (typeof raw.id === 'string') finding.id = raw.id
+  if (typeof raw.confidence === 'string') finding.confidence = raw.confidence
+  return finding
 }
 
 function validTestFinding(f: unknown): f is TestAuditFinding {
@@ -402,11 +476,17 @@ function securityLedgerError(root: string, j: RawLedger, raw: unknown, entry: st
     if (j.domain !== 'security') return 'unsupported audit domain'
     const meta = viewerMetadataError(root, j, entry, 'security')
     if (meta) return meta
+    const refsError = evidenceRefsError(root, j)
+    if (refsError) return refsError
     if (j.conceptSlug !== undefined && !nonemptyString(j.conceptSlug)) {
       return 'security conceptSlug must be a nonempty string when present'
     }
-    if (!findingsOf(j).every(validStrictSecurityFinding)) {
-      return 'every security finding must satisfy the strict viewer schema'
+    for (const finding of findingsOf(j)) {
+      const metaError = securityFindingMetaError(finding)
+      if (metaError) return metaError
+      if (!validStrictSecurityFinding(finding)) {
+        return 'every security finding must satisfy the strict viewer schema'
+      }
     }
     return null
   }
@@ -414,7 +494,11 @@ function securityLedgerError(root: string, j: RawLedger, raw: unknown, entry: st
   if (record.format !== undefined && record.format !== 'atlas-audit-v1') return 'unsupported security format'
   const meta = viewerMetadataError(root, j, entry, 'security')
   if (meta) return meta
-  if (!findingsOf(j).every(validFinding)) return 'every security finding must satisfy the strict viewer schema'
+  for (const finding of findingsOf(j)) {
+    const metaError = securityFindingMetaError(finding)
+    if (metaError) return metaError
+    if (!validFinding(finding)) return 'every security finding must satisfy the strict viewer schema'
+  }
   return null
 }
 
@@ -422,6 +506,8 @@ function testLedgerError(root: string, j: RawLedger, entry: string): string | nu
   if (!isV2(j) || j.domain !== 'test') return 'unsupported audit domain'
   const meta = viewerMetadataError(root, j, entry, 'test')
   if (meta) return meta
+  const refsError = evidenceRefsError(root, j)
+  if (refsError) return refsError
   if (!findingsOf(j).every(validTestFinding)) {
     return 'every test finding must satisfy the strict test schema (impact, category, locations)'
   }
@@ -451,7 +537,7 @@ function unitStale(
 }
 
 function toSecurityUnit(root: string, j: RawLedger, file: string, statusByFile: Map<string, AuditStatusEntry> | null): SecurityAuditUnit {
-  const findings = findingsOf(j) as AuditFinding[]
+  const findings = findingsOf(j).map(normalizeSecurityFinding)
   const unit: SecurityAuditUnit = {
     formatVersion: isV2(j) ? 2 : 1,
     domain: 'security',
@@ -459,7 +545,11 @@ function toSecurityUnit(root: string, j: RawLedger, file: string, statusByFile: 
     title: typeof j.title === 'string' ? j.title : j.slug,
     ruleset: typeof j.ruleset === 'string' ? j.ruleset : 'unknown',
     scannedAt: typeof j.scanned_at === 'string' ? j.scanned_at : '',
+    scopeHash: typeof j.scope_hash === 'string' ? j.scope_hash : '',
     fileCount: j.files.length,
+    files: [...j.files],
+    hashes: projectHashes(j),
+    evidenceRefs: isV2(j) ? projectEvidenceRefs(j) : [],
     findings,
     droppedCount: Array.isArray(j.dropped) ? j.dropped.length : 0,
     roundCount: Array.isArray(j.rounds) ? j.rounds.length : 0,
@@ -477,7 +567,11 @@ function toTestUnit(root: string, j: RawLedger, file: string, statusByFile: Map<
     title: typeof j.title === 'string' ? j.title : j.slug,
     ruleset: typeof j.ruleset === 'string' ? j.ruleset : 'unknown',
     scannedAt: typeof j.scanned_at === 'string' ? j.scanned_at : '',
+    scopeHash: typeof j.scope_hash === 'string' ? j.scope_hash : '',
     fileCount: j.files.length,
+    files: [...j.files],
+    hashes: projectHashes(j),
+    evidenceRefs: projectEvidenceRefs(j),
     findings: findingsOf(j) as TestAuditFinding[],
     droppedCount: Array.isArray(j.dropped) ? j.dropped.length : 0,
     roundCount: Array.isArray(j.rounds) ? j.rounds.length : 0,

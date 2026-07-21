@@ -191,7 +191,10 @@ export interface ArtifactNode {
   raw: string | null
 }
 
+export type SecurityFindingDisposition = 'open' | 'accepted-risk' | 'separate-design'
+
 export interface AuditFinding {
+  id?: string
   severity: 'info' | 'low' | 'medium' | 'high' | 'critical'
   category: string
   title: string
@@ -201,6 +204,7 @@ export interface AuditFinding {
   fix: string
   /** 'unverified' when the factcheck gate could not confirm it from source. */
   confidence?: string
+  disposition: SecurityFindingDisposition
 }
 
 export type AuditDomain = 'security' | 'test'
@@ -227,7 +231,11 @@ export interface BaseAuditUnit {
   title: string
   ruleset: string
   scannedAt: string
+  scopeHash: string
   fileCount: number
+  files: string[]
+  hashes: Record<string, string> | null
+  evidenceRefs: string[]
   droppedCount: number
   roundCount: number
   /** Scope bytes drifted since the audit (recomputed at load) → needs a re-audit. */

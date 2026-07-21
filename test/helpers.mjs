@@ -25,9 +25,16 @@ export function write(root, rel, contents) {
   fs.writeFileSync(file, contents)
 }
 
+export function gitBlob(root, file) {
+  return execFileSync('git', ['hash-object', '--', file], {
+    cwd: root,
+    encoding: 'utf8',
+  }).trim()
+}
+
 export function scopeHash(root, files) {
   const lines = files.map((file) => {
-    const sha = execFileSync('git', ['hash-object', '--', file], { cwd: root, encoding: 'utf8' }).trim()
+    const sha = gitBlob(root, file)
     return `${sha}  ${file}`
   }).sort()
   return createHash('sha1').update(lines.join('\n') + '\n').digest('hex')
