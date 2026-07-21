@@ -9,6 +9,7 @@ import { noteFileFor, loadNotes, stampNote, moveNoteFile, notesRoot } from './no
 import { loadConceptPages, sourcesHashFor, stampConceptPage, conceptFileFor } from './conceptPages.js'
 import { loadArtifacts } from './artifacts.js'
 import { importLegacyAudit, loadAuditPortfolios } from './audits.js'
+import { loadReviewCoverage } from './review-coverage.js'
 import { computeStatus, summarize, summarizeConcepts } from './status.js'
 import { buildHtml, writeAtlas } from './build.js'
 import { serve } from './serve.js'
@@ -18,7 +19,7 @@ import { computeCheck, type CheckFinding } from './check.js'
 import { concepts } from './concepts.js'
 import { assertCanonicalReadabilityOutput, assertReadabilityAuditOwnership, assertReadabilityReportOutput, computeReadability, formatReadabilitySummary, isSupportedReadabilityReport, readReadabilityReport, writeCanonicalReadabilityReport, writeReadabilityArtifacts, writeReadabilityAuditLedger, writeReadabilityReport, diffReadabilityReports } from './readability.js'
 import { stampAudits } from './audits.js'
-import type { AtlasConfig, PathType } from './types.js'
+import type { AtlasConfig, PathType, ReviewCoveragePortfolio } from './types.js'
 
 const USAGE = `repo-atlas — incremental codebase atlas with staleness tracking
 
@@ -124,9 +125,58 @@ function init(root: string) {
   console.log(`- commit .atlas/ so descriptions are versioned with the code`)
 }
 
+function formatCoverageText(coverage: ReviewCoveragePortfolio): string {
+  const { state, report, errors, drift } = coverage
+  if (state === 'missing') {
+    return 'coverage: missing — no review coverage report (coverage unknown; not zero)'
+  }
+  if (state === 'invalid') {
+    const n = errors.length
+    const head = errors[0]?.message
+    return `coverage: invalid — ${n} error(s)` + (head ? ` · ${head}` : '')
+  }
+  if (state === 'stale') {
+    const bits = [
+      drift.added.length ? `${drift.added.length} added` : null,
+      drift.removed.length ? `${drift.removed.length} removed` : null,
+      drift.changed.length ? `${drift.changed.length} changed` : null,
+    ].filter(Boolean).join(' · ')
+    return `coverage: stale — inventory drifted` + (bits ? ` (${bits})` : '') +
+      '; re-run coverage producer before trusting verdict'
+  }
+  // state === 'current'
+  const summary = report?.summary
+  const securityGaps = summary
+    ? summary.securityMissing + summary.securityStale + summary.securityInvalid
+    : 0
+  const testGaps = summary
+    ? summary.testMissing + summary.testStale + summary.testInvalid
+    : 0
+  const policyGaps = summary
+    ? summary.unclassified + summary.conflicted + summary.invalidLedgers
+    : 0
+  const gapLine = summary
+    ? `security gaps ${securityGaps}/${summary.securityRequired}` +
+      ` · tests gaps ${testGaps}/${summary.testRequired}` +
+      ` · policy gaps ${policyGaps}`
+    : 'gap counts unavailable'
+  if (report?.verdict === 'incomplete') {
+    return `coverage: current incomplete — ${gapLine}`
+  }
+  if (report?.verdict === 'complete') {
+    return `coverage: current complete — ${gapLine}` +
+      (securityGaps + testGaps === 0 ? ' · no coverage gaps recorded' : '')
+  }
+  // invalid verdict should not appear under current, but fail closed in text
+  return `coverage: current ${report?.verdict ?? 'unknown'} — ${gapLine}`
+}
+
 function status(root: string, args: string[]) {
   const config = requireConfig(root)
   const result = computeStatus(root, scan(root, config), { deltas: true })
+  // Reuse already-computed audit statuses — do not re-scan ledgers for portfolios.
+  const portfolios = loadAuditPortfolios(root, result.audits)
+  const coverage = loadReviewCoverage(root, portfolios)
   const sum = summarize(result)
   const conceptSum = summarizeConcepts(result)
   const fmtDelta = (d?: { added: number; removed: number; files: number }) =>
@@ -151,6 +201,13 @@ function status(root: string, args: string[]) {
       audits: result.audits.map(({ name, status, scannedAt, fileCount, findingCount, missingFiles, changedFiles, failedFiles, findingsWithDrift, detailAvailable, invalidReason, file }) =>
         ({ name, status, scannedAt, fileCount, findingCount, missingFiles, changedFiles, failedFiles, findingsWithDrift, detailAvailable, invalidReason, file })),
       readability: result.readability,
+      coverage: {
+        state: coverage.state,
+        verdict: coverage.report?.verdict ?? null,
+        summary: coverage.report?.summary ?? null,
+        drift: coverage.drift,
+        errors: coverage.errors,
+      },
     }, null, 2))
     return
   }
@@ -207,6 +264,7 @@ function status(root: string, args: string[]) {
       console.log(`  A ${a.name} — ${detail}`)
     }
   }
+  console.log(`\n${formatCoverageText(coverage)}`)
   if (result.readability) {
     const readability = result.readability
     const latest = readability.latestTrend
@@ -514,6 +572,7 @@ function build(root: string, args: string[]) {
   const scanResult = scan(root, config)
   const status = computeStatus(root, scanResult, { readability: false })
   const portfolios = loadAuditPortfolios(root, status.audits)
+  const reviewCoverage = loadReviewCoverage(root, portfolios)
   const html = buildHtml({
     repoName: path.basename(root),
     commit: headCommit(root),
@@ -524,6 +583,7 @@ function build(root: string, args: string[]) {
     artifacts: loadArtifacts(root),
     audits: portfolios.security,
     testAudits: portfolios.tests,
+    reviewCoverage,
   })
   const target = writeAtlas(root, outFile, html)
   const sum = summarize(status)

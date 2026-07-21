@@ -13,6 +13,7 @@ import { buildImportGraph } from './deps.js'
 import { loadGlossaryRaw, parseGlossary } from './glossary.js'
 import { loadArtifacts } from './artifacts.js'
 import { loadAuditPortfolios } from './audits.js'
+import { loadReviewCoverage } from './review-coverage.js'
 import type { AtlasConfig, ChatMessage, ScanResult } from './types.js'
 
 const POLL_MS = 1500
@@ -41,6 +42,7 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
     const glossaryRaw = loadGlossaryRaw(root)
     const artifacts = loadArtifacts(root)
     const portfolios = loadAuditPortfolios(root, status.audits)
+    const reviewCoverage = loadReviewCoverage(root, portfolios)
     const input = {
       repoName: path.basename(root),
       commit: headCommit(root),
@@ -51,6 +53,7 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
       artifacts,
       audits: portfolios.security,
       testAudits: portfolios.tests,
+      reviewCoverage,
     }
     const payload = buildPayload(input)
     const html = buildHtml({ ...input, payload })
@@ -58,7 +61,8 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
       .update(
         JSON.stringify(status.entries) + JSON.stringify(status.orphans) +
         JSON.stringify(status.concepts) + glossaryRaw + JSON.stringify(artifacts) +
-        JSON.stringify(portfolios.security) + JSON.stringify(portfolios.tests),
+        JSON.stringify(portfolios.security) + JSON.stringify(portfolios.tests) +
+        JSON.stringify(reviewCoverage),
       )
       .digest('hex')
     return { html, digest, payloadJson: JSON.stringify(payload) }

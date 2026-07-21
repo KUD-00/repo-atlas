@@ -88,8 +88,13 @@ function diagnostic(code: string, message: string, extra: { path?: string; slug?
   return out
 }
 
-function missingPortfolio(): ReviewCoveragePortfolio {
+/** Canonical missing portfolio — used by build defaults and the loader. */
+export function missingReviewCoverage(): ReviewCoveragePortfolio {
   return { state: 'missing', report: null, errors: [], drift: emptyDrift() }
+}
+
+function missingPortfolio(): ReviewCoveragePortfolio {
+  return missingReviewCoverage()
 }
 
 function invalidPortfolio(errors: CoverageDiagnostic[]): ReviewCoveragePortfolio {

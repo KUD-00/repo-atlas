@@ -16,7 +16,18 @@ import {
   shouldRestoreCompactSidebarFocus,
 } from '../src/audit-a11y'
 import {
+  domainAssurance,
+  domainNavSuffix,
+  type AuditAction,
+  type AuditViewMode,
+} from '../src/audit-assurance'
+import {
+  initialPanelOpen,
+  shouldClosePanelOnPrimaryTransition,
+} from '../src/audit-panel'
+import {
   auditRoute,
+  auditUnitRoute,
   isNamespacedOrPathRoute,
   parseAuditRoute,
   primaryNavRoute,
@@ -123,11 +134,19 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const artifacts = data.artifacts ?? {}
   const audits = data.audits ?? []
   const testAudits = data.testAudits ?? []
-  const totalFindings = useMemo(() => audits.reduce((n, a) => n + a.findings.length, 0), [audits])
-  const totalTestFindings = useMemo(
-    () => testAudits.reduce((n, a) => n + a.findings.length, 0),
-    [testAudits],
+  const reviewCoverage = data.reviewCoverage
+  const securityModel = useMemo(
+    () => domainAssurance('security', reviewCoverage, audits),
+    [reviewCoverage, audits],
   )
+  const testModel = useMemo(
+    () => domainAssurance('test', reviewCoverage, testAudits),
+    [reviewCoverage, testAudits],
+  )
+  const securitySuffix = useMemo(() => domainNavSuffix(securityModel), [securityModel])
+  const testSuffix = useMemo(() => domainNavSuffix(testModel), [testModel])
+  const [securityMode, setSecurityMode] = useState<AuditViewMode>('overview')
+  const [testMode, setTestMode] = useState<AuditViewMode>('overview')
   const isRoute = useCallback(
     (p: string) => {
       const printScope = printScopeOf(p)
@@ -178,8 +197,12 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const [sideOpen, setSideOpen] = useState(
     () => !(typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches),
   )
-  const [panelOpen, setPanelOpen] = useState(
-    () => !(typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches),
+  // Desktop Code/Concepts open; direct Security/Tests entry and compact start closed.
+  const [panelOpen, setPanelOpen] = useState(() =>
+    initialPanelOpen(
+      typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches,
+      primaryView,
+    ),
   )
   const [panelMode, setPanelMode] = useState<PanelMode>('code')
   const [panelClosing, setPanelClosing] = useState(false)
@@ -187,8 +210,11 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const jumpSeq = useRef(0)
   const compactExpandRef = useRef<HTMLButtonElement>(null)
   const wasSideOpenRef = useRef(sideOpen)
+  // Tracks primary view so audit entry closes the panel once (not on Security↔Tests).
+  const prevPrimaryViewRef = useRef(primaryView)
   // Concept pages have no path of their own, so the panel needs a repo file to
   // show: the first file-typed source by default, then whatever code anchors jump to.
+  // Audit jumps also land here; returning to overview must keep the chosen source.
   const [conceptCodePath, setConceptCodePath] = useState<string | null>(null)
 
   const concept = useMemo(() => {
@@ -214,7 +240,38 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   }
 
   const onPrimary = (view: PrimaryView) => {
+    // Primary Security/Tests click resets that domain to overview and routes home.
+    if (view === 'security') setSecurityMode('overview')
+    if (view === 'tests') setTestMode('overview')
     onSelect(primaryNavRoute(view, remembered))
+  }
+
+  const headerDomainPresent =
+    securityModel.unitRows.length > 0 || securityModel.portfolioState !== 'missing'
+  const headerDomainAction = useMemo(
+    (): AuditAction | null => securityModel.actions[0] ?? null,
+    [securityModel],
+  )
+
+  const onHeaderDomainAction = (action: AuditAction) => {
+    setSecurityMode(action.kind === 'coverage' ? 'gaps' : 'attention')
+    if (action.unitSlug) {
+      const route = auditUnitRoute('security', action.unitSlug)
+      if (route) {
+        onSelect(route)
+        return
+      }
+    }
+    onSelect(auditRoute('security'))
+  }
+
+  const onHeaderDomainShortcut = () => {
+    if (headerDomainAction) {
+      onHeaderDomainAction(headerDomainAction)
+      return
+    }
+    setSecurityMode('overview')
+    onSelect(auditRoute('security'))
   }
 
   // Compact drawer close (overlay / collapse / route select) returns focus to the
@@ -240,6 +297,17 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
     window.addEventListener('atlas-code-jump', onJump)
     return () => window.removeEventListener('atlas-code-jump', onJump)
   }, [])
+
+  // Close the generic panel only when first entering Security/Tests from
+  // Code/Concepts. Security↔Tests and staying in an audit keep an explicit reopen.
+  useEffect(() => {
+    const previous = prevPrimaryViewRef.current
+    if (shouldClosePanelOnPrimaryTransition(previous, primaryView)) {
+      if (compact) setPanelClosing(true)
+      else setPanelOpen(false)
+    }
+    prevPrimaryViewRef.current = primaryView
+  }, [primaryView, compact])
 
   useEffect(() => {
     setExpanded((prev) => {
@@ -331,10 +399,16 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
       case 'concepts':
         return String(concepts.length)
       case 'security':
-        return String(totalFindings)
+        return securitySuffix.text
       case 'tests':
-        return String(totalTestFindings)
+        return testSuffix.text
     }
+  }
+
+  const primaryAriaLabel = (view: PrimaryView, label: string): string | undefined => {
+    if (view === 'security') return `${label}: ${securitySuffix.ariaLabel}`
+    if (view === 'tests') return `${label}: ${testSuffix.ariaLabel}`
+    return undefined
   }
 
   const topTitle = concept
@@ -420,14 +494,32 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
               <span><b>{fresh}</b> {t(i18n)`fresh`}</span>
               <span><b>{agg.outdated}</b> {t(i18n)`outdated`}</span>
               <span><b>{agg.missing}</b> {t(i18n)`missing`}</span>
-              {audits.length > 0 && (
+              {headerDomainPresent && (
                 <button
                   type="button"
-                  className="font-inherit bg-transparent border-none p-0 cursor-pointer text-[0.72rem] text-muted hover:text-accent focus:outline-none focus-visible:text-accent [&_b]:font-semibold"
-                  onClick={() => onSelect(auditRoute('security'))}
-                  title={t(i18n)`security audit findings across all units — open the security view`}
+                  className="font-inherit bg-transparent border-none p-0 cursor-pointer text-[0.72rem] text-muted hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 focus-visible:text-accent [&_b]:font-semibold"
+                  onClick={onHeaderDomainShortcut}
+                  title={
+                    headerDomainAction?.kind === 'coverage'
+                      ? t(i18n)`coverage action — open the relevant security coverage view`
+                      : headerDomainAction?.kind === 'finding'
+                        ? t(i18n)`open finding — open the relevant security unit`
+                        : t(i18n)`open the security assurance overview`
+                  }
                 >
-                  <b className="text-text">{totalFindings}</b> {t(i18n)`findings`}
+                  {headerDomainAction?.kind === 'coverage' ? (
+                    <>
+                      <b className="text-text">{securityModel.gapCount}</b> {t(i18n)`coverage gaps`}
+                    </>
+                  ) : headerDomainAction?.kind === 'finding' ? (
+                    <>
+                      <b className="text-text">{securityModel.openCount}</b> {t(i18n)`open findings`}
+                    </>
+                  ) : (
+                    <>
+                      <b className="text-text">{securitySuffix.text}</b> {t(i18n)`security`}
+                    </>
+                  )}
                 </button>
               )}
             </div>
@@ -439,6 +531,7 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
           {PRIMARY.map(([view, Icon]) => {
             const active = primaryView === view
             const count = primaryCount(view)
+            const label = primaryLabel(view, i18n)
             return (
               <button
                 key={view}
@@ -450,10 +543,11 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
                     : ' bg-transparent text-muted hover:text-text hover:bg-[#00000006]')
                 }
                 aria-current={active ? 'page' : undefined}
+                aria-label={primaryAriaLabel(view, label)}
                 onClick={() => onPrimary(view)}
               >
                 <Icon className="w-4 h-4 shrink-0" aria-hidden />
-                <span className="flex-1 min-w-0 font-semibold">{primaryLabel(view, i18n)}</span>
+                <span className="flex-1 min-w-0 font-semibold">{label}</span>
                 {count !== null && (
                   <span className={'shrink-0 text-[0.7rem] tabular-nums ' + (active ? 'text-accent' : 'text-muted')}>
                     {count}
@@ -542,16 +636,18 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
             />
           ) : primaryView === 'security' ? (
             <AuditNav
-              domain="security"
-              units={audits}
-              selectedSlug={auditRouteInfo?.domain === 'security' ? auditRouteInfo.slug : null}
+              model={securityModel}
+              selectedMode={securityMode}
+              selectedUnitSlug={auditRouteInfo?.domain === 'security' ? auditRouteInfo.slug : null}
+              onMode={setSecurityMode}
               onSelect={onSelect}
             />
           ) : primaryView === 'tests' ? (
             <AuditNav
-              domain="test"
-              units={testAudits}
-              selectedSlug={auditRouteInfo?.domain === 'test' ? auditRouteInfo.slug : null}
+              model={testModel}
+              selectedMode={testMode}
+              selectedUnitSlug={auditRouteInfo?.domain === 'test' ? auditRouteInfo.slug : null}
+              onMode={setTestMode}
               onSelect={onSelect}
             />
           ) : (
@@ -582,13 +678,35 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
             <ConceptsIndex concepts={concepts} onSelect={onSelect} />
           ) : security ? (
             <SecurityPane
+              model={securityModel}
               audits={audits}
+              mode={securityMode}
               focusSlug={auditRouteInfo?.domain === 'security' ? auditRouteInfo.slug : null}
+              onMode={setSecurityMode}
+              onSelectUnit={(slug) => {
+                if (!slug) {
+                  onSelect(auditRoute('security'))
+                  return
+                }
+                const route = auditUnitRoute('security', slug)
+                if (route) onSelect(route)
+              }}
             />
           ) : testsView ? (
             <TestAuditPane
+              model={testModel}
               audits={testAudits}
+              mode={testMode}
               focusSlug={auditRouteInfo?.domain === 'test' ? auditRouteInfo.slug : null}
+              onMode={setTestMode}
+              onSelectUnit={(slug) => {
+                if (!slug) {
+                  onSelect(auditRoute('test'))
+                  return
+                }
+                const route = auditUnitRoute('test', slug)
+                if (route) onSelect(route)
+              }}
             />
           ) : (
             <DocPane

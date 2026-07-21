@@ -101,7 +101,6 @@ test('audit unit route returns deep-link only for kebab slugs; null for unroutea
 
 import {
   auditUnitsForRoute,
-  isCleanAuditUnit,
   primaryNavRoute,
   rememberPrimaryRoutes,
   securityUnitForConcept,
@@ -167,10 +166,28 @@ test('audit route concept association uses conceptSlug for v2 and slug only for 
   )
 })
 
-test('audit route clean label only for fresh zero-finding units', () => {
-  assert.equal(isCleanAuditUnit({ findings: [], stale: false }), true)
-  assert.equal(isCleanAuditUnit({ findings: [], stale: true }), false)
-  assert.equal(isCleanAuditUnit({ findings: [{ title: 'x' }], stale: false }), false)
+test('audit route helpers remain presentation-neutral; assurance lives in audit-assurance', async () => {
+  const routes = await import('../dist/audit-routes.js')
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(routes, 'isCleanAuditUnit'),
+    false,
+  )
+  assert.equal(typeof routes.isCleanAuditUnit, 'undefined')
+
+  // Route helpers stay structural: namespaces, deep-links, selection — not risk labels.
+  assert.equal(routes.auditRoute('security'), 'audit:security')
+  assert.equal(routes.primaryViewForRoute('audit:security'), 'security')
+  assert.deepEqual(routes.auditUnitsForRoute([{ slug: 'a' }, { slug: 'b' }], 'b'), [
+    { slug: 'b' },
+  ])
+
+  const assurance = await import('../dist/audit-assurance.js')
+  assert.equal(typeof assurance.domainAssurance, 'function')
+  assert.equal(typeof assurance.domainNavSuffix, 'function')
+  assert.equal(typeof assurance.auditUnitRows, 'function')
+  assert.equal(typeof assurance.auditActionQueue, 'function')
+  assert.equal(typeof assurance.auditFilesForUnit, 'function')
+  assert.equal(typeof assurance.recentAuditUnits, 'function')
 })
 
 test('audit route primary nav remembers code/concepts and homes security/tests', () => {

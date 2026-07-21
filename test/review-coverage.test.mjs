@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
@@ -8,6 +8,8 @@ import test from 'node:test'
 import { loadAuditPortfolios } from '../dist/audits.js'
 import { loadReviewCoverage, reviewCoveragePath } from '../dist/review-coverage.js'
 import { cleanup, commitAll, gitBlob, makeRepo, scopeHash, write } from './helpers.mjs'
+
+const CLI = new URL('../dist/cli.js', import.meta.url).pathname
 
 const COVERAGE_REL = '.atlas/review-coverage.json'
 const SELF_PATH = COVERAGE_REL
@@ -1123,5 +1125,70 @@ test('coverage loading never follows source or ledger symlinks', () => {
     } finally {
       cleanup(root)
     }
+  }
+})
+
+test('status json reports the same coverage verdict and failure buckets', () => {
+  const root = prepareFixtureRepo()
+  try {
+    writeCoverage(root, buildReport(root, { verdict: 'incomplete' }))
+    const run = spawnSync(process.execPath, [CLI, 'status', '--json'], {
+      cwd: root,
+      encoding: 'utf8',
+    })
+    assert.equal(run.status, 0, run.stderr)
+    const output = JSON.parse(run.stdout)
+    assert.equal(output.coverage.state, 'current')
+    assert.equal(output.coverage.verdict, 'incomplete')
+    assert.equal(output.coverage.summary.securityMissing, 1)
+    assert.deepEqual(output.coverage.drift, { added: [], removed: [], changed: [] })
+    assert.ok(Array.isArray(output.coverage.errors))
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('status text distinguishes coverage states and never says clean', () => {
+  const root = prepareFixtureRepo()
+  try {
+    const missing = spawnSync(process.execPath, [CLI, 'status'], {
+      cwd: root,
+      encoding: 'utf8',
+    })
+    assert.equal(missing.status, 0, missing.stderr)
+    assert.match(missing.stdout, /coverage:.*missing/i)
+    assert.doesNotMatch(missing.stdout, /\bclean\b/i)
+
+    writeCoverage(root, buildReport(root, { verdict: 'incomplete' }))
+    const incomplete = spawnSync(process.execPath, [CLI, 'status'], {
+      cwd: root,
+      encoding: 'utf8',
+    })
+    assert.equal(incomplete.status, 0, incomplete.stderr)
+    assert.match(incomplete.stdout, /coverage:.*incomplete/i)
+    assert.match(incomplete.stdout, /security/i)
+    assert.match(incomplete.stdout, /policy gaps 0/i)
+    assert.doesNotMatch(incomplete.stdout, /\bclean\b/i)
+
+    writeCoverage(root, buildReport(root, { verdict: 'complete' }))
+    const complete = spawnSync(process.execPath, [CLI, 'status'], {
+      cwd: root,
+      encoding: 'utf8',
+    })
+    assert.equal(complete.status, 0, complete.stderr)
+    assert.match(complete.stdout, /coverage:.*complete/i)
+    assert.doesNotMatch(complete.stdout, /\bclean\b/i)
+
+    write(root, COVERAGE_REL, '{not json\n')
+    execFileSync('git', ['add', '--', COVERAGE_REL], { cwd: root })
+    const invalid = spawnSync(process.execPath, [CLI, 'status'], {
+      cwd: root,
+      encoding: 'utf8',
+    })
+    assert.equal(invalid.status, 0, invalid.stderr)
+    assert.match(invalid.stdout, /coverage:.*invalid/i)
+    assert.doesNotMatch(invalid.stdout, /\bclean\b/i)
+  } finally {
+    cleanup(root)
   }
 })

@@ -342,6 +342,8 @@ export interface AtlasPayload {
   audits: AuditUnit[]
   /** Test-audit units from `.atlas/audits/`, freshness-checked at load. */
   testAudits: TestAuditUnit[]
+  /** Closed-world review coverage portfolio (missing when no report). */
+  reviewCoverage: ReviewCoveragePortfolio
 }
 
 export interface ChatMessage {
