@@ -54,6 +54,14 @@ msgstr "⤷ attach to chat"
 msgid "agent connected"
 msgstr "agent connected"
 
+#: viewer/AuditNav.tsx
+msgid "all security units"
+msgstr "all security units"
+
+#: viewer/AuditNav.tsx
+msgid "all test units"
+msgstr "all test units"
+
 #: viewer/Security.tsx
 msgid "all units →"
 msgstr "all units →"
@@ -71,6 +79,7 @@ msgid "Artifacts"
 msgstr "Artifacts"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "audited units"
 msgstr "audited units"
 
@@ -108,6 +117,7 @@ msgid "chat with the attached agent session"
 msgstr "chat with the attached agent session"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "clean"
 msgstr "clean"
 
@@ -144,6 +154,10 @@ msgid "concept"
 msgstr "concept"
 
 #: viewer/App.tsx
+msgid "concept index"
+msgstr "concept index"
+
+#: viewer/App.tsx
 msgid "concepts"
 msgstr "concepts"
 
@@ -177,6 +191,7 @@ msgid "directory notes above this page"
 msgstr "directory notes above this page"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "dropped by factcheck"
 msgstr "dropped by factcheck"
 
@@ -187,6 +202,10 @@ msgstr "edit"
 #: viewer/Print.tsx
 msgid "entire repository"
 msgstr "entire repository"
+
+#: viewer/TestAudit.tsx
+msgid "evidence"
+msgstr "evidence"
 
 #: viewer/App.tsx
 msgid "expand panel"
@@ -201,18 +220,32 @@ msgid "file"
 msgstr "file"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "files"
 msgstr "files"
+
+#: viewer/TestAudit.tsx
+msgid "filter by category"
+msgstr "filter by category"
+
+#: viewer/TestAudit.tsx
+msgid "filter by impact"
+msgstr "filter by impact"
 
 #: viewer/Security.tsx
 msgid "filter by severity"
 msgstr "filter by severity"
 
 #: viewer/App.tsx
+msgid "filter concepts…"
+msgstr "filter concepts…"
+
+#: viewer/App.tsx
 msgid "filter paths…"
 msgstr "filter paths…"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "filtered"
 msgstr "filtered"
 
@@ -221,6 +254,7 @@ msgid "findings"
 msgstr "findings"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "fix"
 msgstr "fix"
 
@@ -247,6 +281,10 @@ msgstr "ignored"
 #: viewer/Doc.tsx
 msgid "ignored — excluded by .atlas/config.json"
 msgstr "ignored — excluded by .atlas/config.json"
+
+#: viewer/TestAudit.tsx
+msgid "invariant"
+msgstr "invariant"
 
 #: viewer/Settings.tsx
 msgid "Language"
@@ -293,13 +331,20 @@ msgid "no anchor — this note has never been stamped"
 msgstr "no anchor — this note has never been stamped"
 
 #: viewer/Security.tsx
-msgid "no audited units yet"
-msgstr "no audited units yet"
+#~ msgid "no audited units yet"
+#~ msgstr "no audited units yet"
 
 #: viewer/Preview.tsx
 msgid "no changes since the note was stamped"
 msgstr "no changes since the note was stamped"
 
+#: viewer/AuditNav.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "No completed audits yet"
+msgstr "No completed audits yet"
+
+#: viewer/App.tsx
 #: viewer/Concept.tsx
 msgid "no concept pages yet"
 msgstr "no concept pages yet"
@@ -313,10 +358,15 @@ msgid "no diff — change review needs <0>repo-atlas serve</0> (the static build
 msgstr "no diff — change review needs <0>repo-atlas serve</0> (the static build has no git access)"
 
 #: viewer/Security.tsx
+msgid "no findings"
+msgstr "no findings"
+
+#: viewer/Security.tsx
 msgid "no findings — clean"
 msgstr "no findings — clean"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "no findings match the current filter"
 msgstr "no findings match the current filter"
 
@@ -356,6 +406,10 @@ msgstr "outdated — code changed since this was written"
 #: viewer/Tree.tsx
 msgid "pinned reading order"
 msgstr "pinned reading order"
+
+#: viewer/App.tsx
+msgid "primary"
+msgstr "primary"
 
 #: viewer/Print.tsx
 msgid "print"
@@ -408,9 +462,11 @@ msgid "saving…"
 msgstr "saving…"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "scanned"
 msgstr "scanned"
 
+#: viewer/App.tsx
 #: viewer/Security.tsx
 msgid "security"
 msgstr "security"
@@ -452,11 +508,14 @@ msgstr "sort: reading"
 msgid "sources →"
 msgstr "sources →"
 
+#: viewer/AuditNav.tsx
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "stale"
 msgstr "stale"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "stale — re-audit needed"
 msgstr "stale — re-audit needed"
 
@@ -469,11 +528,21 @@ msgstr "stamped"
 msgid "start reading ↘"
 msgstr "start reading ↘"
 
+#: viewer/TestAudit.tsx
+msgid "test audit"
+msgstr "test audit"
+
+#: viewer/App.tsx
+#: viewer/TestAudit.tsx
+msgid "tests"
+msgstr "tests"
+
 #: viewer/Doc.tsx
 msgid "the directory notes above this page — the frame it is written within"
 msgstr "the directory notes above this page — the frame it is written within"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "the factcheck gate could not confirm this from source"
 msgstr "the factcheck gate could not confirm this from source"
 
@@ -486,6 +555,7 @@ msgid "truncated"
 msgstr "truncated"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "unverified"
 msgstr "unverified"
 

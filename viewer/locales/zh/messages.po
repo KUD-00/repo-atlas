@@ -44,7 +44,7 @@ msgstr "⌘⏎ 保存 · esc 取消"
 
 #: viewer/Doc.tsx
 msgid "▸ frame"
-msgstr ""
+msgstr "▸ 框架"
 
 #: viewer/Chat.tsx
 msgid "⤷ attach to chat"
@@ -53,6 +53,14 @@ msgstr "⤷ 连接到聊天"
 #: viewer/Chat.tsx
 msgid "agent connected"
 msgstr "代理已连接"
+
+#: viewer/AuditNav.tsx
+msgid "all security units"
+msgstr "全部安全单元"
+
+#: viewer/AuditNav.tsx
+msgid "all test units"
+msgstr "全部测试单元"
 
 #: viewer/Security.tsx
 msgid "all units →"
@@ -71,6 +79,7 @@ msgid "Artifacts"
 msgstr "产物"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "audited units"
 msgstr "个已审计单元"
 
@@ -92,7 +101,7 @@ msgstr "取消"
 
 #: viewer/Doc.tsx
 msgid "canonical home for"
-msgstr ""
+msgstr "规范归属："
 
 #: viewer/Preview.tsx
 msgid "Changes"
@@ -108,12 +117,13 @@ msgid "chat with the attached agent session"
 msgstr "与已连接的代理会话聊天"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "clean"
 msgstr "干净"
 
 #: viewer/Doc.tsx
 msgid "close"
-msgstr ""
+msgstr "关闭"
 
 #: viewer/Settings.tsx
 msgid "Close"
@@ -121,7 +131,7 @@ msgstr "关闭"
 
 #: viewer/App.tsx
 msgid "code"
-msgstr ""
+msgstr "代码"
 
 #: viewer/Preview.tsx
 msgid "Code"
@@ -142,6 +152,10 @@ msgstr "提交"
 #: viewer/Concept.tsx
 msgid "concept"
 msgstr "概念"
+
+#: viewer/App.tsx
+msgid "concept index"
+msgstr "概念索引"
 
 #: viewer/App.tsx
 msgid "concepts"
@@ -170,13 +184,14 @@ msgstr "目录"
 
 #: viewer/Doc.tsx
 msgid "directory frame"
-msgstr ""
+msgstr "目录框架"
 
 #: viewer/Doc.tsx
 msgid "directory notes above this page"
-msgstr ""
+msgstr "本页之上的目录说明"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "dropped by factcheck"
 msgstr "条被核查丢弃"
 
@@ -187,6 +202,10 @@ msgstr "编辑"
 #: viewer/Print.tsx
 msgid "entire repository"
 msgstr "整个仓库"
+
+#: viewer/TestAudit.tsx
+msgid "evidence"
+msgstr "证据："
 
 #: viewer/App.tsx
 msgid "expand panel"
@@ -201,18 +220,32 @@ msgid "file"
 msgstr "文件"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "files"
 msgstr "个文件"
+
+#: viewer/TestAudit.tsx
+msgid "filter by category"
+msgstr "按类别筛选"
+
+#: viewer/TestAudit.tsx
+msgid "filter by impact"
+msgstr "按影响筛选"
 
 #: viewer/Security.tsx
 msgid "filter by severity"
 msgstr "按严重度筛选"
 
 #: viewer/App.tsx
+msgid "filter concepts…"
+msgstr "筛选概念…"
+
+#: viewer/App.tsx
 msgid "filter paths…"
 msgstr "筛选路径…"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "filtered"
 msgstr "已筛选"
 
@@ -221,6 +254,7 @@ msgid "findings"
 msgstr "个发现"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "fix"
 msgstr "修法："
 
@@ -247,6 +281,10 @@ msgstr "已忽略"
 #: viewer/Doc.tsx
 msgid "ignored — excluded by .atlas/config.json"
 msgstr "已忽略 — 被 .atlas/config.json 排除"
+
+#: viewer/TestAudit.tsx
+msgid "invariant"
+msgstr "不变量："
 
 #: viewer/Settings.tsx
 msgid "Language"
@@ -293,16 +331,23 @@ msgid "no anchor — this note has never been stamped"
 msgstr "没有 anchor——这篇笔记从未 stamp 过"
 
 #: viewer/Security.tsx
-msgid "no audited units yet"
-msgstr "还没有已审计的单元"
+#~ msgid "no audited units yet"
+#~ msgstr "还没有已审计的单元"
 
 #: viewer/Preview.tsx
 msgid "no changes since the note was stamped"
 msgstr "笔记 stamp 之后代码没有变更"
 
+#: viewer/AuditNav.tsx
+#: viewer/Security.tsx
+#: viewer/TestAudit.tsx
+msgid "No completed audits yet"
+msgstr "尚无已完成的审计"
+
+#: viewer/App.tsx
 #: viewer/Concept.tsx
 msgid "no concept pages yet"
-msgstr ""
+msgstr "尚无概念页"
 
 #: viewer/Doc.tsx
 msgid "no description yet"
@@ -313,10 +358,15 @@ msgid "no diff — change review needs <0>repo-atlas serve</0> (the static build
 msgstr "没有 diff——变更审阅需要 <0>repo-atlas serve</0>（静态构建没有 git 访问）"
 
 #: viewer/Security.tsx
+msgid "no findings"
+msgstr "无发现"
+
+#: viewer/Security.tsx
 msgid "no findings — clean"
 msgstr "无发现——干净"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "no findings match the current filter"
 msgstr "当前筛选下没有匹配的发现"
 
@@ -357,6 +407,10 @@ msgstr "已过时 — 编写后代码已更改"
 msgid "pinned reading order"
 msgstr "固定的阅读顺序"
 
+#: viewer/App.tsx
+msgid "primary"
+msgstr "主导航"
+
 #: viewer/Print.tsx
 msgid "print"
 msgstr "打印"
@@ -381,7 +435,7 @@ msgstr "阅读顺序"
 #. placeholder {0}: g.refs.length
 #: viewer/Doc.tsx
 msgid "referenced in {0} notes"
-msgstr ""
+msgstr "在 {0} 条说明中被引用"
 
 #: viewer/Chat.tsx
 msgid "retract last message"
@@ -408,9 +462,11 @@ msgid "saving…"
 msgstr "保存中…"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "scanned"
 msgstr "扫描于"
 
+#: viewer/App.tsx
 #: viewer/Security.tsx
 msgid "security"
 msgstr "安全"
@@ -452,11 +508,14 @@ msgstr "排序: 阅读顺序"
 msgid "sources →"
 msgstr "来源 →"
 
+#: viewer/AuditNav.tsx
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "stale"
 msgstr "已漂移"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "stale — re-audit needed"
 msgstr "已漂移——需要重审"
 
@@ -469,11 +528,21 @@ msgstr "已标记"
 msgid "start reading ↘"
 msgstr "开始阅读 ↘"
 
+#: viewer/TestAudit.tsx
+msgid "test audit"
+msgstr "测试审计"
+
+#: viewer/App.tsx
+#: viewer/TestAudit.tsx
+msgid "tests"
+msgstr "测试"
+
 #: viewer/Doc.tsx
 msgid "the directory notes above this page — the frame it is written within"
-msgstr ""
+msgstr "本页之上的目录说明——它所处的框架"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "the factcheck gate could not confirm this from source"
 msgstr "factcheck 门未能从源码核实此发现"
 
@@ -486,6 +555,7 @@ msgid "truncated"
 msgstr "已截断"
 
 #: viewer/Security.tsx
+#: viewer/TestAudit.tsx
 msgid "unverified"
 msgstr "未核实"
 

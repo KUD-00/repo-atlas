@@ -86,13 +86,109 @@ a link to that path's page. Notes stay plain markdown; linking is view-side.
 
 ### Live audit ledgers
 
-Completed audits can live at `.atlas/audits/<name>.json` with the
-`atlas-audit-v1` fields `ruleset`, `scanned_at`, `scope_hash`, `files`,
-`hashes`, `findings`, and `stamped`. `status` compares those scan-time blob
-hashes with the working tree and reports stale scopes, exact changed/missing
-files, and findings that point at drifted files. The security viewer keeps its
-stricter `finalPass` + security-finding schema; generic design/readability
-ledgers still participate in status without being rendered as security cards.
+Completed audits live at `.atlas/audits/<slug>.json`. Freshness is shared across
+domains: `status` compares scan-time `files` / `scope_hash` / optional complete
+`hashes` with the working tree and reports stale scopes, exact changed/missing
+files, and findings that point at drifted files. Domain validation is an extra
+layer on top of that shared envelope — never a bypass.
+
+**Viewer-grade ledgers use `atlas-audit-v2`.** `domain` is required
+(`security` | `test`). `reviewState` must be exactly `complete` before a ledger
+enters a viewer portfolio; incomplete or partial runs must not publish an empty
+`findings: []` as clean. The filename stem must equal `slug`. Unknown domains,
+format/version mismatches, and domain-invalid findings stay out of the
+portfolio and remain visible in `status` as stale + invalid.
+
+Security v2 (optional `conceptSlug` associates the unit with a concept page —
+slug equality alone is not enough for v2). Digest values below are illustrative
+40-character lowercase hex only; real ledgers must compute them from exact
+scope bytes:
+
+```json
+{
+  "formatVersion": 2,
+  "format": "atlas-audit-v2",
+  "domain": "security",
+  "reviewState": "complete",
+  "slug": "runtime-auth",
+  "title": "Runtime authentication",
+  "ruleset": "security-v1",
+  "scanned_at": "2026-07-21",
+  "scope_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "file_count": 1,
+  "files": ["src/auth.ts"],
+  "hashes": {"src/auth.ts": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+  "conceptSlug": "auth",
+  "findings": [{
+    "severity": "high",
+    "category": "boundary",
+    "title": "unauthenticated sink",
+    "locations": ["src/auth.ts:12"],
+    "dataflow": "request to privileged handler",
+    "fix": "require a session before the sink"
+  }]
+}
+```
+
+Security findings: `severity` ∈ `info|low|medium|high|critical`; non-empty
+`category`, `title`, `dataflow`, `fix`; one or more normalized `locations`
+(`path`, `path:line`, or `path#symbol`); optional `confidence`.
+
+Test v2:
+
+```json
+{
+  "formatVersion": 2,
+  "format": "atlas-audit-v2",
+  "domain": "test",
+  "reviewState": "complete",
+  "slug": "auth-suite",
+  "title": "Auth suite gaps",
+  "ruleset": "test-v1",
+  "scanned_at": "2026-07-21",
+  "scope_hash": "cccccccccccccccccccccccccccccccccccccccc",
+  "file_count": 1,
+  "files": ["test/auth.test.ts"],
+  "hashes": {"test/auth.test.ts": "dddddddddddddddddddddddddddddddddddddddd"},
+  "findings": [{
+    "impact": "blocking",
+    "category": "missing-invariant",
+    "title": "gate not asserted",
+    "invariant": "handler rejects unauthenticated callers",
+    "evidence": "suite mocks auth away",
+    "fix": "assert the real gate",
+    "locations": ["test/auth.test.ts:1"]
+  }]
+}
+```
+
+Test findings: `impact` ∈ `blocking|warning|advisory`; `category` ∈
+`missing-invariant|weak-assertion|mock-only|nondeterminism|isolation-leak|
+fixture-drift|coverage-gap|privileged-side-effect`; non-empty `title`,
+`invariant`, `evidence`, `fix`; one or more normalized `locations`; optional
+`confidence`. The schema is about whether a test proves the intended invariant,
+not whether the product is secure.
+
+**Compatibility:** v1 ledgers with `finalPass: true` and the strict security
+finding schema still load as legacy security units. v1 generic ledgers
+(design/readability and friends) still participate in status only. v1
+`finalPass: false` is never viewer-grade. There is no filename or `ruleset`
+prefix inference of domain.
+
+**Empty vs clean:** an empty domain portfolio shows "No completed audits yet"
+and is never labeled clean. Only a fresh, completed unit with zero findings may
+say clean. A stale unit keeps historical findings but is marked for re-audit.
+Malformed ledgers never become empty clean units.
+
+**Viewer routes** (hash paths; valid even when the portfolio is empty):
+
+- `audit:security` / `audit:security/<slug>` — security portfolio home / unit
+- `audit:test` / `audit:test/<slug>` — test portfolio home / unit
+- `view:concepts` — concept index / honest empty state
+
+Legacy `#security` redirects to `#audit:security`. A real tracked path named
+`security` stays a Code route. Primary sidebar views are route-derived: Code,
+Concepts, Security, Tests.
 
 `audit-stamp` only adds per-file detail when the ledger's existing
 `scope_hash` still matches current bytes. It refuses stale ledgers, so a dated
