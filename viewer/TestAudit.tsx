@@ -2,6 +2,13 @@ import { useMemo, useState } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import { FlaskConical, ShieldCheck } from 'lucide-react'
+import {
+  auditFilterChipAriaPressed,
+  auditUnitPanelProps,
+  auditUnitSectionIds,
+  auditUnitToggleProps,
+} from '../src/audit-a11y'
+import { visibleFilterOptions } from '../src/audit-filters'
 import { auditUnitsForRoute, isCleanAuditUnit } from '../src/audit-routes'
 import type { TestAuditCategory, TestAuditFinding, TestAuditImpact, TestAuditUnit } from '../src/types'
 import { AuditLocation } from './AuditLocation'
@@ -90,21 +97,31 @@ function UnitSection({
   })
   const impactTally = tallyImpact(unit.findings)
   const clean = isCleanAuditUnit(unit)
+  const ids = auditUnitSectionIds('test', unit.slug)
+  const toggleAria = auditUnitToggleProps(open, ids.panelId)
+  const panelAria = auditUnitPanelProps(open)
   return (
     <section className="mb-4">
-      <div
-        className="flex items-center gap-2 flex-wrap cursor-pointer select-none py-1"
-        onClick={() => setOpen(!open)}
-      >
-        <span
-          className={
-            'text-muted text-[0.7rem] inline-block transition-transform duration-150' +
-            (open ? ' rotate-90' : '')
-          }
+      <div className="flex items-center gap-2 flex-wrap py-1">
+        <button
+          type="button"
+          id={ids.toggleId}
+          className="inline-flex items-center gap-2 max-w-full py-0.5 px-0 border-none rounded-md bg-transparent text-inherit cursor-pointer font-inherit text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
+          aria-expanded={toggleAria['aria-expanded']}
+          aria-controls={toggleAria['aria-controls']}
+          onClick={() => setOpen(!open)}
         >
-          ▶
-        </span>
-        <span className="text-[0.92rem] font-semibold">{unit.title}</span>
+          <span
+            aria-hidden
+            className={
+              'text-muted text-[0.7rem] inline-block transition-transform duration-150 shrink-0' +
+              (open ? ' rotate-90' : '')
+            }
+          >
+            ▶
+          </span>
+          <span className="text-[0.92rem] font-semibold">{unit.title}</span>
+        </button>
         {unit.stale && (
           <span className={CHIP + ' text-[#c4222e] bg-[#c4222e0d] border-[#c4222e30]'}>
             {t(i18n)`stale — re-audit needed`}
@@ -125,18 +142,22 @@ function UnitSection({
           {unit.droppedCount > 0 ? ` · ${unit.droppedCount} ${t(i18n)`dropped by factcheck`}` : ''}
         </span>
       </div>
-      {open && (
-        <div className="mt-1.5 ml-4">
-          {findings.map((f) => (
-            <TestFindingCard key={f.title + f.category} finding={f} />
-          ))}
-          {findings.length === 0 && unit.findings.length > 0 && (
-            <div className="text-[0.78rem] text-muted py-1">
-              {t(i18n)`no findings match the current filter`}
-            </div>
-          )}
-        </div>
-      )}
+      <div
+        id={ids.panelId}
+        role="region"
+        aria-labelledby={ids.toggleId}
+        hidden={panelAria.hidden}
+        className="mt-1.5 ml-4"
+      >
+        {findings.map((f) => (
+          <TestFindingCard key={f.title + f.category} finding={f} />
+        ))}
+        {findings.length === 0 && unit.findings.length > 0 && (
+          <div className="text-[0.78rem] text-muted py-1">
+            {t(i18n)`no findings match the current filter`}
+          </div>
+        )}
+      </div>
       <span className="hidden">{locale}</span>
     </section>
   )
@@ -185,7 +206,7 @@ export function TestAuditPane({
       </div>
       <h1 className="text-[1.25rem] font-[650] my-1 mb-3">{t(i18n)`test audit`}</h1>
       <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
-        {IMPACT_ORDER.filter((s) => totals.has(s)).map((s) => (
+        {visibleFilterOptions(totals.keys(), impactFilter, IMPACT_ORDER).map((s) => (
           <button
             key={s}
             type="button"
@@ -197,11 +218,16 @@ export function TestAuditPane({
             }
             onClick={() => toggleImpact(s)}
             title={t(i18n)`filter by impact`}
+            aria-pressed={auditFilterChipAriaPressed(impactFilter.has(s))}
           >
-            {totals.get(s)} {s}
+            {totals.get(s) ?? 0} {s}
           </button>
         ))}
-        {[...categoryTotals.keys()].sort().map((c) => (
+        {visibleFilterOptions(
+          categoryTotals.keys(),
+          categoryFilter,
+          [...new Set([...categoryTotals.keys(), ...categoryFilter])].sort(),
+        ).map((c) => (
           <button
             key={c}
             type="button"
@@ -212,11 +238,12 @@ export function TestAuditPane({
             }
             onClick={() => toggleCategory(c as TestAuditCategory)}
             title={t(i18n)`filter by category`}
+            aria-pressed={auditFilterChipAriaPressed(categoryFilter.has(c as TestAuditCategory))}
           >
-            {categoryTotals.get(c)} {c}
+            {categoryTotals.get(c) ?? 0} {c}
           </button>
         ))}
-        {staleCount > 0 && (
+        {(staleCount > 0 || onlyStale) && (
           <button
             type="button"
             className={
@@ -227,6 +254,7 @@ export function TestAuditPane({
                 : 'text-muted bg-panel border-border')
             }
             onClick={() => setOnlyStale(!onlyStale)}
+            aria-pressed={auditFilterChipAriaPressed(onlyStale)}
           >
             {staleCount} {t(i18n)`stale`}
           </button>

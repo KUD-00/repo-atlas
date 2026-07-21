@@ -239,6 +239,73 @@ test('v2 ledger slugs must be lowercase kebab for namespaced routes', () => {
   }
 })
 
+test('v2 security and test ledgers omit slug fail closed despite name/filename fallback', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const answer = 1\n')
+    commitAll(root)
+    const files = ['src/a.ts']
+    const scope = scopeHash(root, files)
+
+    // Security v2: no slug, but `name` matches filename stem — must NOT fill in.
+    write(root, '.atlas/audits/security-noslug.json', JSON.stringify({
+      formatVersion: 2,
+      format: 'atlas-audit-v2',
+      domain: 'security',
+      reviewState: 'complete',
+      name: 'security-noslug',
+      title: 'Security without slug',
+      ruleset: 'fixture-security-v1',
+      scanned_at: '2026-07-21',
+      scope_hash: scope,
+      file_count: 1,
+      files,
+      findings: [finding('src/a.ts', 'high')],
+    }, null, 2) + '\n')
+
+    // Test v2: no slug and no name — filename stem would be the only fallback.
+    write(root, '.atlas/audits/test-noslug.json', JSON.stringify({
+      formatVersion: 2,
+      format: 'atlas-audit-v2',
+      domain: 'test',
+      reviewState: 'complete',
+      title: 'Test without slug',
+      ruleset: 'fixture-test-v1',
+      scanned_at: '2026-07-21',
+      scope_hash: scope,
+      file_count: 1,
+      files,
+      findings: [testFinding('src/a.ts', 'blocking')],
+    }, null, 2) + '\n')
+
+    // Also treat format-only atlas-audit-v2 (no formatVersion) as a v2 candidate.
+    write(root, '.atlas/audits/format-only-noslug.json', JSON.stringify({
+      format: 'atlas-audit-v2',
+      domain: 'security',
+      reviewState: 'complete',
+      name: 'format-only-noslug',
+      title: 'Format-only without slug',
+      ruleset: 'fixture-security-v1',
+      scanned_at: '2026-07-21',
+      scope_hash: scope,
+      file_count: 1,
+      files,
+      findings: [finding('src/a.ts')],
+    }, null, 2) + '\n')
+
+    const statuses = auditStatusEntries(root, scan(root, { exclude: [] }))
+    assert.equal(statuses.length, 3)
+    for (const status of statuses) {
+      assert.equal(status.status, 'stale', status.name)
+      assert.ok(status.invalidReason, status.name)
+    }
+    assert.deepEqual(loadAuditPortfolios(root), { security: [], tests: [] })
+    assert.deepEqual(loadAudits(root), [])
+  } finally {
+    cleanup(root)
+  }
+})
+
 test('portfolio loader orders security by severity and tests by stale then impact', () => {
   const root = makeRepo()
   try {

@@ -105,11 +105,18 @@ function scopeHashFromScan(root, scanResult, files) {
         hashes: snapshot.hashes,
     };
 }
+/** True when the raw payload claims the v2 envelope (strict: no name/filename slug fill-in). */
+function isV2Candidate(j) {
+    return j.formatVersion === 2 || j.format === 'atlas-audit-v2';
+}
 function normalizeLedger(value, file) {
     if (!value || typeof value !== 'object')
         return null;
     const j = value;
-    const name = typeof j.slug === 'string' ? j.slug : typeof j.name === 'string' ? j.name : path.basename(file, '.json');
+    // v2 requires an explicit string slug; v1 keeps historical name/filename fallback.
+    const name = isV2Candidate(j)
+        ? (typeof j.slug === 'string' ? j.slug : null)
+        : (typeof j.slug === 'string' ? j.slug : typeof j.name === 'string' ? j.name : path.basename(file, '.json'));
     if (!name || !Array.isArray(j.files) || !j.files.every((item) => typeof item === 'string'))
         return null;
     return { ...j, slug: name };

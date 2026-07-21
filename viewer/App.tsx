@@ -12,6 +12,10 @@ import {
   ShieldAlert,
 } from 'lucide-react'
 import {
+  compactSidebarA11y,
+  shouldRestoreCompactSidebarFocus,
+} from '../src/audit-a11y'
+import {
   auditRoute,
   isNamespacedOrPathRoute,
   parseAuditRoute,
@@ -181,6 +185,8 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const [panelClosing, setPanelClosing] = useState(false)
   const [jump, setJump] = useState<CodeJump | null>(null)
   const jumpSeq = useRef(0)
+  const compactExpandRef = useRef<HTMLButtonElement>(null)
+  const wasSideOpenRef = useRef(sideOpen)
   // Concept pages have no path of their own, so the panel needs a repo file to
   // show: the first file-typed source by default, then whatever code anchors jump to.
   const [conceptCodePath, setConceptCodePath] = useState<string | null>(null)
@@ -210,6 +216,15 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const onPrimary = (view: PrimaryView) => {
     onSelect(primaryNavRoute(view, remembered))
   }
+
+  // Compact drawer close (overlay / collapse / route select) returns focus to the
+  // header expand control so keyboard users do not land in the inert drawer.
+  useEffect(() => {
+    if (shouldRestoreCompactSidebarFocus(compact, wasSideOpenRef.current, sideOpen)) {
+      compactExpandRef.current?.focus()
+    }
+    wasSideOpenRef.current = sideOpen
+  }, [compact, sideOpen])
 
   // single entry point for code-anchor jumps: reveal the panel, force code
   // mode, then hand the jump to CodeView as data (it may not be mounted yet)
@@ -338,7 +353,13 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
     <>
       {compact && (
         <header className="flex items-center gap-1 h-11 px-1.5 border-b border-border bg-panel">
-          <button type="button" className={TOPBAR_ICON} title={t(i18n)`expand sidebar`} onClick={() => setSideOpen(true)}>
+          <button
+            ref={compactExpandRef}
+            type="button"
+            className={TOPBAR_ICON}
+            title={t(i18n)`expand sidebar`}
+            onClick={() => setSideOpen(true)}
+          >
             <PanelLeftOpen />
           </button>
           <span className="flex-1 min-w-0 text-[0.85rem] font-semibold text-center overflow-hidden text-ellipsis whitespace-nowrap">
@@ -375,6 +396,7 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
       )}
       <aside
         hidden={!compact && !sideOpen}
+        {...(compact ? compactSidebarA11y(sideOpen) : {})}
         className={
           compact
             ? 'fixed inset-y-0 left-0 z-40 flex flex-col min-w-0 min-h-0 w-[min(340px,85vw)] border-r border-border bg-panel transition-transform duration-200 ease-out ' +

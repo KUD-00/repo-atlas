@@ -2,6 +2,13 @@ import { useMemo, useState } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import { ShieldAlert, ShieldCheck } from 'lucide-react'
+import {
+  auditFilterChipAriaPressed,
+  auditUnitPanelProps,
+  auditUnitSectionIds,
+  auditUnitToggleProps,
+} from '../src/audit-a11y'
+import { visibleFilterOptions } from '../src/audit-filters'
 import { auditRoute, auditUnitsForRoute, isCleanAuditUnit } from '../src/audit-routes'
 import type { AuditFinding, SecurityAuditUnit } from '../src/types'
 import { AuditLocation } from './AuditLocation'
@@ -88,18 +95,34 @@ function UnitSection({
   const tally = tallyOf(unit.findings)
   const clean = isCleanAuditUnit(unit)
   const conceptHref = conceptHrefFor(unit)
+  const ids = auditUnitSectionIds('security', unit.slug)
+  const toggleAria = auditUnitToggleProps(open, ids.panelId)
+  const panelAria = auditUnitPanelProps(open)
   return (
     <section className="mb-4">
-      <div
-        className="flex items-center gap-2 flex-wrap cursor-pointer select-none py-1"
-        onClick={() => setOpen(!open)}
-      >
-        <span className={'text-muted text-[0.7rem] inline-block transition-transform duration-150' + (open ? ' rotate-90' : '')}>▶</span>
+      <div className="flex items-center gap-2 flex-wrap py-1">
+        <button
+          type="button"
+          id={ids.toggleId}
+          className="inline-flex items-center justify-center w-6 h-6 p-0 border-none rounded-md bg-transparent text-muted cursor-pointer shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
+          aria-label={unit.title}
+          aria-expanded={toggleAria['aria-expanded']}
+          aria-controls={toggleAria['aria-controls']}
+          onClick={() => setOpen(!open)}
+        >
+          <span
+            aria-hidden
+            className={
+              'text-[0.7rem] inline-block transition-transform duration-150' + (open ? ' rotate-90' : '')
+            }
+          >
+            ▶
+          </span>
+        </button>
         {conceptHref ? (
           <a
             className="text-[0.92rem] font-semibold text-accent no-underline hover:underline"
             href={'#' + encodeURI(conceptHref)}
-            onClick={(e) => e.stopPropagation()}
           >
             {unit.title}
           </a>
@@ -126,16 +149,20 @@ function UnitSection({
           {unit.droppedCount > 0 ? ` · ${unit.droppedCount} ${t(i18n)`dropped by factcheck`}` : ''}
         </span>
       </div>
-      {open && (
-        <div className="mt-1.5 ml-4">
-          {findings.map((f) => (
-            <FindingCard key={f.title} finding={f} />
-          ))}
-          {findings.length === 0 && unit.findings.length > 0 && (
-            <div className="text-[0.78rem] text-muted py-1">{t(i18n)`no findings match the current filter`}</div>
-          )}
-        </div>
-      )}
+      <div
+        id={ids.panelId}
+        role="region"
+        aria-labelledby={ids.toggleId}
+        hidden={panelAria.hidden}
+        className="mt-1.5 ml-4"
+      >
+        {findings.map((f) => (
+          <FindingCard key={f.title} finding={f} />
+        ))}
+        {findings.length === 0 && unit.findings.length > 0 && (
+          <div className="text-[0.78rem] text-muted py-1">{t(i18n)`no findings match the current filter`}</div>
+        )}
+      </div>
       <span className="hidden">{locale}</span>
     </section>
   )
@@ -169,7 +196,7 @@ export function SecurityPane({
       </div>
       <h1 className="text-[1.25rem] font-[650] my-1 mb-3">{t(i18n)`security audit`}</h1>
       <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
-        {SEV_ORDER.filter((s) => totals.has(s)).map((s) => (
+        {visibleFilterOptions(totals.keys(), sevFilter, SEV_ORDER).map((s) => (
           <button
             key={s}
             type="button"
@@ -181,11 +208,12 @@ export function SecurityPane({
             }
             onClick={() => toggleSev(s)}
             title={t(i18n)`filter by severity`}
+            aria-pressed={auditFilterChipAriaPressed(sevFilter.has(s))}
           >
-            {totals.get(s)} {s}
+            {totals.get(s) ?? 0} {s}
           </button>
         ))}
-        {staleCount > 0 && (
+        {(staleCount > 0 || onlyStale) && (
           <button
             type="button"
             className={
@@ -194,6 +222,7 @@ export function SecurityPane({
               (onlyStale ? 'text-[#c4222e] bg-[#c4222e14] border-[#c4222e40]' : 'text-muted bg-panel border-border')
             }
             onClick={() => setOnlyStale(!onlyStale)}
+            aria-pressed={auditFilterChipAriaPressed(onlyStale)}
           >
             {staleCount} {t(i18n)`stale`}
           </button>
