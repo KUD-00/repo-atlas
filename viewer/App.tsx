@@ -2,6 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import { MessageCircle, PanelLeftClose, PanelLeftOpen, PanelRightOpen } from 'lucide-react'
+import {
+  auditRoute,
+  isNamespacedOrPathRoute,
+  primaryViewForRoute,
+} from '../src/audit-routes'
 import type { AtlasPayload } from '../src/types'
 import { activateLocale, type AppLocale, getStoredLocale } from './i18n'
 import { indexTree, ancestorsOf, buildRelationIndex, useCompact } from './lib'
@@ -75,22 +80,33 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const conceptsBySlug = useMemo(() => new Map(concepts.map((c) => [c.slug, c])), [data])
   const artifacts = data.artifacts ?? {}
   const audits = data.audits ?? []
+  const testAudits = data.testAudits ?? []
   const auditsBySlug = useMemo(() => new Map(audits.map((a) => [a.slug, a])), [audits])
   const totalFindings = useMemo(() => audits.reduce((n, a) => n + a.findings.length, 0), [audits])
   const isRoute = useCallback(
     (p: string) => {
       const printScope = printScopeOf(p)
       if (printScope !== null) return isPrintScope(printScope, nodesByPath, conceptsBySlug, artifacts)
-      const slug = conceptSlugOf(p)
-      if (slug !== null) return conceptsBySlug.has(slug)
-      if (nodesByPath.has(p)) return true
-      // pseudo-route: the global security home (a real root file named
-      // "security" would win above it — path collision loses to data)
-      return p === 'security' && audits.length > 0
+      // Reserved namespaces (audit:*, view:concepts, concept:*) win over path collisions.
+      // Bare `security` is only Code when a real repo path exists.
+      return isNamespacedOrPathRoute(
+        p,
+        (path) => nodesByPath.has(path),
+        { security: audits, tests: testAudits },
+        (slug) => conceptsBySlug.has(slug),
+      )
     },
-    [nodesByPath, conceptsBySlug, artifacts, audits],
+    [nodesByPath, conceptsBySlug, artifacts, audits, testAudits],
   )
   const [path, navigate] = useRoute(isRoute)
+
+  // Legacy `#security` → `#audit:security` only when it is not a real repo path.
+  useEffect(() => {
+    const raw = decodeURI(location.hash.slice(1))
+    if (raw !== 'security' || nodesByPath.has('security')) return
+    history.replaceState(null, '', '#' + encodeURI(auditRoute('security')))
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+  }, [nodesByPath])
   const [expanded, setExpanded] = useState(() => new Set(ancestorsOf(path)))
   // Sidebar tabs: the code tree and the concept curriculum are two different
   // structures — switch between them instead of stacking one above the other.
@@ -166,10 +182,12 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   }, [path])
 
   const node = nodesByPath.get(path) ?? data.tree
-  const security = path === 'security' && audits.length > 0
+  const primaryView = primaryViewForRoute(path, (p) => nodesByPath.has(p))
+  const security = primaryView === 'security'
+  const testsView = primaryView === 'tests'
   // for a concept page (or the security home) the side panel shows the source a
   // code anchor jumped to (or the first file source); else it falls back to the root toc
-  const panelNode = concept || security
+  const panelNode = concept || security || testsView
     ? (conceptCodePath !== null ? nodesByPath.get(conceptCodePath) : undefined) ?? data.tree
     : node
   const agg = data.tree.agg!
@@ -296,7 +314,7 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
               {audits.length > 0 && (
                 <button
                   className="font-inherit bg-transparent border-none p-0 cursor-pointer text-[0.72rem] text-muted hover:text-accent [&_b]:font-semibold"
-                  onClick={() => onSelect('security')}
+                  onClick={() => onSelect(auditRoute('security'))}
                   title={t(i18n)`security audit findings across all units — open the security view`}
                 >
                   <b className="text-text">{totalFindings}</b> {t(i18n)`findings`}
@@ -391,6 +409,10 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
             <ConceptPane concept={concept} nodesByPath={nodesByPath} glossary={data.glossary} audit={auditsBySlug.get(concept.slug)} />
           ) : security ? (
             <SecurityPane audits={audits} />
+          ) : testsView ? (
+            <div className="max-w-[860px] py-9 px-12 pb-24 max-md:py-5 max-md:px-4 max-md:pb-16">
+              <div className="text-[0.85rem] text-muted">{t(i18n)`No completed audits yet`}</div>
+            </div>
           ) : (
             <DocPane
               node={node}

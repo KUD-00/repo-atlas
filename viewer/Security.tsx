@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import { ShieldAlert, ShieldCheck } from 'lucide-react'
+import { auditRoute } from '../src/audit-routes'
 import type { AuditFinding, AuditUnit } from '../src/types'
 import { conceptRoute } from './Concept'
 import type { AppLocale } from './i18n'
@@ -9,7 +10,7 @@ import type { AppLocale } from './i18n'
 /**
  * Security view — the interactive face of `.atlas/audits/` (verdict archives
  * produced by qa/audit.ts). Two surfaces share FindingCard: the global
- * `#security` home (portfolio: all units, severity filters) and the section
+ * `#audit:security` home (portfolio: all units, severity filters) and the section
  * embedded in concept pages (this boundary's posture). Locations dispatch
  * `atlas-code-jump` so a finding's evidence opens in the code panel.
  * Print/PDF stays with the artifacts projection — this view is for browsing.
@@ -153,7 +154,7 @@ function UnitSection({
   )
 }
 
-/** Global `#security` home: the repo's security posture as a portfolio. */
+/** Global `#audit:security` home: the repo's security posture as a portfolio. */
 export function SecurityPane({ audits }: { audits: AuditUnit[] }) {
   const { i18n } = useLingui()
   const [sevFilter, setSevFilter] = useState<ReadonlySet<Severity>>(new Set())
@@ -221,7 +222,7 @@ export function ConceptSecuritySection({ unit }: { unit: AuditUnit }) {
         <span className="text-[0.7rem] text-muted">
           {t(i18n)`scanned`} {unit.scannedAt} · {unit.fileCount} {t(i18n)`files`}
         </span>
-        <a className="text-[0.72rem] text-accent no-underline hover:underline ml-auto" href="#security">
+        <a className="text-[0.72rem] text-accent no-underline hover:underline ml-auto" href={'#' + encodeURI(auditRoute('security'))}>
           {t(i18n)`all units →`}
         </a>
       </div>
