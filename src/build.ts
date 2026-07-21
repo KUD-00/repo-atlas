@@ -12,6 +12,7 @@ import type {
   ConceptNode,
   GlossaryEntry,
   ImportGraph,
+  TestAuditUnit,
   TreeNode,
 } from './types.js'
 
@@ -43,6 +44,7 @@ export interface BuildInput {
   basePoints?: string[]
   artifacts?: RawArtifact[]
   audits?: AuditUnit[]
+  testAudits?: TestAuditUnit[]
 }
 
 /** The data the viewer runs on — also served as JSON by `serve`'s /data so
@@ -56,6 +58,7 @@ export function buildPayload({
   basePoints = [],
   artifacts = [],
   audits = [],
+  testAudits = [],
 }: BuildInput): AtlasPayload {
   const byPath = new Map(status.entries.map((e) => [e.path, e]))
 
@@ -143,6 +146,7 @@ export function buildPayload({
     concepts,
     artifacts: artifactIndex,
     audits,
+    testAudits,
   }
 }
 

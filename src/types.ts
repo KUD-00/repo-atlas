@@ -263,6 +263,8 @@ export interface AtlasPayload {
   artifacts: Record<string, ArtifactNode[]>
   /** Security-audit units from `.atlas/audits/`, freshness-checked at load. */
   audits: AuditUnit[]
+  /** Test-audit units from `.atlas/audits/`, freshness-checked at load. */
+  testAudits: TestAuditUnit[]
 }
 
 export interface ChatMessage {

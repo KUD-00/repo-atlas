@@ -8,7 +8,7 @@ import {
 import { noteFileFor, loadNotes, stampNote, moveNoteFile, notesRoot } from './notes.js'
 import { loadConceptPages, sourcesHashFor, stampConceptPage, conceptFileFor } from './conceptPages.js'
 import { loadArtifacts } from './artifacts.js'
-import { importLegacyAudit, loadAudits } from './audits.js'
+import { importLegacyAudit, loadAuditPortfolios } from './audits.js'
 import { computeStatus, summarize, summarizeConcepts } from './status.js'
 import { buildHtml, writeAtlas } from './build.js'
 import { serve } from './serve.js'
@@ -513,6 +513,7 @@ function build(root: string, args: string[]) {
   const outFile = oIdx >= 0 ? args[oIdx + 1] : (config.output ?? '.atlas/atlas.html')
   const scanResult = scan(root, config)
   const status = computeStatus(root, scanResult, { readability: false })
+  const portfolios = loadAuditPortfolios(root, status.audits)
   const html = buildHtml({
     repoName: path.basename(root),
     commit: headCommit(root),
@@ -521,7 +522,8 @@ function build(root: string, args: string[]) {
     glossary: parseGlossary(loadGlossaryRaw(root)),
     basePoints: config.basePoints ?? [],
     artifacts: loadArtifacts(root),
-    audits: loadAudits(root, status.audits),
+    audits: portfolios.security,
+    testAudits: portfolios.tests,
   })
   const target = writeAtlas(root, outFile, html)
   const sum = summarize(status)

@@ -239,6 +239,62 @@ test('v2 ledger slugs must be lowercase kebab for namespaced routes', () => {
   }
 })
 
+test('portfolio loader orders security by severity and tests by stale then impact', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const answer = 1\n')
+    write(root, 'src/b.ts', 'export const other = 1\n')
+    commitAll(root)
+
+    v2Envelope(root, 'security', 'security-low', ['src/a.ts'], [finding('src/a.ts', 'low')])
+    v2Envelope(root, 'security', 'security-high', ['src/a.ts'], [finding('src/a.ts', 'high')])
+    v2Envelope(root, 'test', 'test-advisory', ['src/a.ts'], [testFinding('src/a.ts', 'advisory')])
+    v2Envelope(root, 'test', 'test-blocking', ['src/a.ts'], [testFinding('src/a.ts', 'blocking')])
+    v2Envelope(root, 'test', 'test-stale', ['src/b.ts'], [testFinding('src/b.ts', 'advisory')])
+    write(root, 'src/b.ts', 'export const other = 2\n')
+
+    const statuses = auditStatusEntries(root, scan(root, { exclude: [] }))
+    const portfolios = loadAuditPortfolios(root, statuses)
+    assert.deepEqual(portfolios.security.map((u) => u.slug), ['security-high', 'security-low'])
+    assert.deepEqual(portfolios.tests.map((u) => u.slug), ['test-stale', 'test-blocking', 'test-advisory'])
+    assert.equal(portfolios.tests[0].stale, true)
+    assert.equal(portfolios.tests[1].stale, false)
+    assert.deepEqual(loadAudits(root, statuses).map((u) => u.slug), ['security-high', 'security-low'])
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('malformed portfolio v2 ledgers stay status-invalid and never enter portfolios', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const answer = 1\n')
+    commitAll(root)
+    v2Envelope(root, 'security', 'security-ok', ['src/a.ts'], [finding('src/a.ts', 'medium')])
+    v2Envelope(root, 'test', 'test-incomplete', ['src/a.ts'], [], { reviewState: 'draft' })
+    v2Envelope(root, 'security', 'security-bad-finding', ['src/a.ts'], [{
+      ...finding('src/a.ts'),
+      locations: ['../escape.ts:1'],
+    }])
+
+    const statuses = auditStatusEntries(root, scan(root, { exclude: [] }))
+    const byName = Object.fromEntries(statuses.map((s) => [s.name, s]))
+    assert.equal(byName['security-ok'].status, 'fresh')
+    assert.equal(byName['security-ok'].invalidReason, null)
+    assert.equal(byName['test-incomplete'].status, 'stale')
+    assert.ok(byName['test-incomplete'].invalidReason)
+    assert.equal(byName['security-bad-finding'].status, 'stale')
+    assert.ok(byName['security-bad-finding'].invalidReason)
+
+    const portfolios = loadAuditPortfolios(root, statuses)
+    assert.deepEqual(portfolios.security.map((u) => u.slug), ['security-ok'])
+    assert.deepEqual(portfolios.tests, [])
+    assert.equal(portfolios.security[0].findings.length, 1)
+  } finally {
+    cleanup(root)
+  }
+})
+
 test('unstamped audit still becomes stale when its scope hash drifts', () => {
   const root = makeRepo()
   try {

@@ -21,7 +21,7 @@ function loadMermaid() {
 }
 /** The data the viewer runs on — also served as JSON by `serve`'s /data so
  * open pages can refresh in place instead of reloading. */
-export function buildPayload({ repoName, commit, status, graph = null, glossary = [], basePoints = [], artifacts = [], audits = [], }) {
+export function buildPayload({ repoName, commit, status, graph = null, glossary = [], basePoints = [], artifacts = [], audits = [], testAudits = [], }) {
     const byPath = new Map(status.entries.map((e) => [e.path, e]));
     const makeNode = (p) => {
         const e = byPath.get(p);
@@ -105,6 +105,7 @@ export function buildPayload({ repoName, commit, status, graph = null, glossary 
         concepts,
         artifacts: artifactIndex,
         audits,
+        testAudits,
     };
 }
 export function buildHtml(input) {
