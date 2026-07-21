@@ -2,6 +2,11 @@ import type { AuditDomain } from './types.js'
 
 export type PrimaryView = 'code' | 'concepts' | 'security' | 'tests'
 
+export interface RememberedPrimaryRoutes {
+  code: string
+  concepts: string
+}
+
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u
 const AUDIT_ROUTE_RE = /^audit:(security|test)(?:\/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?))?$/u
 
@@ -10,6 +15,16 @@ export function auditRoute(domain: AuditDomain, slug?: string): string {
     throw new Error('invalid audit slug')
   }
   return `audit:${domain}${slug ? `/${slug}` : ''}`
+}
+
+/**
+ * Safe unit deep-link builder for sidebar rows.
+ * Returns a namespaced route for kebab slugs; null for unrouteable legacy
+ * v1 slugs (which may still appear in the portfolio) without throwing.
+ */
+export function auditUnitRoute(domain: AuditDomain, slug: string): string | null {
+  if (!SLUG_RE.test(slug)) return null
+  return auditRoute(domain, slug)
 }
 
 export function parseAuditRoute(route: string): { domain: AuditDomain; slug: string | null } | null {
@@ -69,4 +84,58 @@ export function isNamespacedOrPathRoute(
   // Reserved namespace: malformed audit:* never falls through to a path match.
   if (route.startsWith('audit:')) return false
   return hasPath(route)
+}
+
+/** Unit deep-link focuses one unit; portfolio home keeps the full list. */
+export function auditUnitsForRoute<T extends { slug: string }>(
+  units: ReadonlyArray<T>,
+  slug: string | null,
+): T[] {
+  if (slug === null) return [...units]
+  return units.filter((unit) => unit.slug === slug)
+}
+
+/**
+ * Concept pages embed security units only.
+ * v2: explicit `conceptSlug`. v1: legacy slug equality. Test units never match.
+ */
+export function securityUnitForConcept<
+  T extends { formatVersion: 1 | 2; domain: string; slug: string; conceptSlug?: string },
+>(conceptSlug: string, units: ReadonlyArray<T>): T | undefined {
+  const security = units.filter((u) => u.domain === 'security')
+  const byConcept = security.find(
+    (u) => u.formatVersion === 2 && u.conceptSlug === conceptSlug,
+  )
+  if (byConcept) return byConcept
+  return security.find((u) => u.formatVersion === 1 && u.slug === conceptSlug)
+}
+
+/** Zero-finding units may show "clean" only when the audit is still fresh. */
+export function isCleanAuditUnit(unit: { findings: ReadonlyArray<unknown>; stale: boolean }): boolean {
+  return unit.findings.length === 0 && !unit.stale
+}
+
+/** Update last Code/Concepts routes; Security/Tests do not overwrite them. */
+export function rememberPrimaryRoutes(
+  last: RememberedPrimaryRoutes,
+  route: string,
+): RememberedPrimaryRoutes {
+  const view = primaryViewForRoute(route)
+  if (view === 'code') return { ...last, code: route }
+  if (view === 'concepts') return { ...last, concepts: route }
+  return last
+}
+
+/** Target hash for a primary-nav click: remembered Code/Concepts, domain homes otherwise. */
+export function primaryNavRoute(view: PrimaryView, last: RememberedPrimaryRoutes): string {
+  switch (view) {
+    case 'code':
+      return last.code
+    case 'concepts':
+      return last.concepts
+    case 'security':
+      return auditRoute('security')
+    case 'tests':
+      return auditRoute('test')
+  }
 }

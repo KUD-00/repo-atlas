@@ -1,11 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
-import { MessageCircle, PanelLeftClose, PanelLeftOpen, PanelRightOpen } from 'lucide-react'
+import {
+  Code2,
+  FlaskConical,
+  LibraryBig,
+  MessageCircle,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightOpen,
+  ShieldAlert,
+} from 'lucide-react'
 import {
   auditRoute,
   isNamespacedOrPathRoute,
+  parseAuditRoute,
+  primaryNavRoute,
   primaryViewForRoute,
+  rememberPrimaryRoutes,
+  securityUnitForConcept,
+  type PrimaryView,
+  type RememberedPrimaryRoutes,
 } from '../src/audit-routes'
 import type { AtlasPayload } from '../src/types'
 import { activateLocale, type AppLocale, getStoredLocale } from './i18n'
@@ -13,8 +28,10 @@ import { indexTree, ancestorsOf, buildRelationIndex, useCompact } from './lib'
 import { useLive } from './live'
 import { Tree } from './Tree'
 import { DocPane } from './Doc'
-import { ConceptList, ConceptPane, conceptSlugOf } from './Concept'
+import { ConceptList, ConceptPane, conceptRoute, conceptSlugOf } from './Concept'
 import { SecurityPane } from './Security'
+import { TestAuditPane } from './TestAudit'
+import { AuditNav } from './AuditNav'
 import { isPrintScope, printScopeOf, PrintView } from './Print'
 import { PanelPane, type CodeJump, type PanelMode } from './Preview'
 import { ChatDock } from './Chat'
@@ -25,8 +42,16 @@ const PV_ICON =
 const TOPBAR_ICON =
   'flex items-center justify-center w-9 h-9 border-none rounded-md bg-transparent text-muted cursor-pointer p-0 shrink-0 hover:text-accent hover:bg-[#3d6b540d] [&_svg]:w-[18px] [&_svg]:h-[18px]'
 const CHIP =
-  'chip text-[0.7rem] py-0.5 px-2 rounded-full border border-border bg-transparent text-muted cursor-pointer whitespace-nowrap'
+  'chip text-[0.7rem] py-0.5 px-2 rounded-full border border-border bg-transparent text-muted cursor-pointer whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30'
 const CHIP_ON = 'border-accent text-accent bg-[#3d6b540f]'
+const PRIMARY_BTN =
+  'w-full flex items-center gap-2 py-1.5 px-2 rounded-md border-none cursor-pointer font-inherit text-[0.8rem] text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30'
+const PRIMARY = [
+  ['code', Code2],
+  ['concepts', LibraryBig],
+  ['security', ShieldAlert],
+  ['tests', FlaskConical],
+] as const
 
 function useRoute(valid: (route: string) => boolean) {
   const read = () => {
@@ -46,6 +71,19 @@ function useRoute(valid: (route: string) => boolean) {
     setPath(p)
   }
   return [path, navigate] as const
+}
+
+function primaryLabel(view: PrimaryView, i18n: Parameters<typeof t>[0]): string {
+  switch (view) {
+    case 'code':
+      return t(i18n)`code`
+    case 'concepts':
+      return t(i18n)`concepts`
+    case 'security':
+      return t(i18n)`security`
+    case 'tests':
+      return t(i18n)`tests`
+  }
 }
 
 export function App({ data: initialData }: { data: AtlasPayload }) {
@@ -81,8 +119,11 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const artifacts = data.artifacts ?? {}
   const audits = data.audits ?? []
   const testAudits = data.testAudits ?? []
-  const auditsBySlug = useMemo(() => new Map(audits.map((a) => [a.slug, a])), [audits])
   const totalFindings = useMemo(() => audits.reduce((n, a) => n + a.findings.length, 0), [audits])
+  const totalTestFindings = useMemo(
+    () => testAudits.reduce((n, a) => n + a.findings.length, 0),
+    [testAudits],
+  )
   const isRoute = useCallback(
     (p: string) => {
       const printScope = printScopeOf(p)
@@ -107,15 +148,27 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
     history.replaceState(null, '', '#' + encodeURI(auditRoute('security')))
     window.dispatchEvent(new HashChangeEvent('hashchange'))
   }, [nodesByPath])
+
+  const primaryView = primaryViewForRoute(path, (p) => nodesByPath.has(p))
+  const auditRouteInfo = parseAuditRoute(path)
+  const [remembered, setRemembered] = useState<RememberedPrimaryRoutes>(() => ({
+    code: primaryView === 'code' ? path : '',
+    concepts: primaryView === 'concepts' ? path || 'view:concepts' : 'view:concepts',
+  }))
+
+  useEffect(() => {
+    setRemembered((prev) => rememberPrimaryRoutes(prev, path))
+  }, [path])
+
   const [expanded, setExpanded] = useState(() => new Set(ancestorsOf(path)))
-  // Sidebar tabs: the code tree and the concept curriculum are two different
-  // structures — switch between them instead of stacking one above the other.
-  const [sideTab, setSideTab] = useState<'code' | 'concepts'>(() =>
-    conceptSlugOf(path) !== null ? 'concepts' : 'code')
+  // Code controls — isolated from Concepts / Security / Tests.
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
   const [showIgnored, setShowIgnored] = useState(false)
   const [sortMode, setSortMode] = useState<'az' | 'read'>('az')
+  // Concepts controls — isolated from Code.
+  const [conceptQuery, setConceptQuery] = useState('')
+  const [conceptStatusFilter, setConceptStatusFilter] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [locale, setLocale] = useState<AppLocale>(getStoredLocale)
   const [sideOpen, setSideOpen] = useState(
@@ -137,9 +190,13 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
     return slug !== null ? conceptsBySlug.get(slug) : undefined
   }, [path, conceptsBySlug])
 
+  const conceptAudit = useMemo(() => {
+    if (!concept) return undefined
+    return securityUnitForConcept(concept.slug, audits)
+  }, [concept, audits])
+
   useEffect(() => {
     if (!concept) return
-    setSideTab('concepts') // following a concept link switches the sidebar to the curriculum
     setConceptCodePath(concept.sources.find((s) => nodesByPath.get(s)?.type === 'file') ?? null)
     // keyed by route: a live data refresh must not reset a jump the reader followed
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -148,6 +205,10 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const onSelect = (p: string) => {
     navigate(p)
     if (compact) setSideOpen(false)
+  }
+
+  const onPrimary = (view: PrimaryView) => {
+    onSelect(primaryNavRoute(view, remembered))
   }
 
   // single entry point for code-anchor jumps: reveal the panel, force code
@@ -182,12 +243,12 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   }, [path])
 
   const node = nodesByPath.get(path) ?? data.tree
-  const primaryView = primaryViewForRoute(path, (p) => nodesByPath.has(p))
   const security = primaryView === 'security'
   const testsView = primaryView === 'tests'
-  // for a concept page (or the security home) the side panel shows the source a
+  const conceptsView = primaryView === 'concepts'
+  // for a concept page (or audit homes) the side panel shows the source a
   // code anchor jumped to (or the first file source); else it falls back to the root toc
-  const panelNode = concept || security || testsView
+  const panelNode = concept || security || testsView || (conceptsView && !concept)
     ? (conceptCodePath !== null ? nodesByPath.get(conceptCodePath) : undefined) ?? data.tree
     : node
   const agg = data.tree.agg!
@@ -248,18 +309,44 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
     jump,
   }
 
+  const primaryCount = (view: PrimaryView): string | null => {
+    switch (view) {
+      case 'code':
+        return String(agg.total)
+      case 'concepts':
+        return String(concepts.length)
+      case 'security':
+        return String(totalFindings)
+      case 'tests':
+        return String(totalTestFindings)
+    }
+  }
+
+  const topTitle = concept
+    ? concept.title
+    : security
+      ? t(i18n)`security`
+      : testsView
+        ? t(i18n)`tests`
+        : conceptsView
+          ? t(i18n)`concepts`
+          : node.path
+            ? node.path.split('/').pop()
+            : data.repoName
+
   return (
     <>
       {compact && (
         <header className="flex items-center gap-1 h-11 px-1.5 border-b border-border bg-panel">
-          <button className={TOPBAR_ICON} title={t(i18n)`expand sidebar`} onClick={() => setSideOpen(true)}>
+          <button type="button" className={TOPBAR_ICON} title={t(i18n)`expand sidebar`} onClick={() => setSideOpen(true)}>
             <PanelLeftOpen />
           </button>
           <span className="flex-1 min-w-0 text-[0.85rem] font-semibold text-center overflow-hidden text-ellipsis whitespace-nowrap">
-            {concept ? concept.title : node.path ? node.path.split('/').pop() : data.repoName}
+            {topTitle}
           </span>
           {live && (
             <button
+              type="button"
               className={TOPBAR_ICON}
               title={t(i18n)`chat with the attached agent session`}
               onClick={() => window.dispatchEvent(new CustomEvent('atlas-chat-toggle'))}
@@ -267,14 +354,14 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
               <MessageCircle />
             </button>
           )}
-          <button className={TOPBAR_ICON} title={t(i18n)`expand panel`} onClick={openPanel}>
+          <button type="button" className={TOPBAR_ICON} title={t(i18n)`expand panel`} onClick={openPanel}>
             <PanelRightOpen />
           </button>
         </header>
       )}
       {!compact && !sideOpen && (
         <div className="flex flex-col items-center pt-2.5 bg-panel w-10 border-r border-border">
-          <button className={PV_ICON} title={t(i18n)`expand sidebar`} onClick={() => setSideOpen(true)}>
+          <button type="button" className={PV_ICON} title={t(i18n)`expand sidebar`} onClick={() => setSideOpen(true)}>
             <PanelLeftOpen />
           </button>
         </div>
@@ -298,7 +385,7 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
         <div className="px-4 pt-3.5 pb-2.5 border-b border-border">
           <div className="flex items-center justify-between gap-2">
             <h1 className="text-[0.95rem] font-semibold">{data.repoName}</h1>
-            <button className={PV_ICON} title={t(i18n)`collapse sidebar`} onClick={() => setSideOpen(false)}>
+            <button type="button" className={PV_ICON} title={t(i18n)`collapse sidebar`} onClick={() => setSideOpen(false)}>
               <PanelLeftClose />
             </button>
           </div>
@@ -313,7 +400,8 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
               <span><b>{agg.missing}</b> {t(i18n)`missing`}</span>
               {audits.length > 0 && (
                 <button
-                  className="font-inherit bg-transparent border-none p-0 cursor-pointer text-[0.72rem] text-muted hover:text-accent [&_b]:font-semibold"
+                  type="button"
+                  className="font-inherit bg-transparent border-none p-0 cursor-pointer text-[0.72rem] text-muted hover:text-accent focus:outline-none focus-visible:text-accent [&_b]:font-semibold"
                   onClick={() => onSelect(auditRoute('security'))}
                   title={t(i18n)`security audit findings across all units — open the security view`}
                 >
@@ -324,68 +412,124 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
             <SettingsButton onClick={() => setSettingsOpen(true)} />
           </div>
         </div>
-        <div className="px-3 py-2 border-b border-border flex flex-col gap-1.5">
-          <input
-            type="search"
-            className="w-full min-w-0 font-inherit text-[0.8rem] py-1 px-2 border border-border rounded-md bg-bg text-text focus:outline-none focus:border-accent"
-            placeholder={t(i18n)`filter paths…`}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <div className="flex gap-1.5 flex-wrap">
-            <button
-              className={CHIP + (statusFilter === 'outdated' ? ' ' + CHIP_ON : '')}
-              onClick={() => setStatusFilter(statusFilter === 'outdated' ? null : 'outdated')}
-            >
-              {t(i18n)`outdated`}
-            </button>
-            <button
-              className={CHIP + (statusFilter === 'missing' ? ' ' + CHIP_ON : '')}
-              onClick={() => setStatusFilter(statusFilter === 'missing' ? null : 'missing')}
-            >
-              {t(i18n)`missing`}
-            </button>
-            <button
-              className={CHIP + (showIgnored ? ' ' + CHIP_ON : '')}
-              onClick={() => setShowIgnored(!showIgnored)}
-              title={t(i18n)`also show config-excluded paths, greyed out`}
-            >
-              {t(i18n)`ignored`}
-            </button>
-            <button
-              className={CHIP + ' sort'}
-              onClick={() => setSortMode(sortMode === 'az' ? 'read' : 'az')}
-              title={t(i18n)`tree layout: alphabetical or reading order`}
-            >
-              {sortMode === 'az' ? t(i18n)`sort: a–z` : t(i18n)`sort: reading`}
-            </button>
-          </div>
-        </div>
-        {concepts.length > 0 && (
-          <div className="flex gap-1 px-3 pt-2">
-            {(['code', 'concepts'] as const).map((tb) => (
+
+        <div className="px-2 py-2 border-b border-border flex flex-col gap-0.5" role="navigation" aria-label={t(i18n)`primary`}>
+          {PRIMARY.map(([view, Icon]) => {
+            const active = primaryView === view
+            const count = primaryCount(view)
+            return (
               <button
-                key={tb}
+                key={view}
+                type="button"
                 className={
-                  'flex-1 text-[0.76rem] py-1 rounded-md border cursor-pointer font-inherit ' +
-                  (sideTab === tb
-                    ? 'border-accent text-accent bg-[#3d6b540d]'
-                    : 'border-border text-muted bg-transparent hover:text-text')
+                  PRIMARY_BTN +
+                  (active
+                    ? ' bg-[#3d6b5414] text-accent'
+                    : ' bg-transparent text-muted hover:text-text hover:bg-[#00000006]')
                 }
-                onClick={() => setSideTab(tb)}
+                aria-current={active ? 'page' : undefined}
+                onClick={() => onPrimary(view)}
               >
-                {tb === 'code' ? t(i18n)`code` : t(i18n)`concepts`}
+                <Icon className="w-4 h-4 shrink-0" aria-hidden />
+                <span className="flex-1 min-w-0 font-semibold">{primaryLabel(view, i18n)}</span>
+                {count !== null && (
+                  <span className={'shrink-0 text-[0.7rem] tabular-nums ' + (active ? 'text-accent' : 'text-muted')}>
+                    {count}
+                  </span>
+                )}
               </button>
-            ))}
+            )
+          })}
+        </div>
+
+        {primaryView === 'code' && (
+          <div className="px-3 py-2 border-b border-border flex flex-col gap-1.5">
+            <input
+              type="search"
+              className="w-full min-w-0 font-inherit text-[0.8rem] py-1 px-2 border border-border rounded-md bg-bg text-text focus:outline-none focus:border-accent"
+              placeholder={t(i18n)`filter paths…`}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <div className="flex gap-1.5 flex-wrap">
+              <button
+                type="button"
+                className={CHIP + (statusFilter === 'outdated' ? ' ' + CHIP_ON : '')}
+                onClick={() => setStatusFilter(statusFilter === 'outdated' ? null : 'outdated')}
+              >
+                {t(i18n)`outdated`}
+              </button>
+              <button
+                type="button"
+                className={CHIP + (statusFilter === 'missing' ? ' ' + CHIP_ON : '')}
+                onClick={() => setStatusFilter(statusFilter === 'missing' ? null : 'missing')}
+              >
+                {t(i18n)`missing`}
+              </button>
+              <button
+                type="button"
+                className={CHIP + (showIgnored ? ' ' + CHIP_ON : '')}
+                onClick={() => setShowIgnored(!showIgnored)}
+                title={t(i18n)`also show config-excluded paths, greyed out`}
+              >
+                {t(i18n)`ignored`}
+              </button>
+              <button
+                type="button"
+                className={CHIP + ' sort'}
+                onClick={() => setSortMode(sortMode === 'az' ? 'read' : 'az')}
+                title={t(i18n)`tree layout: alphabetical or reading order`}
+              >
+                {sortMode === 'az' ? t(i18n)`sort: a–z` : t(i18n)`sort: reading`}
+              </button>
+            </div>
           </div>
         )}
+
+        {primaryView === 'concepts' && (
+          <div className="px-3 py-2 border-b border-border flex flex-col gap-1.5">
+            <input
+              type="search"
+              className="w-full min-w-0 font-inherit text-[0.8rem] py-1 px-2 border border-border rounded-md bg-bg text-text focus:outline-none focus:border-accent"
+              placeholder={t(i18n)`filter concepts…`}
+              value={conceptQuery}
+              onChange={(e) => setConceptQuery(e.target.value)}
+            />
+            <div className="flex gap-1.5 flex-wrap">
+              <button
+                type="button"
+                className={CHIP + (conceptStatusFilter === 'outdated' ? ' ' + CHIP_ON : '')}
+                onClick={() =>
+                  setConceptStatusFilter(conceptStatusFilter === 'outdated' ? null : 'outdated')
+                }
+              >
+                {t(i18n)`outdated`}
+              </button>
+            </div>
+          </div>
+        )}
+
         <nav className="flex-1 min-h-0 overflow-auto px-1.5 pt-2 pb-6">
-          {sideTab === 'concepts' && concepts.length > 0 ? (
+          {primaryView === 'concepts' ? (
             <ConceptList
               concepts={concepts}
               selected={path}
-              query={query.trim().toLowerCase()}
-              statusFilter={statusFilter}
+              query={conceptQuery.trim().toLowerCase()}
+              statusFilter={conceptStatusFilter}
+              onSelect={onSelect}
+            />
+          ) : primaryView === 'security' ? (
+            <AuditNav
+              domain="security"
+              units={audits}
+              selectedSlug={auditRouteInfo?.domain === 'security' ? auditRouteInfo.slug : null}
+              onSelect={onSelect}
+            />
+          ) : primaryView === 'tests' ? (
+            <AuditNav
+              domain="test"
+              units={testAudits}
+              selectedSlug={auditRouteInfo?.domain === 'test' ? auditRouteInfo.slug : null}
               onSelect={onSelect}
             />
           ) : (
@@ -406,13 +550,24 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
       <main className={'min-w-0 min-h-0 grid overflow-hidden ' + mainCols}>
         <div className="overflow-auto min-w-0" ref={docRef}>
           {concept ? (
-            <ConceptPane concept={concept} nodesByPath={nodesByPath} glossary={data.glossary} audit={auditsBySlug.get(concept.slug)} />
+            <ConceptPane
+              concept={concept}
+              nodesByPath={nodesByPath}
+              glossary={data.glossary}
+              audit={conceptAudit}
+            />
+          ) : conceptsView ? (
+            <ConceptsIndex concepts={concepts} onSelect={onSelect} />
           ) : security ? (
-            <SecurityPane audits={audits} />
+            <SecurityPane
+              audits={audits}
+              focusSlug={auditRouteInfo?.domain === 'security' ? auditRouteInfo.slug : null}
+            />
           ) : testsView ? (
-            <div className="max-w-[860px] py-9 px-12 pb-24 max-md:py-5 max-md:px-4 max-md:pb-16">
-              <div className="text-[0.85rem] text-muted">{t(i18n)`No completed audits yet`}</div>
-            </div>
+            <TestAuditPane
+              audits={testAudits}
+              focusSlug={auditRouteInfo?.domain === 'test' ? auditRouteInfo.slug : null}
+            />
           ) : (
             <DocPane
               node={node}
@@ -430,7 +585,7 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
         {!compact && panelOpen && <PanelPane {...panelProps} />}
         {!compact && !panelOpen && (
           <div className="flex flex-col items-center pt-2.5 bg-panel w-10 border-l border-border">
-            <button className={PV_ICON} title={t(i18n)`expand panel`} onClick={() => setPanelOpen(true)}>
+            <button type="button" className={PV_ICON} title={t(i18n)`expand panel`} onClick={() => setPanelOpen(true)}>
               <PanelRightOpen />
             </button>
           </div>
@@ -466,5 +621,38 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
         />
       )}
     </>
+  )
+}
+
+function ConceptsIndex({
+  concepts,
+  onSelect,
+}: {
+  concepts: AtlasPayload['concepts']
+  onSelect: (route: string) => void
+}) {
+  const { i18n } = useLingui()
+  return (
+    <div className="max-w-[760px] py-9 px-12 pb-24 max-md:py-5 max-md:px-4 max-md:pb-16">
+      <div className="text-[0.78rem] text-muted">{t(i18n)`concepts`}</div>
+      <h1 className="text-[1.25rem] font-[650] my-1 mb-3">{t(i18n)`concept index`}</h1>
+      {concepts.length === 0 ? (
+        <div className="text-[0.85rem] text-muted">{t(i18n)`no concept pages yet`}</div>
+      ) : (
+        <ul className="list-none p-0 m-0 flex flex-col gap-1.5">
+          {concepts.map((c) => (
+            <li key={c.slug}>
+              <button
+                type="button"
+                className="font-inherit text-[0.9rem] text-accent bg-transparent border-none p-0 cursor-pointer hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 rounded-sm"
+                onClick={() => onSelect(conceptRoute(c.slug))}
+              >
+                {c.title}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }

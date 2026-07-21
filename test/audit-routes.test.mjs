@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   auditRoute,
+  auditUnitRoute,
   isConceptsViewRoute,
   isNamespacedOrPathRoute,
   isValidAuditUnitRoute,
@@ -84,4 +85,110 @@ test('audit route unit deep-links require a portfolio slug; homes are always val
   // legacy v1 non-kebab slugs may still appear in the portfolio but have no unit deep-link
   assert.equal(parseAuditRoute('audit:security/Legacy_Name'), null)
   assert.equal(isValidAuditUnitRoute('security', 'Legacy_Name', security), true)
+})
+
+test('audit unit route returns deep-link only for kebab slugs; null for unrouteable legacy', () => {
+  assert.equal(auditUnitRoute('security', 'runtime-auth'), 'audit:security/runtime-auth')
+  assert.equal(auditUnitRoute('test', 'test-runtime'), 'audit:test/test-runtime')
+  assert.equal(auditUnitRoute('security', 'a'), 'audit:security/a')
+  // legacy v1 non-kebab / invalid deep-link slugs must not throw
+  assert.equal(auditUnitRoute('security', 'Legacy_Name'), null)
+  assert.equal(auditUnitRoute('security', 'Bad Slug'), null)
+  assert.equal(auditUnitRoute('test', 'has_underscore'), null)
+  assert.equal(auditUnitRoute('security', ''), null)
+  assert.equal(auditUnitRoute('security', 'Upper'), null)
+})
+
+import {
+  auditUnitsForRoute,
+  isCleanAuditUnit,
+  primaryNavRoute,
+  rememberPrimaryRoutes,
+  securityUnitForConcept,
+} from '../dist/audit-routes.js'
+
+test('audit route unit selection focuses one unit or returns the full portfolio', () => {
+  const units = [{ slug: 'alpha' }, { slug: 'beta' }, { slug: 'gamma' }]
+  assert.deepEqual(auditUnitsForRoute(units, null).map((u) => u.slug), ['alpha', 'beta', 'gamma'])
+  assert.deepEqual(auditUnitsForRoute(units, 'beta').map((u) => u.slug), ['beta'])
+  assert.deepEqual(auditUnitsForRoute(units, 'missing'), [])
+  assert.deepEqual(auditUnitsForRoute([], null), [])
+})
+
+test('audit route concept association uses conceptSlug for v2 and slug only for v1', () => {
+  const units = [
+    { formatVersion: 1, domain: 'security', slug: 'auth', title: 'v1', findings: [] },
+    {
+      formatVersion: 2,
+      domain: 'security',
+      slug: 'security-auth',
+      conceptSlug: 'auth',
+      title: 'v2-linked',
+      findings: [],
+    },
+    {
+      formatVersion: 2,
+      domain: 'security',
+      slug: 'other',
+      title: 'v2-unlinked',
+      findings: [],
+    },
+    {
+      formatVersion: 2,
+      domain: 'security',
+      slug: 'auth',
+      title: 'v2-same-slug-no-concept',
+      findings: [],
+    },
+  ]
+  // v2 with explicit conceptSlug wins association for "auth"
+  assert.equal(securityUnitForConcept('auth', units)?.title, 'v2-linked')
+  // legacy v1 slug fallback when no v2 conceptSlug match
+  assert.equal(
+    securityUnitForConcept('auth', units.filter((u) => u.formatVersion === 1))?.title,
+    'v1',
+  )
+  // v2 unit with matching slug but no conceptSlug must NOT associate
+  assert.equal(
+    securityUnitForConcept(
+      'auth',
+      units.filter((u) => u.slug === 'auth' && u.formatVersion === 2),
+    ),
+    undefined,
+  )
+  // test-shaped records must never be considered (caller passes security portfolio only;
+  // helper still ignores domain !== security if mixed by mistake)
+  assert.equal(
+    securityUnitForConcept('auth', [
+      { formatVersion: 2, domain: 'test', slug: 'auth', conceptSlug: 'auth', title: 'test-unit', findings: [] },
+      { formatVersion: 1, domain: 'security', slug: 'auth', title: 'v1', findings: [] },
+    ])?.title,
+    'v1',
+  )
+})
+
+test('audit route clean label only for fresh zero-finding units', () => {
+  assert.equal(isCleanAuditUnit({ findings: [], stale: false }), true)
+  assert.equal(isCleanAuditUnit({ findings: [], stale: true }), false)
+  assert.equal(isCleanAuditUnit({ findings: [{ title: 'x' }], stale: false }), false)
+})
+
+test('audit route primary nav remembers code/concepts and homes security/tests', () => {
+  let mem = { code: '', concepts: 'view:concepts' }
+  mem = rememberPrimaryRoutes(mem, 'src/a.ts')
+  assert.deepEqual(mem, { code: 'src/a.ts', concepts: 'view:concepts' })
+  mem = rememberPrimaryRoutes(mem, 'concept:auth')
+  assert.deepEqual(mem, { code: 'src/a.ts', concepts: 'concept:auth' })
+  mem = rememberPrimaryRoutes(mem, 'view:concepts')
+  assert.deepEqual(mem, { code: 'src/a.ts', concepts: 'view:concepts' })
+  // security/tests do not clobber code/concepts memory
+  mem = rememberPrimaryRoutes(mem, 'audit:security/runtime-auth')
+  assert.deepEqual(mem, { code: 'src/a.ts', concepts: 'view:concepts' })
+  mem = rememberPrimaryRoutes(mem, 'audit:test')
+  assert.deepEqual(mem, { code: 'src/a.ts', concepts: 'view:concepts' })
+
+  assert.equal(primaryNavRoute('code', mem), 'src/a.ts')
+  assert.equal(primaryNavRoute('concepts', mem), 'view:concepts')
+  assert.equal(primaryNavRoute('security', mem), 'audit:security')
+  assert.equal(primaryNavRoute('tests', mem), 'audit:test')
 })

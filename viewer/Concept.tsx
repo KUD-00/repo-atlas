@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import { Printer } from 'lucide-react'
-import type { AuditUnit, ConceptNode, ConceptState, GlossaryEntry, TreeNode } from '../src/types'
+import type { ConceptNode, ConceptState, GlossaryEntry, SecurityAuditUnit, TreeNode } from '../src/types'
 import {
   annotateConceptCodeAnchors, annotateGlossary, linkifyPaths, renderMermaidIn,
 } from './lib'
@@ -132,7 +132,8 @@ export function ConceptPane({
   concept: ConceptNode
   nodesByPath: Map<string, TreeNode>
   glossary: GlossaryEntry[]
-  audit?: AuditUnit
+  /** Only security units; association is decided by the caller (conceptSlug / v1 slug). */
+  audit?: SecurityAuditUnit
 }) {
   const { i18n } = useLingui()
   const broken = new Set(concept.brokenSources)

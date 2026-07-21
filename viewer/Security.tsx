@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import { ShieldAlert, ShieldCheck } from 'lucide-react'
-import { auditRoute } from '../src/audit-routes'
-import type { AuditFinding, AuditUnit } from '../src/types'
+import { auditRoute, auditUnitsForRoute, isCleanAuditUnit } from '../src/audit-routes'
+import type { AuditFinding, SecurityAuditUnit } from '../src/types'
+import { AuditLocation } from './AuditLocation'
 import { conceptRoute } from './Concept'
 import type { AppLocale } from './i18n'
 
@@ -11,8 +12,8 @@ import type { AppLocale } from './i18n'
  * Security view — the interactive face of `.atlas/audits/` (verdict archives
  * produced by qa/audit.ts). Two surfaces share FindingCard: the global
  * `#audit:security` home (portfolio: all units, severity filters) and the section
- * embedded in concept pages (this boundary's posture). Locations dispatch
- * `atlas-code-jump` so a finding's evidence opens in the code panel.
+ * embedded in concept pages (this boundary's posture). Locations use AuditLocation
+ * so a finding's evidence opens in the code panel.
  * Print/PDF stays with the artifacts projection — this view is for browsing.
  */
 
@@ -31,32 +32,6 @@ const CHIP = 'inline-flex items-center gap-1 text-[0.68rem] font-semibold py-px 
 
 function SevBadge({ sev }: { sev: Severity }) {
   return <span className={CHIP + ' ' + SEV_STYLE[sev]}>{sev}</span>
-}
-
-/** Parse `file:line` / `file#symbol` into a jump target; symbol anchors land
- * at the file top (the panel's code view has no symbol resolver). */
-function parseLocation(loc: string): { path: string; line: number } | null {
-  const m = loc.match(/^([^:#]+)(?::(\d+)|#(.+))?$/)
-  if (!m) return null
-  return { path: m[1], line: m[2] ? Number(m[2]) : 1 }
-}
-
-function LocationChip({ loc }: { loc: string }) {
-  const target = parseLocation(loc)
-  if (!target) return <span className={CHIP + ' text-muted bg-panel border-border font-mono font-normal'}>{loc}</span>
-  return (
-    <button
-      className={CHIP + ' font-mono font-normal text-accent bg-[#3d6b540d] border-[#3d6b5426] cursor-pointer hover:bg-[#3d6b541f]'}
-      title={loc}
-      onClick={() =>
-        window.dispatchEvent(
-          new CustomEvent('atlas-code-jump', { detail: { path: target.path, line: target.line, endLine: target.line } }),
-        )
-      }
-    >
-      {loc}
-    </button>
-  )
 }
 
 export function FindingCard({ finding }: { finding: AuditFinding }) {
@@ -81,7 +56,7 @@ export function FindingCard({ finding }: { finding: AuditFinding }) {
       </div>
       <div className="flex gap-1 flex-wrap mt-2">
         {finding.locations.map((l) => (
-          <LocationChip key={l} loc={l} />
+          <AuditLocation key={l} loc={l} />
         ))}
       </div>
     </article>
@@ -94,10 +69,16 @@ export const tallyOf = (findings: AuditFinding[]): Map<Severity, number> => {
   return m
 }
 
+function conceptHrefFor(unit: SecurityAuditUnit): string | null {
+  if (unit.formatVersion === 1) return conceptRoute(unit.slug)
+  if (unit.conceptSlug) return conceptRoute(unit.conceptSlug)
+  return null
+}
+
 function UnitSection({
   unit, sevFilter, locale,
 }: {
-  unit: AuditUnit
+  unit: SecurityAuditUnit
   sevFilter: ReadonlySet<Severity>
   locale: AppLocale
 }) {
@@ -105,6 +86,8 @@ function UnitSection({
   const [open, setOpen] = useState(true)
   const findings = sevFilter.size ? unit.findings.filter((f) => sevFilter.has(f.severity as Severity)) : unit.findings
   const tally = tallyOf(unit.findings)
+  const clean = isCleanAuditUnit(unit)
+  const conceptHref = conceptHrefFor(unit)
   return (
     <section className="mb-4">
       <div
@@ -112,13 +95,17 @@ function UnitSection({
         onClick={() => setOpen(!open)}
       >
         <span className={'text-muted text-[0.7rem] inline-block transition-transform duration-150' + (open ? ' rotate-90' : '')}>▶</span>
-        <a
-          className="text-[0.92rem] font-semibold text-accent no-underline hover:underline"
-          href={'#' + encodeURI(conceptRoute(unit.slug))}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {unit.title}
-        </a>
+        {conceptHref ? (
+          <a
+            className="text-[0.92rem] font-semibold text-accent no-underline hover:underline"
+            href={'#' + encodeURI(conceptHref)}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {unit.title}
+          </a>
+        ) : (
+          <span className="text-[0.92rem] font-semibold">{unit.title}</span>
+        )}
         {unit.stale && (
           <span className={CHIP + ' text-[#c4222e] bg-[#c4222e0d] border-[#c4222e30]'}>
             {t(i18n)`stale — re-audit needed`}
@@ -129,7 +116,7 @@ function UnitSection({
             {tally.get(s)} {s}
           </span>
         ))}
-        {unit.findings.length === 0 && (
+        {clean && (
           <span className="inline-flex items-center gap-1 text-[0.72rem] text-[#3d6b54]">
             <ShieldCheck className="w-3.5 h-3.5" /> {t(i18n)`clean`}
           </span>
@@ -155,19 +142,26 @@ function UnitSection({
 }
 
 /** Global `#audit:security` home: the repo's security posture as a portfolio. */
-export function SecurityPane({ audits }: { audits: AuditUnit[] }) {
+export function SecurityPane({
+  audits,
+  focusSlug = null,
+}: {
+  audits: SecurityAuditUnit[]
+  focusSlug?: string | null
+}) {
   const { i18n } = useLingui()
   const [sevFilter, setSevFilter] = useState<ReadonlySet<Severity>>(new Set())
   const [onlyStale, setOnlyStale] = useState(false)
-  const totals = useMemo(() => tallyOf(audits.flatMap((u) => u.findings)), [audits])
-  const staleCount = audits.filter((u) => u.stale).length
+  const focused = useMemo(() => auditUnitsForRoute(audits, focusSlug ?? null), [audits, focusSlug])
+  const totals = useMemo(() => tallyOf(focused.flatMap((u) => u.findings)), [focused])
+  const staleCount = focused.filter((u) => u.stale).length
   const toggleSev = (s: Severity) =>
     setSevFilter((prev) => {
       const next = new Set(prev)
       next.has(s) ? next.delete(s) : next.add(s)
       return next
     })
-  const units = onlyStale ? audits.filter((u) => u.stale) : audits
+  const units = onlyStale ? focused.filter((u) => u.stale) : focused
   return (
     <div className="max-w-[860px] py-9 px-12 pb-24 max-md:py-5 max-md:px-4 max-md:pb-16">
       <div className="text-[0.78rem] text-muted flex items-center gap-1.5">
@@ -178,7 +172,13 @@ export function SecurityPane({ audits }: { audits: AuditUnit[] }) {
         {SEV_ORDER.filter((s) => totals.has(s)).map((s) => (
           <button
             key={s}
-            className={CHIP + ' cursor-pointer ' + SEV_STYLE[s] + (sevFilter.size && !sevFilter.has(s) ? ' opacity-40' : '')}
+            type="button"
+            className={
+              CHIP +
+              ' cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 ' +
+              SEV_STYLE[s] +
+              (sevFilter.size && !sevFilter.has(s) ? ' opacity-40' : '')
+            }
             onClick={() => toggleSev(s)}
             title={t(i18n)`filter by severity`}
           >
@@ -187,7 +187,12 @@ export function SecurityPane({ audits }: { audits: AuditUnit[] }) {
         ))}
         {staleCount > 0 && (
           <button
-            className={CHIP + ' cursor-pointer ' + (onlyStale ? 'text-[#c4222e] bg-[#c4222e14] border-[#c4222e40]' : 'text-muted bg-panel border-border')}
+            type="button"
+            className={
+              CHIP +
+              ' cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 ' +
+              (onlyStale ? 'text-[#c4222e] bg-[#c4222e14] border-[#c4222e40]' : 'text-muted bg-panel border-border')
+            }
             onClick={() => setOnlyStale(!onlyStale)}
           >
             {staleCount} {t(i18n)`stale`}
@@ -195,20 +200,26 @@ export function SecurityPane({ audits }: { audits: AuditUnit[] }) {
         )}
       </div>
       <div className="text-[0.72rem] text-muted mb-5">
-        {audits.length} {t(i18n)`audited units`}
+        {focused.length} {t(i18n)`audited units`}
         {sevFilter.size > 0 ? ` · ${t(i18n)`filtered`}` : ''}
       </div>
       {units.map((u) => (
         <UnitSection key={u.slug} unit={u} sevFilter={sevFilter} locale={i18n.locale as AppLocale} />
       ))}
-      {units.length === 0 && <div className="text-[0.85rem] text-muted">{t(i18n)`no audited units yet`}</div>}
+      {audits.length === 0 && (
+        <div className="text-[0.85rem] text-muted">{t(i18n)`No completed audits yet`}</div>
+      )}
+      {audits.length > 0 && units.length === 0 && (
+        <div className="text-[0.85rem] text-muted">{t(i18n)`no findings match the current filter`}</div>
+      )}
     </div>
   )
 }
 
 /** Concept-page section: this trust boundary's own posture, compact. */
-export function ConceptSecuritySection({ unit }: { unit: AuditUnit }) {
+export function ConceptSecuritySection({ unit }: { unit: SecurityAuditUnit }) {
   const { i18n } = useLingui()
+  const clean = isCleanAuditUnit(unit)
   return (
     <div className="mt-10 pt-5 border-t border-border">
       <div className="flex items-center gap-2 flex-wrap mb-3">
@@ -226,9 +237,13 @@ export function ConceptSecuritySection({ unit }: { unit: AuditUnit }) {
           {t(i18n)`all units →`}
         </a>
       </div>
-      {unit.findings.length === 0 ? (
+      {clean ? (
         <div className="flex items-center gap-1.5 text-[0.82rem] text-[#3d6b54]">
           <ShieldCheck className="w-4 h-4" /> {t(i18n)`no findings — clean`}
+        </div>
+      ) : unit.findings.length === 0 ? (
+        <div className="text-[0.82rem] text-muted">
+          {unit.stale ? t(i18n)`stale — re-audit needed` : t(i18n)`no findings`}
         </div>
       ) : (
         unit.findings.map((f) => <FindingCard key={f.title} finding={f} />)
