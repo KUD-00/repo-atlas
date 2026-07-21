@@ -25,7 +25,6 @@ import type {
 } from '../src/types'
 import {
   localizedActionLabel,
-  localizedCoverageLabel,
   localizedOutcomeLabel,
   localizedStrongZeroFindingPhrase,
 } from './audit-copy'
@@ -36,6 +35,7 @@ import {
   CoverageStatement,
   CoverageSummary,
 } from './AuditCoverage'
+import { AuditGapCoverageFacts, AuditUnitCoverageFacts } from './AuditCoverageFacts'
 import { AuditLocation } from './AuditLocation'
 
 /**
@@ -371,13 +371,7 @@ function UnitDetail({
         <h2 id="test-coverage" className="text-[0.85rem] font-semibold m-0 mb-2">
           {t(i18n)`Coverage`}
         </h2>
-        {unitRow && (
-          <p className={META + ' m-0 mb-2'}>
-            {unitRow.coverage.fresh}/{unitRow.coverage.required} {t(i18n)`fresh`}
-            {' · '}
-            {localizedCoverageLabel(i18n, unitRow.coverage)}
-          </p>
-        )}
+        {unitRow && <AuditUnitCoverageFacts model={model} coverage={unitRow.coverage} />}
         <AuditFileTable rows={fileRows} query={fileQuery} onQueryChange={setFileQuery} />
       </section>
 
@@ -435,15 +429,7 @@ function OverviewHome({
         </div>
         <h1 className="text-[1.25rem] font-[650] my-1 mb-3">{t(i18n)`Coverage gaps`}</h1>
         <CoverageStatement model={model} />
-        <p className={META + ' m-0 mb-4'}>
-          <span className="text-text font-semibold tabular-nums">
-            {gaps.numerator}/{gaps.denominator}
-          </span>{' '}
-          {t(i18n)`fresh`}
-          {' · '}
-          <span className="text-text font-semibold tabular-nums">{gaps.missing}</span>{' '}
-          {t(i18n)`missing`}
-        </p>
+        <AuditGapCoverageFacts model={model} projection={gaps} />
         <AuditFileTable rows={gaps.rows} />
       </div>
     )

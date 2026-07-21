@@ -405,6 +405,49 @@ describe('audit copy source boundary', () => {
     )
   })
 
+  test('all audit coverage numerators cross one trusted-count boundary', () => {
+    const sharedRel = 'viewer/AuditCoverageFacts.tsx'
+    assert.ok(
+      fs.existsSync(path.join(ROOT, sharedRel)),
+      `${sharedRel} must own the shared trusted-count rendering boundary`,
+    )
+    const shared = stripComments(read(sharedRel))
+    assert.match(
+      shared,
+      /coverageCountsAvailable\s*\(\s*model\s*\)/,
+      'shared coverage facts must gate every numeric numerator/denominator on coverageCountsAvailable(model)',
+    )
+    assert.match(
+      shared,
+      /Coverage counts unavailable/,
+      'the untrusted branch must render the approved non-numeric unavailable copy',
+    )
+
+    for (const rel of ['viewer/Security.tsx', 'viewer/TestAudit.tsx']) {
+      const src = stripComments(read(rel))
+      assert.match(
+        src,
+        /AuditUnitCoverageFacts/,
+        `${rel}: unit coverage must use the shared trusted-count component`,
+      )
+      assert.match(
+        src,
+        /AuditGapCoverageFacts/,
+        `${rel}: gap coverage must use the shared trusted-count component`,
+      )
+      assert.doesNotMatch(
+        src,
+        /unitRow\.coverage\.(?:fresh|required)/,
+        `${rel}: must not render unit numerator/denominator directly`,
+      )
+      assert.doesNotMatch(
+        src,
+        /gaps\.(?:numerator|denominator|missing)/,
+        `${rel}: must not render gap counts outside the shared trust boundary`,
+      )
+    }
+  })
+
   test('assurance msgids exist in all catalogs with nonempty msgstr', () => {
     /** @type {string[]} */
     const missing = []
