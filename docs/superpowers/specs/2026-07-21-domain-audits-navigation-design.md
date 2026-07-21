@@ -1,7 +1,7 @@
 # Domain-aware audit navigation design
 
 Date: 2026-07-21
-Status: design approved; pending written-spec review
+Status: approved
 
 ## Problem
 
