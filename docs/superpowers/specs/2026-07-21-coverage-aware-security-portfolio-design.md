@@ -119,6 +119,13 @@ current report whose verdict is `complete`.
     "hash": "<sha256-of-canonical-policy>"
   },
   "inventoryHash": "<sha256-of-current-tracked-inventory>",
+  "units": [
+    {
+      "domain": "security",
+      "slug": "security-apps-daemon",
+      "title": "Daemon"
+    }
+  ],
   "summary": {
     "tracked": 4528,
     "securityRequired": 1900,
@@ -144,7 +151,11 @@ current report whose verdict is `complete`.
       "ruleIds": ["first-party-runtime"],
       "classification": {
         "kind": "review",
-        "domains": ["security"]
+        "domains": {
+          "security": {
+            "unit": "security-apps-daemon"
+          }
+        }
       },
       "evidence": {
         "security": {
@@ -172,11 +183,20 @@ Tests. `tracked` equals unique review-classified paths plus excluded,
 unclassified, and conflicted paths; dual-domain paths occur once in `tracked`
 and in both required-domain totals.
 
+`units` is the stable portfolio registry. Each entry has one domain, a
+route-safe unique slug, and a non-empty title. Every required domain on every
+review-classified path names exactly one registered unit of the same domain,
+even when that path has no evidence yet. Completed ledger slugs normally match
+their registered unit; supplementary ledgers may also appear in the evidence
+array. This separation is what lets Atlas calculate `fresh / required` and
+show an entirely unaudited area without inventing a file-tree denominator.
+
 ### Classification states
 
 Each tracked path has exactly one classification:
 
-- `review`, with one or both required domains;
+- `review`, with one or both required domains and one registered target unit
+  for each domain;
 - `excluded`, with category, reason, rule ID, and optional owner;
 - `unclassified`;
 - `conflict` when policy rules produce incompatible decisions.
@@ -222,8 +242,9 @@ blob or use the marker.
 
 Malformed JSON, unsupported versions, duplicate or unsafe paths, symlinked
 files/directories, inconsistent summaries, unknown statuses, missing required
-domain evidence, mismatched ledger slugs, or blob drift make the viewer state
-invalid or stale. They never degrade to an empty portfolio.
+domain evidence, unknown or cross-domain unit references, mismatched ledger
+slugs, or blob drift make the viewer state invalid or stale. They never degrade
+to an empty portfolio.
 
 ## Audit unit contract changes
 
@@ -302,7 +323,8 @@ before findings because findings cannot describe an unknown scope. Within
 findings, severity determines order. Accepted risks and separate-design items
 remain visible but are not mixed into the open-action count.
 
-The portfolio table follows, one row per stable Security unit. Each row shows:
+The portfolio table follows, one row per registered stable Security unit,
+including units that do not yet have a completed ledger. Each row shows:
 
 - unit title;
 - fresh/required file pairs;
@@ -355,8 +377,8 @@ findings are never coerced into Test findings or vice versa.
 ## Data flow
 
 1. A repository-owned checker enumerates the complete tracked universe,
-   evaluates its reviewed policy, validates current domain ledgers, and writes
-   the deterministic coverage report atomically.
+   evaluates its reviewed policy and stable unit assignment, validates current
+   domain ledgers, and writes the deterministic coverage report atomically.
 2. Atlas performs its normal source scan plus one independent coverage load.
 3. Atlas validates report structure, inventory membership, blobs, summary
    totals, and ledger references without interpreting repository policy rules.
@@ -380,6 +402,8 @@ RelayOS implements its existing closed-world plan with these refinements:
   while keeping enforcement fail-closed until `complete`;
 - project only current, fully validated legacy security evidence into stable
   architectural `atlas-audit-v2` units;
+- assign every required path/domain pair to a registered stable unit before
+  evidence exists, so missing coverage remains attributable and actionable;
 - include stable IDs and retained dispositions for accepted-risk and
   separate-design findings;
 - audit every remaining Security and Tests path with the planned independent
