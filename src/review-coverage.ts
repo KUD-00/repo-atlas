@@ -1,9 +1,11 @@
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { AuditPortfolios } from './audits.js'
-import { atlasDir, readRepoFile } from './scan.js'
+import { atlasDir, git, hashFilePaths, readRepoFile } from './scan.js'
 import type {
   AuditDomain,
+  BaseAuditUnit,
   CoverageClassification,
   CoverageDiagnostic,
   CoverageEntry,
@@ -25,11 +27,15 @@ import type {
 
 const COVERAGE_REL = '.atlas/review-coverage.json'
 const SELF_PATH = COVERAGE_REL
+const GENERATED_PROOF = 'GENERATED-PROOF'
 const FORMAT = 'atlas-review-coverage-v1' as const
 const MAX_REPORT_BYTES = 32 * 1024 * 1024
 const MAX_ENTRIES = 1_000_000
 const MAX_DIAGNOSTICS = 100_000
 const MAX_UNITS = 100_000
+const REGULAR_FILE_MODES = new Set(['100644', '100755'])
+/** Fixed prefix before the path tab: `<mode> <blob> <stage>`. */
+const STAGE_RECORD_RE = /^(100644|100755|120000|160000|[0-7]{6}) ([0-9a-f]{40}) ([0-3])$/u
 
 const TOP_LEVEL_KEYS = [
   'formatVersion',
@@ -691,16 +697,346 @@ function parseStructure(raw: unknown): StructuralParseResult {
   return { ok: true, report }
 }
 
+interface TrackedInventory {
+  hashes: Map<string, string>
+}
+
+function inventoryHashFrom(hashes: Map<string, string>): string {
+  // Sort the finished `<marker>  <path>` lines, not paths alone — the marker is
+  // part of the canonical ordering (GENERATED-PROOF vs 40-hex blobs).
+  const lines = [...hashes.entries()].map(([repoPath, blob]) => {
+    const marker = repoPath === SELF_PATH ? GENERATED_PROOF : blob
+    return `${marker}  ${repoPath}`
+  }).sort()
+  return createHash('sha256').update(lines.join('\n') + '\n').digest('hex')
+}
+
 /**
- * Task 3 seam: revalidate inventory freshness and ledger evidence against Git
- * and audit portfolios. Structural Task 2 returns the report as `current` with
- * empty drift; later work overlays stale/invalid diagnostics here.
+ * One-pass NUL-safe tracked inventory from `git ls-files --stage -z`, then
+ * overwrite dirty worktree paths from `git diff-files --name-only -z` via
+ * `hashFilePaths`. Never calls `scan()` (untracked + Code excludes).
+ */
+function readTrackedInventory(root: string): TrackedInventory | CoverageDiagnostic[] {
+  let stageRaw: string
+  try {
+    stageRaw = git(root, ['ls-files', '--stage', '-z'])
+  } catch {
+    return [diagnostic('git-error', 'failed to read git ls-files --stage inventory')]
+  }
+
+  const hashes = new Map<string, string>()
+  const records = stageRaw.split('\0')
+  for (const record of records) {
+    if (!record) continue
+    const tab = record.indexOf('\t')
+    if (tab <= 0) {
+      return [diagnostic('malformed-inventory', 'git ls-files --stage record is missing the path separator')]
+    }
+    const meta = record.slice(0, tab)
+    const repoPath = record.slice(tab + 1)
+    const match = STAGE_RECORD_RE.exec(meta)
+    if (!match) {
+      return [diagnostic(
+        'malformed-inventory',
+        `git ls-files --stage record has an unreadable mode/blob/stage prefix (${meta})`,
+        { path: validRepoPath(repoPath) ? repoPath : undefined },
+      )]
+    }
+    const [, mode, blob, stage] = match
+    if (!validRepoPath(repoPath)) {
+      return [diagnostic('unsafe-path', `tracked path is not a normalized repository-relative path: ${repoPath}`)]
+    }
+    if (hashes.has(repoPath)) {
+      return [diagnostic('duplicate-path', `duplicate tracked path in git index: ${repoPath}`, { path: repoPath })]
+    }
+    if (stage !== '0') {
+      return [diagnostic(
+        'unresolved-index',
+        `tracked path has unresolved git index stage ${stage}`,
+        { path: repoPath },
+      )]
+    }
+    if (mode === '120000') {
+      return [diagnostic('symlink-path', `tracked path is a git symlink (mode 120000)`, { path: repoPath })]
+    }
+    if (mode === '160000') {
+      return [diagnostic('gitlink-path', `tracked path is a gitlink/submodule (mode 160000)`, { path: repoPath })]
+    }
+    if (!REGULAR_FILE_MODES.has(mode)) {
+      return [diagnostic(
+        'unsafe-mode',
+        `tracked path has unsupported git mode ${mode}`,
+        { path: repoPath },
+      )]
+    }
+    hashes.set(repoPath, blob)
+  }
+
+  let dirtyRaw: string
+  try {
+    dirtyRaw = git(root, ['diff-files', '--name-only', '-z'])
+  } catch {
+    return [diagnostic('git-error', 'failed to read git diff-files dirty tracked paths')]
+  }
+
+  const dirty = dirtyRaw.split('\0').filter(Boolean)
+  if (dirty.length) {
+    for (const repoPath of dirty) {
+      if (!validRepoPath(repoPath)) {
+        return [diagnostic('unsafe-path', `dirty tracked path is not a normalized repository-relative path: ${repoPath}`)]
+      }
+      if (!hashes.has(repoPath)) {
+        // diff-files should only name index paths; treat surprises as unreadable inventory.
+        return [diagnostic(
+          'malformed-inventory',
+          `git diff-files named a path absent from ls-files --stage: ${repoPath}`,
+          { path: repoPath },
+        )]
+      }
+    }
+    const snapshot = hashFilePaths(root, dirty)
+    if (snapshot.missing.length || snapshot.failed.length) {
+      const bad = [...snapshot.missing, ...snapshot.failed]
+      return bad.map((repoPath) => diagnostic(
+        'unreadable-path',
+        `dirty tracked path is missing, symlinked, or unreadable: ${repoPath}`,
+        { path: repoPath },
+      ))
+    }
+    for (const [repoPath, blob] of snapshot.hashes) {
+      hashes.set(repoPath, blob)
+    }
+  }
+
+  return { hashes }
+}
+
+function selfEntryErrors(report: ReviewCoverageReport): CoverageDiagnostic[] {
+  const self = report.entries.find((entry) => entry.path === SELF_PATH)
+  if (!self) return []
+  const errors: CoverageDiagnostic[] = []
+  if (self.blob !== undefined) {
+    errors.push(diagnostic(
+      'generated-proof',
+      'generated-proof self entry must omit its blob field',
+      { path: SELF_PATH },
+    ))
+  }
+  const classification = self.classification
+  if (
+    classification.kind !== 'excluded' ||
+    classification.ruleId !== 'generated-proof' ||
+    classification.category !== 'generated-proof'
+  ) {
+    errors.push(diagnostic(
+      'generated-proof',
+      'exact .atlas/review-coverage.json entry must be the reserved generated-proof exclusion',
+      { path: SELF_PATH },
+    ))
+  }
+  return errors
+}
+
+function inventoryDrift(
+  report: ReviewCoverageReport,
+  current: Map<string, string>,
+): ReviewCoveragePortfolio['drift'] {
+  const reported = new Map(report.entries.map((entry) => [entry.path, entry]))
+  const added: string[] = []
+  const removed: string[] = []
+  const changed: string[] = []
+
+  for (const repoPath of current.keys()) {
+    if (!reported.has(repoPath)) added.push(repoPath)
+  }
+  for (const entry of report.entries) {
+    if (!current.has(entry.path)) {
+      removed.push(entry.path)
+      continue
+    }
+    if (entry.path === SELF_PATH) continue
+    const blob = current.get(entry.path)
+    if (entry.blob !== blob) changed.push(entry.path)
+  }
+
+  added.sort()
+  removed.sort()
+  changed.sort()
+  return { added, removed, changed }
+}
+
+function indexUnitsByDomainSlug(portfolios: AuditPortfolios): Map<string, BaseAuditUnit> {
+  const out = new Map<string, BaseAuditUnit>()
+  for (const unit of portfolios.security) {
+    out.set(`security:${unit.slug}`, unit)
+  }
+  for (const unit of portfolios.tests) {
+    out.set(`test:${unit.slug}`, unit)
+  }
+  return out
+}
+
+function freshEvidenceErrors(
+  report: ReviewCoverageReport,
+  current: Map<string, string>,
+  portfolios: AuditPortfolios,
+): CoverageDiagnostic[] {
+  const unitsByKey = indexUnitsByDomainSlug(portfolios)
+  const errors: CoverageDiagnostic[] = []
+  const assignedUnits = new Set<string>()
+
+  for (const entry of report.entries) {
+    if (entry.classification.kind === 'review') {
+      for (const domain of Object.keys(entry.classification.domains) as AuditDomain[]) {
+        const unitSlug = entry.classification.domains[domain]?.unit
+        if (unitSlug) assignedUnits.add(`${domain}:${unitSlug}`)
+      }
+    }
+
+    for (const domain of Object.keys(entry.evidence) as AuditDomain[]) {
+      const claim = entry.evidence[domain]
+      if (!claim) continue
+
+      if (claim.status === 'missing') {
+        if (claim.ledgers.length !== 0) {
+          errors.push(diagnostic(
+            'evidence-ledgers',
+            `missing ${domain} evidence requires an empty ledger list`,
+            { path: entry.path },
+          ))
+        }
+        continue
+      }
+
+      if (claim.status !== 'fresh') continue
+
+      if (claim.ledgers.length === 0) {
+        errors.push(diagnostic(
+          'evidence-ledgers',
+          `fresh ${domain} evidence requires a nonempty ledger list`,
+          { path: entry.path },
+        ))
+        continue
+      }
+
+      const currentBlob = current.get(entry.path)
+      const reportBlob = entry.blob
+      if (!currentBlob || !reportBlob || currentBlob !== reportBlob) {
+        errors.push(diagnostic(
+          'fresh-evidence',
+          `fresh ${domain} claim requires the report blob to match the current inventory blob`,
+          { path: entry.path },
+        ))
+        continue
+      }
+
+      let matched = false
+      for (const slug of claim.ledgers) {
+        const unit = unitsByKey.get(`${domain}:${slug}`)
+        if (!unit) {
+          // Prefer an explicit cross-domain diagnostic when the slug exists elsewhere.
+          const cross = domain === 'security'
+            ? portfolios.tests.find((item) => item.slug === slug)
+            : portfolios.security.find((item) => item.slug === slug)
+          if (cross) {
+            errors.push(diagnostic(
+              'cross-domain-ledger',
+              `fresh ${domain} evidence names cross-domain ledger ${slug}`,
+              { path: entry.path, slug },
+            ))
+          } else {
+            errors.push(diagnostic(
+              'unknown-ledger',
+              `fresh ${domain} evidence names unknown ledger ${slug}`,
+              { path: entry.path, slug },
+            ))
+          }
+          continue
+        }
+        if (
+          unit.formatVersion === 2 &&
+          !unit.stale &&
+          unit.files.includes(entry.path) &&
+          unit.hashes !== null &&
+          unit.hashes[entry.path] === reportBlob
+        ) {
+          matched = true
+        }
+      }
+
+      if (!matched) {
+        errors.push(diagnostic(
+          'fresh-evidence',
+          `fresh ${domain} claim has no current same-domain v2 ledger containing the exact blob`,
+          { path: entry.path },
+        ))
+      }
+    }
+  }
+
+  // Every registered unit must be assigned to at least one classified path.
+  for (const unit of report.units) {
+    const key = `${unit.domain}:${unit.slug}`
+    if (!assignedUnits.has(key)) {
+      errors.push(diagnostic(
+        'unit-assignment',
+        `registered unit ${key} is not assigned to any classified path`,
+        { slug: unit.slug },
+      ))
+    }
+  }
+
+  return errors
+}
+
+/**
+ * Task 3: revalidate inventory freshness and ledger evidence against Git and
+ * audit portfolios. Structural success is not enough for `current`.
  */
 function revalidateAgainstRepository(
-  _root: string,
+  root: string,
   report: ReviewCoverageReport,
-  _portfolios: AuditPortfolios,
+  portfolios: AuditPortfolios,
 ): ReviewCoveragePortfolio {
+  const inventory = readTrackedInventory(root)
+  if (Array.isArray(inventory)) {
+    return invalidPortfolio(inventory)
+  }
+
+  const selfErrors = selfEntryErrors(report)
+  if (selfErrors.length) {
+    return invalidPortfolio(selfErrors)
+  }
+
+  const drift = inventoryDrift(report, inventory.hashes)
+  const hasDrift = drift.added.length > 0 || drift.removed.length > 0 || drift.changed.length > 0
+  const expectedHash = inventoryHashFrom(inventory.hashes)
+  if (!hasDrift && report.inventoryHash !== expectedHash) {
+    return invalidPortfolio([diagnostic(
+      'inventory-hash',
+      'coverage inventoryHash does not match the current tracked inventory',
+    )])
+  }
+
+  if (hasDrift) {
+    // Ordinary path/blob drift: expose the report as stale. Do not trust the
+    // embedded verdict for "current", but keep the body for gap inspection.
+    return {
+      state: 'stale',
+      report,
+      errors: [diagnostic(
+        'inventory-drift',
+        'coverage inventory has added, removed, or changed tracked paths',
+      )],
+      drift,
+    }
+  }
+
+  const evidenceErrors = freshEvidenceErrors(report, inventory.hashes, portfolios)
+  if (evidenceErrors.length) {
+    return invalidPortfolio(evidenceErrors)
+  }
+
   return {
     state: 'current',
     report,
