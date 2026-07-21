@@ -256,6 +256,75 @@ export interface TestAuditUnit extends BaseAuditUnit {
 /** Legacy alias: security portfolio units only during the domain migration. */
 export type AuditUnit = SecurityAuditUnit
 
+export type ReviewCoverageVerdict = 'complete' | 'incomplete' | 'invalid'
+export type CoverageEvidenceStatus = 'fresh' | 'missing' | 'stale' | 'invalid'
+
+export interface CoverageUnitRef {
+  domain: AuditDomain
+  slug: string
+  title: string
+}
+
+export type CoverageClassification =
+  | { kind: 'review'; domains: Partial<Record<AuditDomain, { unit: string }>> }
+  | { kind: 'excluded'; ruleId: string; category: string; reason: string; owner?: string }
+  | { kind: 'unclassified' }
+  | { kind: 'conflict' }
+
+export interface CoverageEntry {
+  path: string
+  blob?: string
+  ruleIds: string[]
+  classification: CoverageClassification
+  evidence: Partial<Record<AuditDomain, { status: CoverageEvidenceStatus; ledgers: string[] }>>
+}
+
+export interface CoverageDiagnostic {
+  code: string
+  message: string
+  path?: string
+  slug?: string
+}
+
+export interface ReviewCoverageSummary {
+  tracked: number
+  securityRequired: number
+  securityFresh: number
+  securityMissing: number
+  securityStale: number
+  securityInvalid: number
+  testRequired: number
+  testFresh: number
+  testMissing: number
+  testStale: number
+  testInvalid: number
+  dualRequired: number
+  excluded: number
+  unclassified: number
+  conflicted: number
+  invalidLedgers: number
+}
+
+export interface ReviewCoverageReport {
+  formatVersion: 1
+  format: 'atlas-review-coverage-v1'
+  verdict: ReviewCoverageVerdict
+  policy: { format: string; hash: string }
+  inventoryHash: string
+  units: CoverageUnitRef[]
+  summary: ReviewCoverageSummary
+  entries: CoverageEntry[]
+  invalidLedgerDetails: CoverageDiagnostic[]
+  reportErrors: CoverageDiagnostic[]
+}
+
+export interface ReviewCoveragePortfolio {
+  state: 'missing' | 'invalid' | 'current' | 'stale'
+  report: ReviewCoverageReport | null
+  errors: CoverageDiagnostic[]
+  drift: { added: string[]; removed: string[]; changed: string[] }
+}
+
 export interface AtlasPayload {
   repoName: string
   commit: string | null
