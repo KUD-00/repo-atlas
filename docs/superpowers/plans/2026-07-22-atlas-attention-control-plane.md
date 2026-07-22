@@ -4,7 +4,7 @@
 
 **Goal:** Turn Repo Atlas from a freshness report into a human attention control plane that remembers which concept snapshots need review, what the reviewer concluded, and when source changes must reopen an item, while making long concept pages easier to enter without creating a second copy of the documentation.
 
-**Architecture:** A deterministic concept snapshot is computed from every declared source, including explicit missing-source markers. A clone-local JSON store under Git's common directory persists current workflow state plus append-only events; the store is never written into the repository. Live serve reconciles source snapshots with that store, while static builds expose the same dashboard read-only. The viewer presents three intentionally separate surfaces: human attention, review history, and machine health. Concept pages gain a single-source Overview projection derived from the opening markdown, with the existing full page preserved as the authoritative walkthrough.
+**Architecture:** A deterministic concept snapshot is computed from every declared source, including explicit missing-source markers. A worktree-local JSON store under Git metadata persists current workflow state plus append-only events; the store is never written into the repository. Locked cross-process transactions prevent lost receipts, while per-item workflow revisions reject stale tabs even when the source snapshot is unchanged. Live serve reconciles source snapshots with that store, while static builds expose the same dashboard read-only. The viewer presents three intentionally separate surfaces: human attention, review history, and machine health. Concept pages gain a single-source Overview projection derived from the opening markdown, with the existing full page preserved as the authoritative walkthrough.
 
 **Tech Stack:** TypeScript, Node.js built-ins, React 19, Lingui, Tailwind, `node:test`, Git plumbing, pnpm.
 
@@ -94,7 +94,8 @@ const first = reconcileAttention(emptyState(), concepts, now)
 assert.equal(item(first, 'runtime').workflow, 'open')
 
 const reviewed = applyAttentionAction(first.state, current, {
-  slug: 'runtime', snapshot: 'snapshot-a', action: 'understood', note: 'The scheduler now leases jobs.',
+  slug: 'runtime', snapshot: 'snapshot-a', revision: 1,
+  action: 'understood', note: 'The scheduler now leases jobs.',
 }, now)
 assert.equal(item(reconcileAttention(reviewed, concepts, later), 'runtime').workflow, 'done')
 
@@ -102,7 +103,7 @@ const changed = reconcileAttention(reviewed, [{ ...current, snapshot: 'snapshot-
 assert.equal(item(changed, 'runtime').workflow, 'open')
 ```
 
-Also assert: fresh concepts initialize done; outdated/broken concepts initialize open; unchanged done items remain done even if document freshness remains outdated; expired snoozes reopen; acknowledgement remains distinguishable from understanding; `understood` and `decided` require a note; a stale snapshot action is rejected; notes and event arrays are bounded.
+Also assert: fresh concepts initialize done; outdated/broken concepts initialize open; unchanged done items remain done even if document freshness remains outdated; expired snoozes reopen; acknowledgement remains distinguishable from understanding; `understood` and `decided` require a note; stale snapshot and stale workflow-revision actions are rejected; notes and event arrays are bounded; linked worktrees remain isolated; concurrent processes retain both receipts.
 
 - [x] **Step 2: Run RED**
 
@@ -143,19 +144,19 @@ Use a temporary initialized Git repository and assert:
 
 ```js
 const location = attentionStatePath(root)
-assert.equal(location.startsWith(path.join(gitCommonDir(root), 'repo-atlas')), true)
+assert.equal(location, path.resolve(root, git(root, ['rev-parse', '--git-path', 'repo-atlas/attention-v1.json'])))
 assert.equal(location.includes(`${path.sep}.atlas${path.sep}`), false)
 ```
 
-The Git common directory is outside a linked worktree but normally lives at
-`<root>/.git` in a primary checkout; the invariant is Git metadata rather than
-repository content, not lexical distance from the checkout root.
+`--git-path` resolves inside the linked worktree's own Git directory, but
+normally lives below `<root>/.git` in a primary checkout. The invariants are
+worktree isolation and Git metadata rather than repository content.
 
 Round-trip a state, verify mode `0600` where supported, ensure a malformed existing file is reported and not overwritten, and ensure a symlink state file is rejected.
 
-- [x] **Step 6: Implement safe atomic persistence**
+- [x] **Step 6: Implement safe atomic transactional persistence**
 
-Resolve `git rev-parse --git-common-dir` against the repository root, create only the `repo-atlas` state directory, write a unique same-directory temporary file with mode `0600`, `fsync`, and rename. Strictly parse `formatVersion: 1`; fail closed on malformed/oversized/non-regular state files. Expose an injectable path only for tests.
+Resolve `git rev-parse --git-path repo-atlas/attention-v1.json` against the repository root, create only the `repo-atlas` state directory, and isolate linked worktrees. Serialize each read-modify-write cycle with an exclusive same-host PID lock, then write a unique same-directory temporary file with mode `0600`, `fsync`, and rename. Strictly parse `formatVersion: 1`; fail closed on malformed/oversized/non-regular state files and on untrusted locks.
 
 - [x] **Step 7: Run GREEN**
 
@@ -344,7 +345,7 @@ Expected: all tests and builds PASS.
 
 - [x] **Step 1: Document the user contract**
 
-Explain that source freshness, attention workflow, and epistemic outcomes are separate. Document the live dashboard, review outcomes, automatic snapshot reopen, state path under the Git common directory, static read-only behavior, malformed-state recovery guidance, and the Overview/Full concept view.
+Explain that source freshness, attention workflow, and epistemic outcomes are separate. Document the live dashboard, review outcomes, automatic snapshot reopen, worktree-local Git state path, cross-process transactions, workflow revision conflicts, static read-only behavior, malformed-state recovery guidance, and the Overview/Full concept view.
 
 - [x] **Step 2: Run formatting/build/test gates from a clean command context**
 
@@ -373,7 +374,7 @@ git diff -- src/types.ts src/conceptPages.ts src/attention.ts src/build.ts src/s
 
 Confirm every changed path belongs to this feature and no generated or user-owned change was lost.
 
-- [ ] **Step 4: Commit only the feature paths**
+- [x] **Step 4: Commit only the feature paths**
 
 Stage the explicit files listed in this plan, verify `git diff --cached --check`, and commit without bypassing hooks:
 
@@ -381,10 +382,10 @@ Stage the explicit files listed in this plan, verify `git diff --cached --check`
 git commit -m "feat: add an attention control plane"
 ```
 
-- [ ] **Step 5: Request one independent code review**
+- [x] **Step 5: Request independent specification and quality/security reviews**
 
-Give the reviewer the feature requirements, base SHA, head SHA, state-file trust boundary, and verification output. Treat correctness, durability, data-loss, path-safety, stale-tab actions, and accessibility findings as blocking.
+Give each reviewer the feature requirements, base SHA, head SHA, state-file trust boundary, and verification output. Treat correctness, durability, data-loss, path-safety, stale-tab actions, and accessibility findings as blocking. The specification review covers product semantics first; the quality/security review follows after those findings are resolved.
 
-- [ ] **Step 6: Fix findings through RED-GREEN and rerun all gates**
+- [x] **Step 6: Fix findings through RED-GREEN and rerun all gates**
 
-For every material finding, add or adjust a failing test first, implement the minimum correction, rerun the focused test, then rerun the full command set from Step 2. Amend or add a follow-up commit without bypassing hooks.
+For every material finding, add or adjust a failing test first, implement the minimum correction, rerun the focused test, then rerun the full command set from Step 2. Add a follow-up commit without bypassing hooks. The completed review pass additionally verifies worktree isolation, cross-process lock contention, per-item revisions, UTF-8 request chunking, strict persisted-state schemas, directory-fsync error propagation, nonregular lock refusal, and a persistent accessible conflict notice.

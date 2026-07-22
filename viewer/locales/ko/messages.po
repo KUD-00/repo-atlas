@@ -294,6 +294,7 @@ msgstr "연결된 에이전트 세션과 채팅"
 msgid "close"
 msgstr "닫기"
 
+#: viewer/Attention.tsx
 #: viewer/Settings.tsx
 msgid "Close"
 msgstr "닫기"
@@ -812,6 +813,10 @@ msgstr "아직 검토된 항목이 없습니다."
 msgid "open"
 msgstr "미처리"
 
+#: viewer/Concept.tsx
+msgid "open attention"
+msgstr "Attention 열기"
+
 #: viewer/App.tsx
 msgid "open finding — open the relevant security unit"
 msgstr "미처리 발견 — 관련 Security 유닛 열기"
@@ -1169,9 +1174,17 @@ msgstr "이 페이지 상위 디렉터리 노트 — 작성 맥락인 프레임"
 msgid "the factcheck gate could not confirm this from source"
 msgstr "팩트체크 게이트가 소스에서 확인하지 못했습니다"
 
+#: viewer/Attention.tsx
+msgid "The latest state is shown. Review it before retrying."
+msgstr "최신 상태를 표시했습니다. 확인한 뒤 다시 시도하세요."
+
 #: viewer/Concept.tsx
 msgid "This source version still needs your review."
 msgstr "이 소스 버전은 아직 검토가 필요합니다."
+
+#: viewer/Concept.tsx
+msgid "This version was fresh when first observed; no human review receipt exists."
+msgstr "이 버전은 처음 확인했을 때 최신 상태였으며, 사람의 검토 기록은 없습니다."
 
 #: viewer/App.tsx
 msgid "tree layout: alphabetical or reading order"
@@ -1255,3 +1268,7 @@ msgstr "비개발자 대상 설명"
 #: viewer/Concept.tsx
 msgid "You reviewed this source version."
 msgstr "이 소스 버전을 검토했습니다."
+
+#: viewer/Attention.tsx
+msgid "Your action was not applied because this item changed in another Atlas view."
+msgstr "이 항목이 다른 Atlas 보기에서 변경되어 작업이 적용되지 않았습니다."

@@ -16,12 +16,13 @@ import { loadAuditPortfolios } from './audits.js'
 import { loadConfiguredAuditLocalizations } from './audit-localizations.js'
 import { loadReviewCoverage } from './review-coverage.js'
 import {
-  applyAttentionAction,
+  AttentionConflictError,
+  AttentionRequestError,
+  AttentionStateUnavailableError,
+  applyStoredAttentionAction,
   buildAttentionPayload,
   conceptChangedPaths,
-  loadAttentionState,
-  reconcileAttention,
-  saveAttentionState,
+  reconcileStoredAttention,
 } from './attention.js'
 import type { AtlasConfig, AttentionActionRequest, AttentionState, ChatMessage, ScanResult } from './types.js'
 
@@ -59,21 +60,17 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
       reviewCoverage,
       portfolios,
     )
-    const loadedAttention = loadAttentionState(root)
-    let attentionState: AttentionState | null = loadedAttention.state
-    const attentionDiagnostics = [...loadedAttention.diagnostics]
-    if (attentionState) {
-      try {
-        const reconciled = reconcileAttention(attentionState, status.concepts)
-        attentionState = reconciled.state
-        if (reconciled.changed) saveAttentionState(root, attentionState)
-      } catch (error) {
-        attentionState = null
-        attentionDiagnostics.push({
-          code: 'state-write-failed',
-          message: error instanceof Error ? error.message : String(error),
-        })
-      }
+    let attentionState: AttentionState | null = null
+    const attentionDiagnostics = []
+    try {
+      const loadedAttention = reconcileStoredAttention(root, status.concepts)
+      attentionState = loadedAttention.state
+      attentionDiagnostics.push(...loadedAttention.diagnostics)
+    } catch (error) {
+      attentionDiagnostics.push({
+        code: 'state-write-failed',
+        message: error instanceof Error ? error.message : String(error),
+      })
     }
     const changedPaths = Object.fromEntries(status.concepts.map((concept) => {
       const cacheKey = `${concept.slug}\0${concept.snapshot}\0${concept.anchor ?? ''}`
@@ -179,16 +176,17 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
         res.writeHead(415, { 'content-type': 'text/plain' }).end('expected application/json')
         return
       }
-      let raw = ''
+      const chunks: Buffer[] = []
       let bytes = 0
       let oversized = false
-      req.on('data', (chunk: Buffer) => {
-        bytes += chunk.length
+      req.on('data', (chunk: Buffer | string) => {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+        bytes += buffer.length
         if (bytes > 64 * 1024) {
           oversized = true
           return
         }
-        raw += chunk.toString('utf8')
+        chunks.push(buffer)
       })
       req.on('end', () => {
         if (oversized) {
@@ -197,7 +195,7 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
         }
         let request: AttentionActionRequest
         try {
-          request = JSON.parse(raw) as AttentionActionRequest
+          request = JSON.parse(Buffer.concat(chunks, bytes).toString('utf8')) as AttentionActionRequest
         } catch {
           res.writeHead(400, { 'content-type': 'text/plain' }).end('attention action is not valid JSON')
           return
@@ -210,24 +208,34 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
           return
         }
         if (!current.attentionState) {
-          res.writeHead(409, { 'content-type': 'text/plain' }).end('attention state is unavailable')
+          res.writeHead(409, json).end(JSON.stringify({
+            error: 'attention state is unavailable',
+            attention: current.payload.attention,
+          }))
           return
         }
-        let nextState: AttentionState
         try {
-          nextState = applyAttentionAction(
-            current.attentionState,
+          applyStoredAttentionAction(
+            root,
             current.status.concepts,
             request,
           )
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
-          const status = /snapshot|not reconciled/i.test(message) ? 409 : 400
-          res.writeHead(status, { 'content-type': 'text/plain' }).end(message)
+          if (error instanceof AttentionConflictError || error instanceof AttentionStateUnavailableError) {
+            let attention = current.payload.attention
+            try { attention = render().payload.attention } catch { /* retain the last coherent payload */ }
+            res.writeHead(409, json).end(JSON.stringify({ error: message, attention }))
+            return
+          }
+          if (error instanceof AttentionRequestError) {
+            res.writeHead(400, { 'content-type': 'text/plain' }).end(message)
+            return
+          }
+          res.writeHead(500, { 'content-type': 'text/plain' }).end(message)
           return
         }
         try {
-          saveAttentionState(root, nextState)
           const next = render()
           lastDigest = next.digest
           for (const client of clients) client.write('event: reload\ndata: 1\n\n')

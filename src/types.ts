@@ -207,6 +207,8 @@ export type AttentionAction = AttentionOutcome | 'snooze' | 'reopen'
 /** Clone-local workflow state for the current snapshot of one concept. */
 export interface AttentionConceptState {
   snapshot: string
+  /** Monotonic human-workflow version used to reject same-snapshot stale tabs. */
+  revision: number
   workflow: AttentionWorkflow
   firstSeenAt: string
   snoozedUntil?: string
@@ -236,6 +238,7 @@ export interface AttentionState {
 export interface AttentionActionRequest {
   slug: string
   snapshot: string
+  revision: number
   action: AttentionAction
   note?: string
   until?: string
@@ -255,6 +258,7 @@ export interface AttentionItem {
   conceptStatus: ConceptState
   workflow: AttentionWorkflow
   snapshot: string
+  revision: number
   sources: string[]
   brokenSources: string[]
   changedPaths: string[]

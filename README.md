@@ -110,13 +110,32 @@ reopens it. Fresh concepts establish a quiet initial baseline but create no
 review receipt.
 
 Persistent actions require `repo-atlas serve`. They are stored outside the
-tracked atlas at `<git-common-dir>/repo-atlas/attention-v1.json`, written
-atomically with owner-only permissions. The file is local to the Git clone and
-is never committed. Invalid, oversized, symlinked, or non-regular state fails
-closed: the dashboard remains readable, actions are disabled, and Atlas will
-not overwrite the file. Move the bad file aside or repair its version-1 JSON,
-then restart `serve`. A static `repo-atlas build` contains the same dashboard
-as a read-only current projection, without personal history.
+tracked atlas at the worktree-local path returned by
+`git rev-parse --git-path repo-atlas/attention-v1.json`, written atomically
+with owner-only permissions. A linked worktree therefore keeps its own current
+snapshots and receipts instead of fighting another branch through the shared
+Git common directory. The file is local Git metadata and is never committed.
+
+Every item also carries a monotonic workflow revision. Atlas checks both that
+revision and the source snapshot before accepting an action, so a tab opened
+before another review cannot replace the newer outcome. State mutations run as
+locked read-modify-write transactions across `serve` processes; concurrent
+actions on different concepts retain both receipts. If the lock cannot be
+acquired, Atlas reports a conflict instead of overwriting either action. A
+revision conflict returns HTTP 409 with the latest attention payload; the viewer
+loads it and keeps a page-level warning visible with the winning outcome before
+asking you to retry.
+
+Invalid, oversized, structurally unknown, symlinked, or non-regular state fails
+closed: the dashboard remains readable, actions are disabled, and Atlas will not
+overwrite the file. Move the bad file aside or repair its version-1 JSON, then
+restart `serve`. Atlas also uses a sibling `.lock` file during a short state
+transaction. Non-regular or symlink locks are left untouched and rejected;
+regular stale locks are reclaimed only when their same-host owner process is
+provably gone. File and supported directory sync failures propagate to the
+action endpoint instead of acknowledging a receipt whose durability is unknown.
+A static `repo-atlas build` contains the same dashboard as a read-only current
+projection, without personal history.
 
 ### Live audit ledgers
 

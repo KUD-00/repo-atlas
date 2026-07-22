@@ -294,6 +294,7 @@ msgstr "chat with the attached agent session"
 msgid "close"
 msgstr "close"
 
+#: viewer/Attention.tsx
 #: viewer/Settings.tsx
 msgid "Close"
 msgstr "Close"
@@ -812,6 +813,10 @@ msgstr "Nothing has been reviewed yet."
 msgid "open"
 msgstr "open"
 
+#: viewer/Concept.tsx
+msgid "open attention"
+msgstr "open attention"
+
 #: viewer/App.tsx
 msgid "open finding — open the relevant security unit"
 msgstr "open finding — open the relevant security unit"
@@ -1169,9 +1174,17 @@ msgstr "the directory notes above this page — the frame it is written within"
 msgid "the factcheck gate could not confirm this from source"
 msgstr "the factcheck gate could not confirm this from source"
 
+#: viewer/Attention.tsx
+msgid "The latest state is shown. Review it before retrying."
+msgstr "The latest state is shown. Review it before retrying."
+
 #: viewer/Concept.tsx
 msgid "This source version still needs your review."
 msgstr "This source version still needs your review."
+
+#: viewer/Concept.tsx
+msgid "This version was fresh when first observed; no human review receipt exists."
+msgstr "This version was fresh when first observed; no human review receipt exists."
 
 #: viewer/App.tsx
 msgid "tree layout: alphabetical or reading order"
@@ -1255,3 +1268,7 @@ msgstr "written for a general audience"
 #: viewer/Concept.tsx
 msgid "You reviewed this source version."
 msgstr "You reviewed this source version."
+
+#: viewer/Attention.tsx
+msgid "Your action was not applied because this item changed in another Atlas view."
+msgstr "Your action was not applied because this item changed in another Atlas view."

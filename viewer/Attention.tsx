@@ -10,7 +10,12 @@ import {
   RotateCcw,
 } from 'lucide-react'
 import type { AttentionSection } from '../src/audit-routes'
-import { attentionItemBuckets } from '../src/attention-presentation'
+import {
+  attentionActionConflictNotice,
+  attentionConflictNoticeProps,
+  attentionItemBuckets,
+} from '../src/attention-presentation'
+import type { AttentionActionConflictNotice } from '../src/attention-presentation'
 import type {
   AttentionAction,
   AttentionEvent,
@@ -35,6 +40,12 @@ function shortVersion(value: string): string {
   return value.slice(0, 10)
 }
 
+class AttentionActionError extends Error {
+  constructor(message: string, readonly attention?: AttentionPayload) {
+    super(message)
+  }
+}
+
 async function sendAttentionAction(
   item: AttentionItem,
   action: AttentionAction,
@@ -47,12 +58,25 @@ async function sendAttentionAction(
     body: JSON.stringify({
       slug: item.slug,
       snapshot: item.snapshot,
+      revision: item.revision,
       action,
       ...(note ? { note } : {}),
       ...(until ? { until } : {}),
     }),
   })
-  if (!response.ok) throw new Error((await response.text()) || `${response.status}`)
+  if (!response.ok) {
+    const raw = await response.text()
+    try {
+      const failure = JSON.parse(raw) as { error?: unknown; attention?: unknown }
+      throw new AttentionActionError(
+        typeof failure.error === 'string' ? failure.error : `${response.status}`,
+        failure.attention as AttentionPayload | undefined,
+      )
+    } catch (error) {
+      if (error instanceof AttentionActionError) throw error
+      throw new AttentionActionError(raw || `${response.status}`)
+    }
+  }
   return await response.json() as AttentionPayload
 }
 
@@ -139,6 +163,46 @@ function DiagnosticBanner({ attention }: { attention: AttentionPayload }) {
   )
 }
 
+function ActionConflictBanner({
+  notice,
+  onClose,
+}: {
+  notice: AttentionActionConflictNotice | null
+  onClose: () => void
+}) {
+  const { i18n } = useLingui()
+  if (!notice) return null
+  const winner = notice.outcome
+    ? outcomeLabel(notice.outcome, i18n)
+    : notice.workflow === 'snoozed'
+      ? t(i18n)`snoozed`
+      : notice.workflow === 'open'
+        ? t(i18n)`open`
+        : notice.workflow === 'done'
+          ? t(i18n)`baseline`
+          : null
+  return (
+    <div
+      {...attentionConflictNoticeProps()}
+      className="mb-5 rounded-lg border border-[#d9930d55] bg-[#d9930d0d] py-3 px-4 text-[0.82rem]"
+    >
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-[#8a6105]">
+            {t(i18n)`Your action was not applied because this item changed in another Atlas view.`}
+          </div>
+          {winner && <p className="mt-1 text-text">{notice.title}: {winner}</p>}
+          <p className="mt-1 text-muted">{t(i18n)`The latest state is shown. Review it before retrying.`}</p>
+          <code className="mt-1 block text-[0.7rem] break-all text-muted">{notice.message}</code>
+        </div>
+        <button type="button" className={SECONDARY_BUTTON + ' shrink-0'} onClick={onClose}>
+          {t(i18n)`Close`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function SummaryStrip({ attention }: { attention: AttentionPayload }) {
   const { i18n } = useLingui()
   const buckets = attentionItemBuckets(attention.items)
@@ -163,10 +227,12 @@ function ReviewControls({
   item,
   attention,
   onUpdate,
+  onConflict,
 }: {
   item: AttentionItem
   attention: AttentionPayload
   onUpdate: (attention: AttentionPayload) => void
+  onConflict: (notice: AttentionActionConflictNotice | null) => void
 }) {
   const { i18n } = useLingui()
   const [note, setNote] = useState('')
@@ -185,8 +251,13 @@ function ReviewControls({
     try {
       const next = await sendAttentionAction(item, action, note.trim() || undefined, until)
       setNote('')
+      onConflict(null)
       onUpdate(next)
     } catch (caught) {
+      if (caught instanceof AttentionActionError && caught.attention) {
+        onConflict(attentionActionConflictNotice(caught.message, item.slug, caught.attention))
+        onUpdate(caught.attention)
+      }
       setError(caught instanceof Error ? caught.message : String(caught))
     } finally {
       setBusy(null)
@@ -274,10 +345,12 @@ function QuickReopen({
   item,
   attention,
   onUpdate,
+  onConflict,
 }: {
   item: AttentionItem
   attention: AttentionPayload
   onUpdate: (attention: AttentionPayload) => void
+  onConflict: (notice: AttentionActionConflictNotice | null) => void
 }) {
   const { i18n } = useLingui()
   const [busy, setBusy] = useState(false)
@@ -287,8 +360,14 @@ function QuickReopen({
     setBusy(true)
     setError(null)
     try {
-      onUpdate(await sendAttentionAction(item, 'reopen'))
+      const next = await sendAttentionAction(item, 'reopen')
+      onConflict(null)
+      onUpdate(next)
     } catch (caught) {
+      if (caught instanceof AttentionActionError && caught.attention) {
+        onConflict(attentionActionConflictNotice(caught.message, item.slug, caught.attention))
+        onUpdate(caught.attention)
+      }
       setError(caught instanceof Error ? caught.message : String(caught))
     } finally {
       setBusy(false)
@@ -309,11 +388,13 @@ function AttentionCard({
   attention,
   onSelectConcept,
   onUpdate,
+  onConflict,
 }: {
   item: AttentionItem
   attention: AttentionPayload
   onSelectConcept: (slug: string) => void
   onUpdate: (attention: AttentionPayload) => void
+  onConflict: (notice: AttentionActionConflictNotice | null) => void
 }) {
   const { i18n } = useLingui()
   const evidence = item.changedPaths.length > 0 ? item.changedPaths : item.sources
@@ -377,7 +458,7 @@ function AttentionCard({
           {t(i18n)`snoozed until`} {formatTime(item.snoozedUntil, i18n.locale)}
         </p>
       )}
-      <ReviewControls item={item} attention={attention} onUpdate={onUpdate} />
+      <ReviewControls item={item} attention={attention} onUpdate={onUpdate} onConflict={onConflict} />
     </article>
   )
 }
@@ -386,10 +467,12 @@ function NeedsAttention({
   attention,
   onSelectConcept,
   onUpdate,
+  onConflict,
 }: {
   attention: AttentionPayload
   onSelectConcept: (slug: string) => void
   onUpdate: (attention: AttentionPayload) => void
+  onConflict: (notice: AttentionActionConflictNotice | null) => void
 }) {
   const { i18n } = useLingui()
   const { open, snoozed, reviewed, baselines } = attentionItemBuckets(attention.items)
@@ -409,7 +492,7 @@ function NeedsAttention({
         ) : (
           <div className="flex flex-col gap-3">
             {open.map((item) => (
-              <AttentionCard key={item.id} item={item} attention={attention} onSelectConcept={onSelectConcept} onUpdate={onUpdate} />
+              <AttentionCard key={item.id} item={item} attention={attention} onSelectConcept={onSelectConcept} onUpdate={onUpdate} onConflict={onConflict} />
             ))}
           </div>
         )}
@@ -423,7 +506,7 @@ function NeedsAttention({
           </div>
           <div className="flex flex-col gap-3">
             {snoozed.map((item) => (
-              <AttentionCard key={item.id} item={item} attention={attention} onSelectConcept={onSelectConcept} onUpdate={onUpdate} />
+              <AttentionCard key={item.id} item={item} attention={attention} onSelectConcept={onSelectConcept} onUpdate={onUpdate} onConflict={onConflict} />
             ))}
           </div>
         </section>
@@ -447,7 +530,7 @@ function NeedsAttention({
                 {item.title}
               </button>
               <span className="text-[0.7rem] text-muted">{item.lastOutcome ? outcomeLabel(item.lastOutcome, i18n) : t(i18n)`baseline`}</span>
-              <QuickReopen item={item} attention={attention} onUpdate={onUpdate} />
+              <QuickReopen item={item} attention={attention} onUpdate={onUpdate} onConflict={onConflict} />
             </div>
           ))}
         </div>
@@ -577,6 +660,7 @@ export function AttentionPane({
   onUpdate: (attention: AttentionPayload) => void
 }) {
   const { i18n } = useLingui()
+  const [actionConflict, setActionConflict] = useState<AttentionActionConflictNotice | null>(null)
   const title = section === 'needs'
     ? t(i18n)`Needs your attention`
     : section === 'history'
@@ -593,8 +677,14 @@ export function AttentionPane({
       <h1 className="text-[1.35rem] font-[650] mt-1 mb-2">{title}</h1>
       <p className="max-w-[720px] text-[0.82rem] leading-relaxed text-muted mb-6">{explanation}</p>
       <DiagnosticBanner attention={attention} />
+      <ActionConflictBanner notice={actionConflict} onClose={() => setActionConflict(null)} />
       {section === 'needs' ? (
-        <NeedsAttention attention={attention} onSelectConcept={onSelectConcept} onUpdate={onUpdate} />
+        <NeedsAttention
+          attention={attention}
+          onSelectConcept={onSelectConcept}
+          onUpdate={onUpdate}
+          onConflict={setActionConflict}
+        />
       ) : section === 'history' ? (
         <ReviewHistory attention={attention} onSelectConcept={onSelectConcept} />
       ) : (

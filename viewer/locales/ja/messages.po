@@ -294,6 +294,7 @@ msgstr "接続したエージェントセッションとチャット"
 msgid "close"
 msgstr "閉じる"
 
+#: viewer/Attention.tsx
 #: viewer/Settings.tsx
 msgid "Close"
 msgstr "閉じる"
@@ -812,6 +813,10 @@ msgstr "まだレビューされていません。"
 msgid "open"
 msgstr "未対応"
 
+#: viewer/Concept.tsx
+msgid "open attention"
+msgstr "Attentionを開く"
+
 #: viewer/App.tsx
 msgid "open finding — open the relevant security unit"
 msgstr "未対応の指摘 — 該当 Security ユニットを開く"
@@ -1169,9 +1174,17 @@ msgstr "このページ上位のディレクトリノート——書かれてい
 msgid "the factcheck gate could not confirm this from source"
 msgstr "ファクトチェックゲートがソースから確認できませんでした"
 
+#: viewer/Attention.tsx
+msgid "The latest state is shown. Review it before retrying."
+msgstr "最新の状態を表示しました。内容を確認してから再試行してください。"
+
 #: viewer/Concept.tsx
 msgid "This source version still needs your review."
 msgstr "このソース版はまだレビューが必要です。"
+
+#: viewer/Concept.tsx
+msgid "This version was fresh when first observed; no human review receipt exists."
+msgstr "この版は初回確認時点で最新でした。人によるレビュー記録はありません。"
 
 #: viewer/App.tsx
 msgid "tree layout: alphabetical or reading order"
@@ -1255,3 +1268,7 @@ msgstr "非開発者向けの解説"
 #: viewer/Concept.tsx
 msgid "You reviewed this source version."
 msgstr "このソース版はレビュー済みです。"
+
+#: viewer/Attention.tsx
+msgid "Your action was not applied because this item changed in another Atlas view."
+msgstr "この項目は別の Atlas ビューで変更されたため、操作は適用されませんでした。"

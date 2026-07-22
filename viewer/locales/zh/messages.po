@@ -294,6 +294,7 @@ msgstr "与已连接的代理会话聊天"
 msgid "close"
 msgstr "关闭"
 
+#: viewer/Attention.tsx
 #: viewer/Settings.tsx
 msgid "Close"
 msgstr "关闭"
@@ -812,6 +813,10 @@ msgstr "尚未审阅任何内容。"
 msgid "open"
 msgstr "未处理"
 
+#: viewer/Concept.tsx
+msgid "open attention"
+msgstr "打开待跟进"
+
 #: viewer/App.tsx
 msgid "open finding — open the relevant security unit"
 msgstr "未处理发现 — 打开相关安全单元"
@@ -1169,9 +1174,17 @@ msgstr "本页之上的目录说明——它所处的框架"
 msgid "the factcheck gate could not confirm this from source"
 msgstr "factcheck 门未能从源码核实此发现"
 
+#: viewer/Attention.tsx
+msgid "The latest state is shown. Review it before retrying."
+msgstr "已显示最新状态。请先查看，再重试。"
+
 #: viewer/Concept.tsx
 msgid "This source version still needs your review."
 msgstr "这个来源版本仍需要你审阅。"
+
+#: viewer/Concept.tsx
+msgid "This version was fresh when first observed; no human review receipt exists."
+msgstr "此版本首次被观察时是最新的；目前没有人工审阅回执。"
 
 #: viewer/App.tsx
 msgid "tree layout: alphabetical or reading order"
@@ -1255,3 +1268,7 @@ msgstr "面向非开发者的讲解"
 #: viewer/Concept.tsx
 msgid "You reviewed this source version."
 msgstr "你已审阅这个来源版本。"
+
+#: viewer/Attention.tsx
+msgid "Your action was not applied because this item changed in another Atlas view."
+msgstr "此条目已在另一个 Atlas 窗口中发生变化，因此你的操作没有应用。"

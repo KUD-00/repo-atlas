@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import { Printer } from 'lucide-react'
+import { conceptAttentionNoticeKind } from '../src/attention-presentation'
 import type { AttentionItem, ConceptNode, ConceptState, GlossaryEntry, SecurityAuditUnit, TreeNode } from '../src/types'
 import {
   annotateConceptCodeAnchors, annotateGlossary, linkifyPaths, renderMermaidIn,
@@ -135,18 +136,26 @@ function ConceptAttentionNotice({
   onOpenAttention: () => void
 }) {
   const { i18n } = useLingui()
-  const pending = item.workflow !== 'done'
+  const kind = conceptAttentionNoticeKind(item)
+  const pending = kind === 'pending'
+  const baseline = kind === 'baseline'
   return (
     <div className={
       'mb-5 rounded-lg border py-3 px-4 text-[0.78rem] ' +
       (pending
         ? 'border-[#d9930d55] bg-[#d9930d0d]'
-        : 'border-[#4a9d6e44] bg-[#4a9d6e0a]')
+        : baseline
+          ? 'border-border bg-panel'
+          : 'border-[#4a9d6e44] bg-[#4a9d6e0a]')
     }>
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="font-semibold">
-            {pending ? t(i18n)`This source version still needs your review.` : t(i18n)`You reviewed this source version.`}
+            {pending
+              ? t(i18n)`This source version still needs your review.`
+              : baseline
+                ? t(i18n)`This version was fresh when first observed; no human review receipt exists.`
+                : t(i18n)`You reviewed this source version.`}
           </div>
           <div className="mt-1 text-[0.7rem] text-muted font-mono">
             {item.anchor ? item.anchor.slice(0, 10) : t(i18n)`unstamped`} → {item.snapshot.slice(0, 10)}
@@ -157,7 +166,7 @@ function ConceptAttentionNotice({
           className="shrink-0 font-inherit text-[0.72rem] py-1 px-2 rounded-md border border-border bg-panel text-muted cursor-pointer hover:border-accent hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
           onClick={onOpenAttention}
         >
-          {pending ? t(i18n)`review` : t(i18n)`view receipt`}
+          {pending ? t(i18n)`review` : baseline ? t(i18n)`open attention` : t(i18n)`view receipt`}
         </button>
       </div>
       {item.changedPaths.length > 0 && (
