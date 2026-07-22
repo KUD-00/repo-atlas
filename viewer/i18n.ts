@@ -3,6 +3,7 @@ import { messages as en } from './locales/en/messages'
 import { messages as ja } from './locales/ja/messages'
 import { messages as ko } from './locales/ko/messages'
 import { messages as zh } from './locales/zh/messages'
+import { resolveInitialLocale } from '../src/audit-localization-presentation'
 
 export const LOCALE_KEY = 'atlas-locale'
 
@@ -18,14 +19,14 @@ export const LOCALE_LABELS: Record<AppLocale, string> = {
 
 const CATALOGS: Record<AppLocale, typeof en> = { en, ja, zh, ko }
 
-export function getStoredLocale(): AppLocale {
+export function getStoredLocale(defaultLocale?: AppLocale): AppLocale {
+  let stored: string | null = null
   try {
-    const v = localStorage.getItem(LOCALE_KEY)
-    if (v && (LOCALES as readonly string[]).includes(v)) return v as AppLocale
+    stored = localStorage.getItem(LOCALE_KEY)
   } catch {
     /* private mode */
   }
-  return 'en'
+  return resolveInitialLocale(defaultLocale, stored)
 }
 
 export function setStoredLocale(locale: AppLocale): void {

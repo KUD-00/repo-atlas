@@ -80,10 +80,6 @@ export function securityUnitForConcept(conceptSlug, units) {
         return byConcept;
     return security.find((u) => u.formatVersion === 1 && u.slug === conceptSlug);
 }
-/** Zero-finding units may show "clean" only when the audit is still fresh. */
-export function isCleanAuditUnit(unit) {
-    return unit.findings.length === 0 && !unit.stale;
-}
 /** Update last Code/Concepts routes; Security/Tests do not overwrite them. */
 export function rememberPrimaryRoutes(last, route) {
     const view = primaryViewForRoute(route);

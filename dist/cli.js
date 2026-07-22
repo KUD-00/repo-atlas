@@ -6,6 +6,8 @@ import { noteFileFor, loadNotes, stampNote, moveNoteFile, notesRoot } from './no
 import { loadConceptPages, sourcesHashFor, stampConceptPage, conceptFileFor } from './conceptPages.js';
 import { loadArtifacts } from './artifacts.js';
 import { importLegacyAudit, loadAuditPortfolios } from './audits.js';
+import { buildAuditLocalizationInput, canonicalAuditLocalizationJson, loadConfiguredAuditLocalizations, } from './audit-localizations.js';
+import { loadReviewCoverage } from './review-coverage.js';
 import { computeStatus, summarize, summarizeConcepts } from './status.js';
 import { buildHtml, writeAtlas } from './build.js';
 import { serve } from './serve.js';
@@ -30,6 +32,10 @@ usage: repo-atlas <command> [args]
                            per-file git hashes, so status tracks per-file drift
   audit-import <files...>  import legacy scans[] ledgers into atlas-audit-v1;
                            scan-time hashes are preserved (safe on stale audits)
+  audit-localization-input --locale <en|ja|zh|ko> [--json]
+                           emit digest-bound canonical audit prose for translation
+  audit-localization-check [--json]
+                           require every configured audit content locale to be current
   migrate [--apply]        relocate notes whose targets moved (dry-run by default);
                            also rewrites references to the old paths in note prose
   build [-o <file>]        generate the self-contained HTML atlas (default .atlas/atlas.html)
@@ -82,6 +88,8 @@ function dispatch(cmd, args) {
         case 'readability': return readability(root, args);
         case 'audit-stamp': return auditStamp(root, args);
         case 'audit-import': return auditImport(root, args);
+        case 'audit-localization-input': return auditLocalizationInput(root, args);
+        case 'audit-localization-check': return auditLocalizationCheck(root, args);
         case 'serve': {
             const pIdx = args.indexOf('-p');
             const hIdx = args.indexOf('--host');
@@ -115,9 +123,57 @@ function init(root) {
     console.log(`- edit config.json to tune excludes (picomatch patterns, on top of .gitignore)`);
     console.log(`- commit .atlas/ so descriptions are versioned with the code`);
 }
+function formatCoverageText(coverage) {
+    const { state, report, errors, drift } = coverage;
+    if (state === 'missing') {
+        return 'coverage: missing — no review coverage report (coverage unknown; not zero)';
+    }
+    if (state === 'invalid') {
+        const n = errors.length;
+        const head = errors[0]?.message;
+        return `coverage: invalid — ${n} error(s)` + (head ? ` · ${head}` : '');
+    }
+    if (state === 'stale') {
+        const bits = [
+            drift.added.length ? `${drift.added.length} added` : null,
+            drift.removed.length ? `${drift.removed.length} removed` : null,
+            drift.changed.length ? `${drift.changed.length} changed` : null,
+        ].filter(Boolean).join(' · ');
+        return `coverage: stale — inventory drifted` + (bits ? ` (${bits})` : '') +
+            '; re-run coverage producer before trusting verdict';
+    }
+    // state === 'current'
+    const summary = report?.summary;
+    const securityGaps = summary
+        ? summary.securityMissing + summary.securityStale + summary.securityInvalid
+        : 0;
+    const testGaps = summary
+        ? summary.testMissing + summary.testStale + summary.testInvalid
+        : 0;
+    const policyGaps = summary
+        ? summary.unclassified + summary.conflicted + summary.invalidLedgers
+        : 0;
+    const gapLine = summary
+        ? `security gaps ${securityGaps}/${summary.securityRequired}` +
+            ` · tests gaps ${testGaps}/${summary.testRequired}` +
+            ` · policy gaps ${policyGaps}`
+        : 'gap counts unavailable';
+    if (report?.verdict === 'incomplete') {
+        return `coverage: current incomplete — ${gapLine}`;
+    }
+    if (report?.verdict === 'complete') {
+        return `coverage: current complete — ${gapLine}` +
+            (securityGaps + testGaps === 0 ? ' · no coverage gaps recorded' : '');
+    }
+    // invalid verdict should not appear under current, but fail closed in text
+    return `coverage: current ${report?.verdict ?? 'unknown'} — ${gapLine}`;
+}
 function status(root, args) {
     const config = requireConfig(root);
     const result = computeStatus(root, scan(root, config), { deltas: true });
+    // Reuse already-computed audit statuses — do not re-scan ledgers for portfolios.
+    const portfolios = loadAuditPortfolios(root, result.audits);
+    const coverage = loadReviewCoverage(root, portfolios);
     const sum = summarize(result);
     const conceptSum = summarizeConcepts(result);
     const fmtDelta = (d) => d ? ` (+${d.added}/-${d.removed}${d.files > 1 ? ` in ${d.files} files` : ''})` : '';
@@ -138,6 +194,13 @@ function status(root, args) {
             },
             audits: result.audits.map(({ name, status, scannedAt, fileCount, findingCount, missingFiles, changedFiles, failedFiles, findingsWithDrift, detailAvailable, invalidReason, file }) => ({ name, status, scannedAt, fileCount, findingCount, missingFiles, changedFiles, failedFiles, findingsWithDrift, detailAvailable, invalidReason, file })),
             readability: result.readability,
+            coverage: {
+                state: coverage.state,
+                verdict: coverage.report?.verdict ?? null,
+                summary: coverage.report?.summary ?? null,
+                drift: coverage.drift,
+                errors: coverage.errors,
+            },
         }, null, 2));
         return;
     }
@@ -199,6 +262,7 @@ function status(root, args) {
             console.log(`  A ${a.name} — ${detail}`);
         }
     }
+    console.log(`\n${formatCoverageText(coverage)}`);
     if (result.readability) {
         const readability = result.readability;
         const latest = readability.latestTrend;
@@ -535,6 +599,8 @@ function build(root, args) {
     const scanResult = scan(root, config);
     const status = computeStatus(root, scanResult, { readability: false });
     const portfolios = loadAuditPortfolios(root, status.audits);
+    const reviewCoverage = loadReviewCoverage(root, portfolios);
+    const localizations = loadConfiguredAuditLocalizations(root, config, reviewCoverage, portfolios);
     const html = buildHtml({
         repoName: path.basename(root),
         commit: headCommit(root),
@@ -545,10 +611,67 @@ function build(root, args) {
         artifacts: loadArtifacts(root),
         audits: portfolios.security,
         testAudits: portfolios.tests,
+        reviewCoverage,
+        defaultLocale: config.defaultLocale ?? 'en',
+        auditSourceLocale: localizations.sourceLocale,
+        auditLocalizations: localizations.portfolios,
     });
     const target = writeAtlas(root, outFile, html);
     const sum = summarize(status);
     console.log(`wrote ${target}`);
     console.log(`${sum.total} paths · ${sum.fresh} fresh · ${sum.outdated} outdated · ${sum.missing} missing`);
+}
+const AUDIT_LOCALES = new Set(['en', 'ja', 'zh', 'ko']);
+function auditLocalizationContext(root, config) {
+    const scanResult = scan(root, config);
+    const status = computeStatus(root, scanResult, { readability: false });
+    const portfolios = loadAuditPortfolios(root, status.audits);
+    const reviewCoverage = loadReviewCoverage(root, portfolios);
+    return { portfolios, reviewCoverage };
+}
+function auditLocalizationInput(root, args) {
+    const localeIndex = args.indexOf('--locale');
+    const localeValue = localeIndex >= 0 ? args[localeIndex + 1] : undefined;
+    const expectedLength = args.includes('--json') ? 3 : 2;
+    if (localeIndex < 0 || localeIndex + 1 >= args.length || args.length !== expectedLength ||
+        !localeValue || !AUDIT_LOCALES.has(localeValue)) {
+        throw new Error('usage: repo-atlas audit-localization-input --locale <en|ja|zh|ko> [--json]');
+    }
+    const locale = localeValue;
+    const config = requireConfig(root);
+    const sourceLocale = config.auditSourceLocale ?? 'en';
+    if (locale === sourceLocale) {
+        throw new Error('audit localization target locale must differ from the canonical source locale');
+    }
+    const { portfolios, reviewCoverage } = auditLocalizationContext(root, config);
+    const input = buildAuditLocalizationInput(sourceLocale, locale, reviewCoverage, portfolios);
+    process.stdout.write(canonicalAuditLocalizationJson(input));
+}
+function auditLocalizationCheck(root, args) {
+    if (args.some((arg) => arg !== '--json') || args.filter((arg) => arg === '--json').length > 1) {
+        throw new Error('usage: repo-atlas audit-localization-check [--json]');
+    }
+    const config = requireConfig(root);
+    const { portfolios, reviewCoverage } = auditLocalizationContext(root, config);
+    const loaded = loadConfiguredAuditLocalizations(root, config, reviewCoverage, portfolios);
+    if (args.includes('--json')) {
+        process.stdout.write(canonicalAuditLocalizationJson({
+            sourceLocale: loaded.sourceLocale,
+            locales: loaded.portfolios,
+        }));
+    }
+    else if (Object.keys(loaded.portfolios).length === 0) {
+        console.log('audit localizations: no required content locales configured');
+    }
+    else {
+        for (const [locale, portfolio] of Object.entries(loaded.portfolios)) {
+            console.log(`audit localization ${locale}: ${portfolio?.state ?? 'missing'}`);
+            for (const error of portfolio?.errors ?? [])
+                console.log(`  ${error.code}: ${error.message}`);
+        }
+    }
+    if (Object.values(loaded.portfolios).some((portfolio) => portfolio?.state !== 'complete')) {
+        process.exitCode = 1;
+    }
 }
 main();

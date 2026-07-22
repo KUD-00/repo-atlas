@@ -616,6 +616,73 @@ test('coverage inventory detects added removed and changed tracked paths', () =>
   }
 })
 
+test('unstaged tracked deletion is stale removed drift rather than unreadable inventory', () => {
+  const root = prepareFixtureRepo()
+  try {
+    const report = buildReport(root, { verdict: 'complete' })
+    writeCoverage(root, report)
+    commitAll(root, 'record complete review coverage')
+
+    fs.unlinkSync(path.join(root, 'src/a.ts'))
+    const portfolio = load(root)
+
+    assert.equal(portfolio.state, 'stale')
+    assert.deepEqual(portfolio.drift.removed, ['src/a.ts'])
+    assert.equal(
+      portfolio.errors.some((error) => error.code === 'unreadable-path'),
+      false,
+    )
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('unstaged symlink replacement remains invalid inventory', () => {
+  const root = prepareFixtureRepo()
+  const outside = fs.mkdtempSync(path.join(path.dirname(root), 'repo-atlas-link-'))
+  try {
+    const report = buildReport(root, { verdict: 'complete' })
+    writeCoverage(root, report)
+    commitAll(root, 'record complete review coverage')
+
+    const canary = path.join(outside, 'a.ts')
+    fs.writeFileSync(canary, 'export const outside = true\n')
+    fs.unlinkSync(path.join(root, 'src/a.ts'))
+    fs.symlinkSync(canary, path.join(root, 'src/a.ts'))
+
+    const portfolio = load(root)
+    assert.equal(portfolio.state, 'invalid')
+    assert.equal(portfolio.report, null)
+    assert.ok(portfolio.errors.some((error) => error.code === 'unreadable-path'))
+    assert.equal(fs.readFileSync(canary, 'utf8'), 'export const outside = true\n')
+  } finally {
+    cleanup(root)
+    cleanup(outside)
+  }
+})
+
+test('unstaged deletion cannot hide a symlinked parent replacement', () => {
+  const root = prepareFixtureRepo()
+  const outside = fs.mkdtempSync(path.join(path.dirname(root), 'repo-atlas-parent-link-'))
+  try {
+    const report = buildReport(root, { verdict: 'complete' })
+    writeCoverage(root, report)
+    commitAll(root, 'record complete review coverage')
+
+    fs.writeFileSync(path.join(outside, 'a.ts'), 'export const outside = true\n')
+    fs.rmSync(path.join(root, 'src'), { recursive: true, force: true })
+    fs.symlinkSync(outside, path.join(root, 'src'), 'dir')
+
+    const portfolio = load(root)
+    assert.equal(portfolio.state, 'invalid')
+    assert.equal(portfolio.report, null)
+    assert.ok(portfolio.errors.some((error) => error.code === 'unreadable-path'))
+  } finally {
+    cleanup(root)
+    cleanup(outside)
+  }
+})
+
 test('coverage inventory is NUL-safe for newline and option-like paths', () => {
   const root = prepareFixtureRepo()
   try {

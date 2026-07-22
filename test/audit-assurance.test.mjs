@@ -172,6 +172,17 @@ function assertNoCleanClaim(value) {
   assert.doesNotMatch(text, /no vulnerabilities/i)
 }
 
+test('domain assurance fails closed when a live server omits review coverage', () => {
+  const model = domainAssurance('security', undefined, [])
+
+  assert.equal(model.portfolioState, 'missing')
+  assert.equal(model.verdict, null)
+  assert.equal(model.required, 0)
+  assert.equal(model.fresh, 0)
+  assert.equal(coverageCountsAvailable(model), false)
+  assert.equal(domainNavSuffix(model).kind, 'unknown')
+})
+
 test('domain suffix priority is unknown then gaps then open then covered', () => {
   const unknownMissing = domainAssurance('security', missingCoverage(), [])
   const unknownSuffix = domainNavSuffix(unknownMissing)

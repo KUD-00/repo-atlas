@@ -14,6 +14,7 @@ import type {
   TestAuditImpact,
   TestAuditUnit,
 } from './types.js'
+import { missingReviewCoverage } from './review-coverage-portfolio.js'
 
 export type FindingSeverity = AuditFinding['severity']
 
@@ -883,9 +884,10 @@ function buildActions(
  */
 export function domainAssurance(
   domain: AuditDomain,
-  coverage: ReviewCoveragePortfolio,
+  coverage: ReviewCoveragePortfolio | undefined,
   units: ReadonlyArray<SecurityAuditUnit | TestAuditUnit>,
 ): DomainAssurance {
+  coverage ??= missingReviewCoverage()
   const domainUnits = units.filter((unit) => unit.domain === domain)
   const ledgers = unitBySlug(domainUnits)
   const report = coverage.report

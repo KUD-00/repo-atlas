@@ -13,6 +13,7 @@ import { buildImportGraph } from './deps.js'
 import { loadGlossaryRaw, parseGlossary } from './glossary.js'
 import { loadArtifacts } from './artifacts.js'
 import { loadAuditPortfolios } from './audits.js'
+import { loadConfiguredAuditLocalizations } from './audit-localizations.js'
 import { loadReviewCoverage } from './review-coverage.js'
 import type { AtlasConfig, ChatMessage, ScanResult } from './types.js'
 
@@ -43,6 +44,12 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
     const artifacts = loadArtifacts(root)
     const portfolios = loadAuditPortfolios(root, status.audits)
     const reviewCoverage = loadReviewCoverage(root, portfolios)
+    const localizations = loadConfiguredAuditLocalizations(
+      root,
+      config,
+      reviewCoverage,
+      portfolios,
+    )
     const input = {
       repoName: path.basename(root),
       commit: headCommit(root),
@@ -54,6 +61,9 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
       audits: portfolios.security,
       testAudits: portfolios.tests,
       reviewCoverage,
+      defaultLocale: config.defaultLocale ?? 'en',
+      auditSourceLocale: localizations.sourceLocale,
+      auditLocalizations: localizations.portfolios,
     }
     const payload = buildPayload(input)
     const html = buildHtml({ ...input, payload })
@@ -62,7 +72,8 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
         JSON.stringify(status.entries) + JSON.stringify(status.orphans) +
         JSON.stringify(status.concepts) + glossaryRaw + JSON.stringify(artifacts) +
         JSON.stringify(portfolios.security) + JSON.stringify(portfolios.tests) +
-        JSON.stringify(reviewCoverage),
+        JSON.stringify(reviewCoverage) + JSON.stringify(localizations) +
+        (config.defaultLocale ?? 'en'),
       )
       .digest('hex')
     return { html, digest, payloadJson: JSON.stringify(payload) }

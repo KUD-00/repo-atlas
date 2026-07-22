@@ -182,6 +182,12 @@ export function atlasDir(root: string): string {
 
 export const DATA_FORMAT = 1
 
+const ATLAS_LOCALES = new Set(['en', 'ja', 'zh', 'ko'])
+
+function validAtlasLocale(value: unknown): boolean {
+  return typeof value === 'string' && ATLAS_LOCALES.has(value)
+}
+
 export function loadConfig(root: string): AtlasConfig | null {
   const file = path.join(atlasDir(root), 'config.json')
   if (!fs.existsSync(file)) return null
@@ -192,6 +198,25 @@ export function loadConfig(root: string): AtlasConfig | null {
       `.atlas data is format v${version}, but this repo-atlas only knows v${DATA_FORMAT} — ` +
       `update the tool (git pull in the repo-atlas checkout).`,
     )
+  }
+  if (config.defaultLocale !== undefined && !validAtlasLocale(config.defaultLocale)) {
+    throw new Error('defaultLocale must be one of en, ja, zh, or ko')
+  }
+  if (config.auditSourceLocale !== undefined && !validAtlasLocale(config.auditSourceLocale)) {
+    throw new Error('auditSourceLocale must be one of en, ja, zh, or ko')
+  }
+  if (config.auditContentLocales !== undefined) {
+    if (!Array.isArray(config.auditContentLocales) ||
+        !config.auditContentLocales.every(validAtlasLocale)) {
+      throw new Error('auditContentLocales must be an array containing only en, ja, zh, or ko locales')
+    }
+    if (new Set(config.auditContentLocales).size !== config.auditContentLocales.length) {
+      throw new Error('auditContentLocales must not contain duplicate locales')
+    }
+    const sourceLocale = config.auditSourceLocale ?? 'en'
+    if (config.auditContentLocales.includes(sourceLocale)) {
+      throw new Error('auditContentLocales must not contain the canonical audit source locale')
+    }
   }
   return config
 }

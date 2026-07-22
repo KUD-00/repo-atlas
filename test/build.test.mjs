@@ -6,6 +6,7 @@ import path from 'node:path'
 import test from 'node:test'
 
 import { loadAuditPortfolios } from '../dist/audits.js'
+import { buildAuditLocalizationInput } from '../dist/audit-localizations.js'
 import { buildPayload } from '../dist/build.js'
 import { loadReviewCoverage } from '../dist/review-coverage.js'
 import { scan } from '../dist/scan.js'
@@ -89,6 +90,27 @@ test('payload carries testAudits from the portfolio loader and defaults to []', 
     })
     assert.deepEqual(defaults.testAudits, [])
     assert.deepEqual(defaults.audits, [])
+    assert.equal(defaults.defaultLocale, 'en')
+    assert.equal(defaults.auditSourceLocale, 'en')
+    assert.deepEqual(defaults.auditLocalizations, {})
+
+    const zhPortfolio = {
+      locale: 'zh',
+      state: 'complete',
+      units: [],
+      errors: [],
+    }
+    const localized = buildPayload({
+      repoName: 'fixture',
+      commit: null,
+      status,
+      defaultLocale: 'zh',
+      auditSourceLocale: 'en',
+      auditLocalizations: { zh: zhPortfolio },
+    })
+    assert.equal(localized.defaultLocale, 'zh')
+    assert.equal(localized.auditSourceLocale, 'en')
+    assert.deepEqual(localized.auditLocalizations, { zh: zhPortfolio })
   } finally {
     cleanup(root)
   }
@@ -211,6 +233,7 @@ test('payload carries review coverage and defaults to missing', () => {
     commitAll(root)
     writeV2(root, 'security', 'security-src', ['src/a.ts'], [securityFinding('src/a.ts')], {
       hashes: { 'src/a.ts': gitBlob(root, 'src/a.ts') },
+      title: 'Source',
     })
     commitAll(root)
 
@@ -274,6 +297,111 @@ test('coverage-only changes reach the shared build payload', () => {
       JSON.stringify(dataA.reviewCoverage),
       JSON.stringify(dataB.reviewCoverage),
     )
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('cli build carries configured verified audit localizations', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const a = 1\n')
+    commitAll(root)
+    writeV2(root, 'security', 'security-src', ['src/a.ts'], [securityFinding('src/a.ts')], {
+      hashes: { 'src/a.ts': gitBlob(root, 'src/a.ts') },
+      title: 'Source',
+    })
+    write(root, '.atlas/config.json', `${JSON.stringify({
+      formatVersion: 1,
+      exclude: [],
+      output: '.atlas/atlas.html',
+      defaultLocale: 'zh',
+      auditSourceLocale: 'en',
+      auditContentLocales: ['zh'],
+    }, null, 2)}\n`)
+    commitAll(root)
+    writeCoverageReport(root, 'complete')
+
+    const status = emptyStatus(root)
+    const portfolios = loadAuditPortfolios(root, status.audits)
+    const coverage = loadReviewCoverage(root, portfolios)
+    const input = buildAuditLocalizationInput('en', 'zh', coverage, portfolios)
+    write(root, '.atlas/locales/zh/audits.json', `${JSON.stringify({
+      formatVersion: 1,
+      format: 'atlas-audit-localizations-v1',
+      locale: 'zh',
+      units: input.units,
+    }, null, 2)}\n`)
+
+    const result = spawnSync(process.execPath, [CLI, 'build', '-o', '.atlas/localized.html'], {
+      cwd: root,
+      encoding: 'utf8',
+    })
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+    const data = extractAtlasPayload(
+      fs.readFileSync(path.join(root, '.atlas/localized.html'), 'utf8'),
+    )
+    assert.equal(data.defaultLocale, 'zh')
+    assert.equal(data.auditSourceLocale, 'en')
+    assert.equal(data.auditLocalizations.zh.state, 'complete')
+    assert.deepEqual(data.auditLocalizations.zh.units.map((unit) => unit.slug), ['security-src'])
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('audit localization cli emits deterministic input and gates required locales', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const a = 1\n')
+    commitAll(root)
+    writeV2(root, 'security', 'security-src', ['src/a.ts'], [securityFinding('src/a.ts')], {
+      hashes: { 'src/a.ts': gitBlob(root, 'src/a.ts') },
+      title: 'Source',
+    })
+    write(root, '.atlas/config.json', `${JSON.stringify({
+      formatVersion: 1,
+      exclude: [],
+      defaultLocale: 'zh',
+      auditSourceLocale: 'en',
+      auditContentLocales: ['zh'],
+    }, null, 2)}\n`)
+    commitAll(root)
+    writeCoverageReport(root, 'complete')
+
+    const inputResult = spawnSync(
+      process.execPath,
+      [CLI, 'audit-localization-input', '--locale', 'zh', '--json'],
+      { cwd: root, encoding: 'utf8' },
+    )
+    assert.equal(inputResult.status, 0, inputResult.stderr || inputResult.stdout)
+    const input = JSON.parse(inputResult.stdout)
+    assert.equal(input.format, 'atlas-audit-localization-input-v1')
+    assert.equal(input.sourceLocale, 'en')
+    assert.equal(input.targetLocale, 'zh')
+    assert.deepEqual(input.units.map((unit) => unit.slug), ['security-src'])
+
+    const missingResult = spawnSync(
+      process.execPath,
+      [CLI, 'audit-localization-check', '--json'],
+      { cwd: root, encoding: 'utf8' },
+    )
+    assert.equal(missingResult.status, 1)
+    assert.equal(JSON.parse(missingResult.stdout).locales.zh.state, 'missing')
+
+    write(root, '.atlas/locales/zh/audits.json', `${JSON.stringify({
+      formatVersion: 1,
+      format: 'atlas-audit-localizations-v1',
+      locale: 'zh',
+      units: input.units,
+    }, null, 2)}\n`)
+    const completeResult = spawnSync(
+      process.execPath,
+      [CLI, 'audit-localization-check', '--json'],
+      { cwd: root, encoding: 'utf8' },
+    )
+    assert.equal(completeResult.status, 0, completeResult.stderr || completeResult.stdout)
+    assert.equal(JSON.parse(completeResult.stdout).locales.zh.state, 'complete')
   } finally {
     cleanup(root)
   }

@@ -204,6 +204,10 @@ msgstr "소속 페이지"
 msgid "Artifacts"
 msgstr "산출물"
 
+#: viewer/App.tsx
+msgid "Audit content translation is unavailable or incomplete; canonical source text is shown."
+msgstr "감사 콘텐츠 번역을 사용할 수 없거나 불완전하여 정규 원문을 표시합니다."
+
 #: viewer/Print.tsx
 msgid "back"
 msgstr "뒤로"
@@ -318,6 +322,7 @@ msgid "Coverage complete and current"
 msgstr "Coverage가 완전하고 최신입니다"
 
 #: viewer/AuditCoverage.tsx
+#: viewer/AuditCoverageFacts.tsx
 msgid "Coverage counts unavailable"
 msgstr "Coverage 수치를 사용할 수 없습니다"
 
@@ -478,8 +483,7 @@ msgstr "수정:"
 
 #: viewer/App.tsx
 #: viewer/AuditCoverage.tsx
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
+#: viewer/AuditCoverageFacts.tsx
 msgid "fresh"
 msgstr "최신"
 
@@ -562,8 +566,7 @@ msgstr "메시지는 <0>/chat/poll</0>을 폴링하는 에이전트 세션으로
 
 #: viewer/App.tsx
 #: viewer/AuditCoverage.tsx
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
+#: viewer/AuditCoverageFacts.tsx
 msgid "missing"
 msgstr "누락"
 

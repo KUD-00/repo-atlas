@@ -20,6 +20,7 @@ import {
   type AuditAction,
   type AuditViewMode,
 } from '../src/audit-assurance'
+import { localizeAuditPresentation } from '../src/audit-localization-presentation'
 import { localizedDomainNavSuffix } from './audit-copy'
 import {
   initialPanelOpen,
@@ -106,6 +107,9 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const compact = useCompact()
   const live = useLive()
   const [data, setData] = useState(initialData)
+  const [locale, setLocale] = useState<AppLocale>(
+    () => getStoredLocale(initialData.defaultLocale),
+  )
 
   // live refresh, in place: when anything in the scan changes, serve emits a
   // change event and we swap in a fresh payload via setState. React re-renders
@@ -132,9 +136,20 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const concepts = data.concepts ?? []
   const conceptsBySlug = useMemo(() => new Map(concepts.map((c) => [c.slug, c])), [data])
   const artifacts = data.artifacts ?? {}
-  const audits = data.audits ?? []
-  const testAudits = data.testAudits ?? []
-  const reviewCoverage = data.reviewCoverage
+  const auditPresentation = useMemo(
+    () => localizeAuditPresentation({
+      locale,
+      sourceLocale: data.auditSourceLocale ?? 'en',
+      localizations: data.auditLocalizations ?? {},
+      audits: data.audits ?? [],
+      testAudits: data.testAudits ?? [],
+      reviewCoverage: data.reviewCoverage,
+    }),
+    [locale, data.auditSourceLocale, data.auditLocalizations, data.audits, data.testAudits, data.reviewCoverage],
+  )
+  const audits = auditPresentation.audits
+  const testAudits = auditPresentation.testAudits
+  const reviewCoverage = auditPresentation.reviewCoverage
   const securityModel = useMemo(
     () => domainAssurance('security', reviewCoverage, audits),
     [reviewCoverage, audits],
@@ -199,7 +214,6 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const [conceptQuery, setConceptQuery] = useState('')
   const [conceptStatusFilter, setConceptStatusFilter] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [locale, setLocale] = useState<AppLocale>(getStoredLocale)
   const [sideOpen, setSideOpen] = useState(
     () => !(typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches),
   )
@@ -683,37 +697,57 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
           ) : conceptsView ? (
             <ConceptsIndex concepts={concepts} onSelect={onSelect} />
           ) : security ? (
-            <SecurityPane
-              model={securityModel}
-              audits={audits}
-              mode={securityMode}
-              focusSlug={auditRouteInfo?.domain === 'security' ? auditRouteInfo.slug : null}
-              onMode={setSecurityMode}
-              onSelectUnit={(slug) => {
-                if (!slug) {
-                  onSelect(auditRoute('security'))
-                  return
-                }
-                const route = auditUnitRoute('security', slug)
-                if (route) onSelect(route)
-              }}
-            />
+            <div className="min-h-full">
+              {auditPresentation.state === 'fallback' && (
+                <p
+                  role="status"
+                  className="mx-12 mt-5 mb-0 max-md:mx-4 text-[0.78rem] text-muted border border-border rounded-lg py-2 px-3 bg-panel"
+                >
+                  {t(i18n)`Audit content translation is unavailable or incomplete; canonical source text is shown.`}
+                </p>
+              )}
+              <SecurityPane
+                model={securityModel}
+                audits={audits}
+                mode={securityMode}
+                focusSlug={auditRouteInfo?.domain === 'security' ? auditRouteInfo.slug : null}
+                onMode={setSecurityMode}
+                onSelectUnit={(slug) => {
+                  if (!slug) {
+                    onSelect(auditRoute('security'))
+                    return
+                  }
+                  const route = auditUnitRoute('security', slug)
+                  if (route) onSelect(route)
+                }}
+              />
+            </div>
           ) : testsView ? (
-            <TestAuditPane
-              model={testModel}
-              audits={testAudits}
-              mode={testMode}
-              focusSlug={auditRouteInfo?.domain === 'test' ? auditRouteInfo.slug : null}
-              onMode={setTestMode}
-              onSelectUnit={(slug) => {
-                if (!slug) {
-                  onSelect(auditRoute('test'))
-                  return
-                }
-                const route = auditUnitRoute('test', slug)
-                if (route) onSelect(route)
-              }}
-            />
+            <div className="min-h-full">
+              {auditPresentation.state === 'fallback' && (
+                <p
+                  role="status"
+                  className="mx-12 mt-5 mb-0 max-md:mx-4 text-[0.78rem] text-muted border border-border rounded-lg py-2 px-3 bg-panel"
+                >
+                  {t(i18n)`Audit content translation is unavailable or incomplete; canonical source text is shown.`}
+                </p>
+              )}
+              <TestAuditPane
+                model={testModel}
+                audits={testAudits}
+                mode={testMode}
+                focusSlug={auditRouteInfo?.domain === 'test' ? auditRouteInfo.slug : null}
+                onMode={setTestMode}
+                onSelectUnit={(slug) => {
+                  if (!slug) {
+                    onSelect(auditRoute('test'))
+                    return
+                  }
+                  const route = auditUnitRoute('test', slug)
+                  if (route) onSelect(route)
+                }}
+              />
+            </div>
           ) : (
             <DocPane
               node={node}

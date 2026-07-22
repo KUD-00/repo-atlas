@@ -204,6 +204,10 @@ msgstr "所属页面"
 msgid "Artifacts"
 msgstr "产物"
 
+#: viewer/App.tsx
+msgid "Audit content translation is unavailable or incomplete; canonical source text is shown."
+msgstr "审计内容翻译不可用或不完整；当前显示规范源文本。"
+
 #: viewer/Print.tsx
 msgid "back"
 msgstr "返回"
@@ -318,6 +322,7 @@ msgid "Coverage complete and current"
 msgstr "Coverage 完整且为最新"
 
 #: viewer/AuditCoverage.tsx
+#: viewer/AuditCoverageFacts.tsx
 msgid "Coverage counts unavailable"
 msgstr "Coverage 计数不可用"
 
@@ -478,8 +483,7 @@ msgstr "修法："
 
 #: viewer/App.tsx
 #: viewer/AuditCoverage.tsx
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
+#: viewer/AuditCoverageFacts.tsx
 msgid "fresh"
 msgstr "最新"
 
@@ -562,8 +566,7 @@ msgstr "消息将发送到正在轮询 <0>/chat/poll</0> 的代理会话。"
 
 #: viewer/App.tsx
 #: viewer/AuditCoverage.tsx
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
+#: viewer/AuditCoverageFacts.tsx
 msgid "missing"
 msgstr "缺失"
 

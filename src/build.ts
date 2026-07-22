@@ -7,7 +7,9 @@ import type { RawArtifact } from './artifacts.js'
 import { missingReviewCoverage } from './review-coverage.js'
 import type {
   ArtifactNode,
+  AtlasLocale,
   AtlasPayload,
+  AuditLocalizationPortfolio,
   AuditUnit,
   ComputeStatusResult,
   ConceptNode,
@@ -48,6 +50,9 @@ export interface BuildInput {
   audits?: AuditUnit[]
   testAudits?: TestAuditUnit[]
   reviewCoverage?: ReviewCoveragePortfolio
+  defaultLocale?: AtlasLocale
+  auditSourceLocale?: AtlasLocale
+  auditLocalizations?: Partial<Record<AtlasLocale, AuditLocalizationPortfolio>>
 }
 
 /** The data the viewer runs on — also served as JSON by `serve`'s /data so
@@ -63,6 +68,9 @@ export function buildPayload({
   audits = [],
   testAudits = [],
   reviewCoverage = missingReviewCoverage(),
+  defaultLocale = 'en',
+  auditSourceLocale = 'en',
+  auditLocalizations = {},
 }: BuildInput): AtlasPayload {
   const byPath = new Map(status.entries.map((e) => [e.path, e]))
 
@@ -152,6 +160,9 @@ export function buildPayload({
     audits,
     testAudits,
     reviewCoverage,
+    defaultLocale,
+    auditSourceLocale,
+    auditLocalizations,
   }
 }
 

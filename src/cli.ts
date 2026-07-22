@@ -9,6 +9,11 @@ import { noteFileFor, loadNotes, stampNote, moveNoteFile, notesRoot } from './no
 import { loadConceptPages, sourcesHashFor, stampConceptPage, conceptFileFor } from './conceptPages.js'
 import { loadArtifacts } from './artifacts.js'
 import { importLegacyAudit, loadAuditPortfolios } from './audits.js'
+import {
+  buildAuditLocalizationInput,
+  canonicalAuditLocalizationJson,
+  loadConfiguredAuditLocalizations,
+} from './audit-localizations.js'
 import { loadReviewCoverage } from './review-coverage.js'
 import { computeStatus, summarize, summarizeConcepts } from './status.js'
 import { buildHtml, writeAtlas } from './build.js'
@@ -19,7 +24,7 @@ import { computeCheck, type CheckFinding } from './check.js'
 import { concepts } from './concepts.js'
 import { assertCanonicalReadabilityOutput, assertReadabilityAuditOwnership, assertReadabilityReportOutput, computeReadability, formatReadabilitySummary, isSupportedReadabilityReport, readReadabilityReport, writeCanonicalReadabilityReport, writeReadabilityArtifacts, writeReadabilityAuditLedger, writeReadabilityReport, diffReadabilityReports } from './readability.js'
 import { stampAudits } from './audits.js'
-import type { AtlasConfig, PathType, ReviewCoveragePortfolio } from './types.js'
+import type { AtlasConfig, AtlasLocale, PathType, ReviewCoveragePortfolio } from './types.js'
 
 const USAGE = `repo-atlas — incremental codebase atlas with staleness tracking
 
@@ -36,6 +41,10 @@ usage: repo-atlas <command> [args]
                            per-file git hashes, so status tracks per-file drift
   audit-import <files...>  import legacy scans[] ledgers into atlas-audit-v1;
                            scan-time hashes are preserved (safe on stale audits)
+  audit-localization-input --locale <en|ja|zh|ko> [--json]
+                           emit digest-bound canonical audit prose for translation
+  audit-localization-check [--json]
+                           require every configured audit content locale to be current
   migrate [--apply]        relocate notes whose targets moved (dry-run by default);
                            also rewrites references to the old paths in note prose
   build [-o <file>]        generate the self-contained HTML atlas (default .atlas/atlas.html)
@@ -89,6 +98,8 @@ function dispatch(cmd: string | undefined, args: string[]) {
     case 'readability': return readability(root!, args)
     case 'audit-stamp': return auditStamp(root!, args)
     case 'audit-import': return auditImport(root!, args)
+    case 'audit-localization-input': return auditLocalizationInput(root!, args)
+    case 'audit-localization-check': return auditLocalizationCheck(root!, args)
     case 'serve': {
       const pIdx = args.indexOf('-p')
       const hIdx = args.indexOf('--host')
@@ -573,6 +584,12 @@ function build(root: string, args: string[]) {
   const status = computeStatus(root, scanResult, { readability: false })
   const portfolios = loadAuditPortfolios(root, status.audits)
   const reviewCoverage = loadReviewCoverage(root, portfolios)
+  const localizations = loadConfiguredAuditLocalizations(
+    root,
+    config,
+    reviewCoverage,
+    portfolios,
+  )
   const html = buildHtml({
     repoName: path.basename(root),
     commit: headCommit(root),
@@ -584,11 +601,78 @@ function build(root: string, args: string[]) {
     audits: portfolios.security,
     testAudits: portfolios.tests,
     reviewCoverage,
+    defaultLocale: config.defaultLocale ?? 'en',
+    auditSourceLocale: localizations.sourceLocale,
+    auditLocalizations: localizations.portfolios,
   })
   const target = writeAtlas(root, outFile, html)
   const sum = summarize(status)
   console.log(`wrote ${target}`)
   console.log(`${sum.total} paths · ${sum.fresh} fresh · ${sum.outdated} outdated · ${sum.missing} missing`)
+}
+
+const AUDIT_LOCALES = new Set<AtlasLocale>(['en', 'ja', 'zh', 'ko'])
+
+function auditLocalizationContext(root: string, config: AtlasConfig) {
+  const scanResult = scan(root, config)
+  const status = computeStatus(root, scanResult, { readability: false })
+  const portfolios = loadAuditPortfolios(root, status.audits)
+  const reviewCoverage = loadReviewCoverage(root, portfolios)
+  return { portfolios, reviewCoverage }
+}
+
+function auditLocalizationInput(root: string, args: string[]) {
+  const localeIndex = args.indexOf('--locale')
+  const localeValue = localeIndex >= 0 ? args[localeIndex + 1] : undefined
+  const expectedLength = args.includes('--json') ? 3 : 2
+  if (localeIndex < 0 || localeIndex + 1 >= args.length || args.length !== expectedLength ||
+      !localeValue || !AUDIT_LOCALES.has(localeValue as AtlasLocale)) {
+    throw new Error('usage: repo-atlas audit-localization-input --locale <en|ja|zh|ko> [--json]')
+  }
+  const locale = localeValue as AtlasLocale
+  const config = requireConfig(root)
+  const sourceLocale = config.auditSourceLocale ?? 'en'
+  if (locale === sourceLocale) {
+    throw new Error('audit localization target locale must differ from the canonical source locale')
+  }
+  const { portfolios, reviewCoverage } = auditLocalizationContext(root, config)
+  const input = buildAuditLocalizationInput(
+    sourceLocale,
+    locale,
+    reviewCoverage,
+    portfolios,
+  )
+  process.stdout.write(canonicalAuditLocalizationJson(input))
+}
+
+function auditLocalizationCheck(root: string, args: string[]) {
+  if (args.some((arg) => arg !== '--json') || args.filter((arg) => arg === '--json').length > 1) {
+    throw new Error('usage: repo-atlas audit-localization-check [--json]')
+  }
+  const config = requireConfig(root)
+  const { portfolios, reviewCoverage } = auditLocalizationContext(root, config)
+  const loaded = loadConfiguredAuditLocalizations(
+    root,
+    config,
+    reviewCoverage,
+    portfolios,
+  )
+  if (args.includes('--json')) {
+    process.stdout.write(canonicalAuditLocalizationJson({
+      sourceLocale: loaded.sourceLocale,
+      locales: loaded.portfolios,
+    }))
+  } else if (Object.keys(loaded.portfolios).length === 0) {
+    console.log('audit localizations: no required content locales configured')
+  } else {
+    for (const [locale, portfolio] of Object.entries(loaded.portfolios)) {
+      console.log(`audit localization ${locale}: ${portfolio?.state ?? 'missing'}`)
+      for (const error of portfolio?.errors ?? []) console.log(`  ${error.code}: ${error.message}`)
+    }
+  }
+  if (Object.values(loaded.portfolios).some((portfolio) => portfolio?.state !== 'complete')) {
+    process.exitCode = 1
+  }
 }
 
 main()

@@ -16,6 +16,9 @@ import type {
   ReviewCoverageSummary,
   ReviewCoverageVerdict,
 } from './types.js'
+import { missingReviewCoverage } from './review-coverage-portfolio.js'
+
+export { missingReviewCoverage } from './review-coverage-portfolio.js'
 
 /**
  * Strict fail-closed loader for `.atlas/review-coverage.json`.
@@ -88,11 +91,6 @@ function diagnostic(code: string, message: string, extra: { path?: string; slug?
   return out
 }
 
-/** Canonical missing portfolio — used by build defaults and the loader. */
-export function missingReviewCoverage(): ReviewCoveragePortfolio {
-  return { state: 'missing', report: null, errors: [], drift: emptyDrift() }
-}
-
 function missingPortfolio(): ReviewCoveragePortfolio {
   return missingReviewCoverage()
 }
@@ -129,6 +127,57 @@ function validRepoPath(repoPath: string): boolean {
     !repoPath.startsWith('../') &&
     !repoPath.includes('/../') &&
     !repoPath.includes('/./')
+}
+
+function deletedTrackedPathError(root: string, repoPath: string): CoverageDiagnostic | null {
+  const rootPath = path.resolve(root)
+  try {
+    const rootStat = fs.lstatSync(rootPath)
+    if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+      return diagnostic('unreadable-path', 'repository root is not a safe directory', { path: repoPath })
+    }
+  } catch {
+    return diagnostic('unreadable-path', 'repository root is missing or unreadable', { path: repoPath })
+  }
+
+  const segments = repoPath.split('/')
+  let parent = rootPath
+  for (const segment of segments.slice(0, -1)) {
+    parent = path.join(parent, segment)
+    try {
+      const stat = fs.lstatSync(parent)
+      if (stat.isSymbolicLink() || !stat.isDirectory()) {
+        return diagnostic(
+          'unreadable-path',
+          `deleted tracked path has a symlinked or non-directory parent: ${repoPath}`,
+          { path: repoPath },
+        )
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+      return diagnostic(
+        'unreadable-path',
+        `deleted tracked path parent is unreadable: ${repoPath}`,
+        { path: repoPath },
+      )
+    }
+  }
+
+  try {
+    fs.lstatSync(path.join(rootPath, ...segments))
+    return diagnostic(
+      'unreadable-path',
+      `git reported a deletion but the tracked path still exists: ${repoPath}`,
+      { path: repoPath },
+    )
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    return diagnostic(
+      'unreadable-path',
+      `deleted tracked path is unreadable: ${repoPath}`,
+      { path: repoPath },
+    )
+  }
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -778,17 +827,27 @@ function readTrackedInventory(root: string): TrackedInventory | CoverageDiagnost
   }
 
   let dirtyRaw: string
+  let deletedRaw: string
   try {
     dirtyRaw = git(root, ['diff-files', '--name-only', '-z'])
+    deletedRaw = git(root, ['diff-files', '--diff-filter=D', '--name-only', '-z'])
   } catch {
     return [diagnostic('git-error', 'failed to read git diff-files dirty tracked paths')]
   }
 
   const dirty = dirtyRaw.split('\0').filter(Boolean)
   if (dirty.length) {
+    const dirtySet = new Set<string>()
     for (const repoPath of dirty) {
       if (!validRepoPath(repoPath)) {
         return [diagnostic('unsafe-path', `dirty tracked path is not a normalized repository-relative path: ${repoPath}`)]
+      }
+      if (dirtySet.has(repoPath)) {
+        return [diagnostic(
+          'malformed-inventory',
+          `git diff-files named a dirty tracked path more than once: ${repoPath}`,
+          { path: repoPath },
+        )]
       }
       if (!hashes.has(repoPath)) {
         // diff-files should only name index paths; treat surprises as unreadable inventory.
@@ -798,8 +857,35 @@ function readTrackedInventory(root: string): TrackedInventory | CoverageDiagnost
           { path: repoPath },
         )]
       }
+      dirtySet.add(repoPath)
     }
-    const snapshot = hashFilePaths(root, dirty)
+
+    const deleted = new Set<string>()
+    for (const repoPath of deletedRaw.split('\0').filter(Boolean)) {
+      if (!validRepoPath(repoPath)) {
+        return [diagnostic('unsafe-path', `deleted tracked path is not a normalized repository-relative path: ${repoPath}`)]
+      }
+      if (deleted.has(repoPath)) {
+        return [diagnostic(
+          'malformed-inventory',
+          `git diff-files named a deleted tracked path more than once: ${repoPath}`,
+          { path: repoPath },
+        )]
+      }
+      if (!dirtySet.has(repoPath) || !hashes.has(repoPath)) {
+        return [diagnostic(
+          'malformed-inventory',
+          `git diff-files deletion is not present in the dirty stage-zero inventory: ${repoPath}`,
+          { path: repoPath },
+        )]
+      }
+      const pathError = deletedTrackedPathError(root, repoPath)
+      if (pathError) return [pathError]
+      deleted.add(repoPath)
+      hashes.delete(repoPath)
+    }
+
+    const snapshot = hashFilePaths(root, dirty.filter((repoPath) => !deleted.has(repoPath)))
     if (snapshot.missing.length || snapshot.failed.length) {
       const bad = [...snapshot.missing, ...snapshot.failed]
       return bad.map((repoPath) => diagnostic(

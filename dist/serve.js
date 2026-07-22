@@ -11,6 +11,8 @@ import { buildImportGraph } from './deps.js';
 import { loadGlossaryRaw, parseGlossary } from './glossary.js';
 import { loadArtifacts } from './artifacts.js';
 import { loadAuditPortfolios } from './audits.js';
+import { loadConfiguredAuditLocalizations } from './audit-localizations.js';
+import { loadReviewCoverage } from './review-coverage.js';
 const POLL_MS = 1500;
 const PREVIEW_CAP = 500_000;
 export function serve(root, config, port, host = '127.0.0.1') {
@@ -22,6 +24,8 @@ export function serve(root, config, port, host = '127.0.0.1') {
         const glossaryRaw = loadGlossaryRaw(root);
         const artifacts = loadArtifacts(root);
         const portfolios = loadAuditPortfolios(root, status.audits);
+        const reviewCoverage = loadReviewCoverage(root, portfolios);
+        const localizations = loadConfiguredAuditLocalizations(root, config, reviewCoverage, portfolios);
         const input = {
             repoName: path.basename(root),
             commit: headCommit(root),
@@ -32,13 +36,19 @@ export function serve(root, config, port, host = '127.0.0.1') {
             artifacts,
             audits: portfolios.security,
             testAudits: portfolios.tests,
+            reviewCoverage,
+            defaultLocale: config.defaultLocale ?? 'en',
+            auditSourceLocale: localizations.sourceLocale,
+            auditLocalizations: localizations.portfolios,
         };
         const payload = buildPayload(input);
         const html = buildHtml({ ...input, payload });
         const digest = createHash('sha1')
             .update(JSON.stringify(status.entries) + JSON.stringify(status.orphans) +
             JSON.stringify(status.concepts) + glossaryRaw + JSON.stringify(artifacts) +
-            JSON.stringify(portfolios.security) + JSON.stringify(portfolios.tests))
+            JSON.stringify(portfolios.security) + JSON.stringify(portfolios.tests) +
+            JSON.stringify(reviewCoverage) + JSON.stringify(localizations) +
+            (config.defaultLocale ?? 'en'))
             .digest('hex');
         return { html, digest, payloadJson: JSON.stringify(payload) };
     };

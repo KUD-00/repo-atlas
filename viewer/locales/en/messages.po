@@ -204,6 +204,10 @@ msgstr "artifact of"
 msgid "Artifacts"
 msgstr "Artifacts"
 
+#: viewer/App.tsx
+msgid "Audit content translation is unavailable or incomplete; canonical source text is shown."
+msgstr "Audit content translation is unavailable or incomplete; canonical source text is shown."
+
 #: viewer/Print.tsx
 msgid "back"
 msgstr "back"
@@ -318,6 +322,7 @@ msgid "Coverage complete and current"
 msgstr "Coverage complete and current"
 
 #: viewer/AuditCoverage.tsx
+#: viewer/AuditCoverageFacts.tsx
 msgid "Coverage counts unavailable"
 msgstr "Coverage counts unavailable"
 
@@ -478,8 +483,7 @@ msgstr "fix"
 
 #: viewer/App.tsx
 #: viewer/AuditCoverage.tsx
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
+#: viewer/AuditCoverageFacts.tsx
 msgid "fresh"
 msgstr "fresh"
 
@@ -562,8 +566,7 @@ msgstr "Messages go to whichever agent session is polling <0>/chat/poll</0>."
 
 #: viewer/App.tsx
 #: viewer/AuditCoverage.tsx
-#: viewer/Security.tsx
-#: viewer/TestAudit.tsx
+#: viewer/AuditCoverageFacts.tsx
 msgid "missing"
 msgstr "missing"
 

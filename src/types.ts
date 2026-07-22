@@ -1,3 +1,5 @@
+export type AtlasLocale = 'en' | 'ja' | 'zh' | 'ko'
+
 export interface AtlasConfig {
   formatVersion?: number
   exclude?: string[]
@@ -5,6 +7,12 @@ export interface AtlasConfig {
   /** Self-contained subtrees ("books"): the contents view roots at the nearest
    * one instead of the file's immediate parent. Repo root is the implicit fallback. */
   basePoints?: string[]
+  /** Viewer locale for readers without an explicit stored preference. */
+  defaultLocale?: AtlasLocale
+  /** Language of the canonical audit ledger prose. */
+  auditSourceLocale?: AtlasLocale
+  /** Derived audit-prose locale projections required by repository guardrails. */
+  auditContentLocales?: AtlasLocale[]
 }
 
 export interface ScanResult {
@@ -325,6 +333,51 @@ export interface ReviewCoveragePortfolio {
   drift: { added: string[]; removed: string[]; changed: string[] }
 }
 
+export type AuditLocalizationState = 'complete' | 'incomplete' | 'invalid' | 'missing'
+
+export interface AuditLocalizationDiagnostic {
+  code: string
+  message: string
+  locale: AtlasLocale
+  domain?: AuditDomain
+  slug?: string
+  sourceDigest?: string
+}
+
+export interface VerifiedSecurityFindingTranslation {
+  sourceDigest: string
+  title: string
+  dataflow: string
+  fix: string
+}
+
+export interface VerifiedTestFindingTranslation {
+  sourceDigest: string
+  title: string
+  invariant: string
+  evidence: string
+  fix: string
+}
+
+export type VerifiedAuditFindingTranslation =
+  | VerifiedSecurityFindingTranslation
+  | VerifiedTestFindingTranslation
+
+export interface VerifiedAuditUnitTranslation {
+  domain: AuditDomain
+  slug: string
+  sourceDigest: string
+  title: string
+  findings: VerifiedAuditFindingTranslation[]
+}
+
+export interface AuditLocalizationPortfolio {
+  locale: AtlasLocale
+  state: AuditLocalizationState
+  units: VerifiedAuditUnitTranslation[]
+  errors: AuditLocalizationDiagnostic[]
+}
+
 export interface AtlasPayload {
   repoName: string
   commit: string | null
@@ -344,6 +397,12 @@ export interface AtlasPayload {
   testAudits: TestAuditUnit[]
   /** Closed-world review coverage portfolio (missing when no report). */
   reviewCoverage: ReviewCoveragePortfolio
+  /** Initial viewer locale when the reader has no stored preference. */
+  defaultLocale: AtlasLocale
+  /** Language of canonical audit ledger prose. */
+  auditSourceLocale: AtlasLocale
+  /** Verified, disposable audit-prose projections keyed by target locale. */
+  auditLocalizations: Partial<Record<AtlasLocale, AuditLocalizationPortfolio>>
 }
 
 export interface ChatMessage {
