@@ -10,6 +10,7 @@ test('direct audit entry starts with the code panel closed', () => {
   assert.equal(initialPanelOpen(false, 'security'), false)
   assert.equal(initialPanelOpen(false, 'tests'), false)
   assert.equal(initialPanelOpen(false, 'code'), true)
+  assert.equal(initialPanelOpen(false, 'attention'), false)
 })
 
 test('compact always starts with the code panel closed', () => {
@@ -24,4 +25,9 @@ test('entering an audit closes an unrelated panel only once', () => {
   assert.equal(shouldClosePanelOnPrimaryTransition('tests', 'security'), false)
   assert.equal(shouldClosePanelOnPrimaryTransition('security', 'code'), false)
   assert.equal(shouldClosePanelOnPrimaryTransition('tests', 'code'), false)
+  assert.equal(shouldClosePanelOnPrimaryTransition('code', 'attention'), true)
+  assert.equal(shouldClosePanelOnPrimaryTransition('concepts', 'attention'), true)
+  assert.equal(shouldClosePanelOnPrimaryTransition('attention', 'security'), false)
+  assert.equal(shouldClosePanelOnPrimaryTransition('security', 'attention'), false)
+  assert.equal(shouldClosePanelOnPrimaryTransition('attention', 'code'), false)
 })

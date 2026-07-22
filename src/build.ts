@@ -3,10 +3,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { marked } from 'marked'
 import { fillGlossaryRefs } from './glossary.js'
+import { buildAttentionPayload } from './attention.js'
 import type { RawArtifact } from './artifacts.js'
 import { missingReviewCoverage } from './review-coverage.js'
 import type {
   ArtifactNode,
+  AttentionPayload,
   AtlasLocale,
   AtlasPayload,
   AuditLocalizationPortfolio,
@@ -53,6 +55,34 @@ export interface BuildInput {
   defaultLocale?: AtlasLocale
   auditSourceLocale?: AtlasLocale
   auditLocalizations?: Partial<Record<AtlasLocale, AuditLocalizationPortfolio>>
+  attention?: AttentionPayload
+}
+
+function conceptProjection(body: string): {
+  overview: string
+  sections: Array<{ level: number; title: string }>
+} {
+  const tokens = marked.lexer(body)
+  const headings: Array<{ offset: number; level: number; title: string }> = []
+  let offset = 0
+  for (const token of tokens) {
+    if (token.type === 'heading' && token.depth >= 2 && token.depth <= 6) {
+      headings.push({ offset, level: token.depth, title: token.text.trim() })
+    }
+    offset += token.raw.length
+  }
+  if (headings.length === 0) return { overview: body, sections: [] }
+
+  const opening = body.slice(0, headings[0].offset)
+  // Pages that begin immediately with a section still need a useful entry:
+  // use that first section, not an empty overview or the entire long page.
+  const overview = opening.trim()
+    ? opening
+    : body.slice(0, headings[1]?.offset ?? body.length)
+  return {
+    overview,
+    sections: headings.map(({ level, title }) => ({ level, title })),
+  }
 }
 
 /** The data the viewer runs on — also served as JSON by `serve`'s /data so
@@ -71,7 +101,9 @@ export function buildPayload({
   defaultLocale = 'en',
   auditSourceLocale = 'en',
   auditLocalizations = {},
+  attention,
 }: BuildInput): AtlasPayload {
+  const generatedAt = new Date().toISOString()
   const byPath = new Map(status.entries.map((e) => [e.path, e]))
 
   const makeNode = (p: string): TreeNode => {
@@ -108,19 +140,26 @@ export function buildPayload({
   // note bodies we already have. `home` was parsed from glossary.md upstream.
   fillGlossaryRefs(glossary, status.entries.map((e) => ({ path: e.path, body: e.body })))
 
-  const concepts: ConceptNode[] = status.concepts.map((c) => ({
-    slug: c.slug,
-    title: c.title,
-    audience: c.audience,
-    chapter: c.chapter,
-    status: c.status,
-    sources: c.sources,
-    brokenSources: c.brokenSources,
-    stamped: c.stamped,
-    anchor: c.anchor,
-    html: c.body ? String(marked.parse(c.body)) : null,
-    source: c.body || null,
-  }))
+  const concepts: ConceptNode[] = status.concepts.map((c) => {
+    const projection = conceptProjection(c.body)
+    return {
+      slug: c.slug,
+      title: c.title,
+      audience: c.audience,
+      chapter: c.chapter,
+      status: c.status,
+      sources: c.sources,
+      currentSourcesHash: c.currentSourcesHash,
+      snapshot: c.snapshot,
+      brokenSources: c.brokenSources,
+      stamped: c.stamped,
+      anchor: c.anchor,
+      html: c.body ? String(marked.parse(c.body)) : null,
+      briefHtml: c.body ? String(marked.parse(projection.overview)) : null,
+      sections: projection.sections,
+      source: c.body || null,
+    }
+  })
 
   // Resolve `home: concept:<slug>` to the concept's title so the glossary popover
   // renders "canonical home → 《title》" and links to the concept page — concepts
@@ -149,13 +188,14 @@ export function buildPayload({
   return {
     repoName,
     commit,
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     tree: root,
     orphans: status.orphans.map((o) => o.path),
     graph,
     glossary,
     basePoints,
     concepts,
+    attention: attention ?? buildAttentionPayload(status, { mode: 'static', now: generatedAt }),
     artifacts: artifactIndex,
     audits,
     testAudits,

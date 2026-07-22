@@ -2,14 +2,28 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  attentionRoute,
   auditRoute,
   auditUnitRoute,
   isConceptsViewRoute,
   isNamespacedOrPathRoute,
   isValidAuditUnitRoute,
   parseAuditRoute,
+  parseAttentionRoute,
   primaryViewForRoute,
 } from '../dist/audit-routes.js'
+
+test('attention routes round-trip needs, history, and system health', () => {
+  assert.equal(attentionRoute(), 'view:attention')
+  assert.equal(attentionRoute('needs'), 'view:attention')
+  assert.equal(attentionRoute('history'), 'view:attention/history')
+  assert.equal(attentionRoute('health'), 'view:attention/health')
+  assert.deepEqual(parseAttentionRoute('view:attention'), { section: 'needs' })
+  assert.deepEqual(parseAttentionRoute('view:attention/history'), { section: 'history' })
+  assert.deepEqual(parseAttentionRoute('view:attention/health'), { section: 'health' })
+  assert.equal(parseAttentionRoute('view:attention/unknown'), null)
+  assert.equal(parseAttentionRoute('view:attention/'), null)
+})
 
 test('audit route helpers parse namespaced security and test routes', () => {
   assert.deepEqual(parseAuditRoute('audit:security'), { domain: 'security', slug: null })
@@ -42,6 +56,9 @@ test('audit route primary view treats bare security as code and concepts/view as
   assert.equal(primaryViewForRoute('view:concepts', () => false), 'concepts')
   assert.equal(isConceptsViewRoute('view:concepts'), true)
   assert.equal(isConceptsViewRoute('concept:auth'), false)
+  assert.equal(primaryViewForRoute('view:attention'), 'attention')
+  assert.equal(primaryViewForRoute('view:attention/history'), 'attention')
+  assert.equal(primaryViewForRoute('view:attention/health'), 'attention')
 })
 
 test('audit route reserved namespaces win over colliding repository paths', () => {
@@ -58,6 +75,8 @@ test('audit route reserved namespaces win over colliding repository paths', () =
   assert.equal(isNamespacedOrPathRoute('audit:test', alwaysPath, empty, () => false), true)
   assert.equal(isNamespacedOrPathRoute('view:concepts', alwaysPath, empty, () => false), true)
   assert.equal(isNamespacedOrPathRoute('concept:auth', alwaysPath, empty, () => true), true)
+  assert.equal(isNamespacedOrPathRoute('view:attention', alwaysPath, empty, () => false), true)
+  assert.equal(isNamespacedOrPathRoute('view:attention/history', alwaysPath, empty, () => false), true)
 
   // Bare security keeps real repo-path priority for Code, never Security.
   assert.equal(primaryViewForRoute('security', alwaysPath), 'code')
@@ -69,6 +88,7 @@ test('audit route reserved namespaces win over colliding repository paths', () =
   assert.equal(isNamespacedOrPathRoute('audit:security/Bad', alwaysPath, empty, () => false), false)
   assert.equal(isNamespacedOrPathRoute('audit:security/', alwaysPath, empty, () => false), false)
   assert.equal(isNamespacedOrPathRoute('audit:test/Upper', alwaysPath, empty, () => false), false)
+  assert.equal(isNamespacedOrPathRoute('view:attention/unknown', alwaysPath, empty, () => false), false)
 })
 
 test('audit route unit deep-links require a portfolio slug; homes are always valid', () => {
@@ -203,9 +223,12 @@ test('audit route primary nav remembers code/concepts and homes security/tests',
   assert.deepEqual(mem, { code: 'src/a.ts', concepts: 'view:concepts' })
   mem = rememberPrimaryRoutes(mem, 'audit:test')
   assert.deepEqual(mem, { code: 'src/a.ts', concepts: 'view:concepts' })
+  mem = rememberPrimaryRoutes(mem, 'view:attention/history')
+  assert.deepEqual(mem, { code: 'src/a.ts', concepts: 'view:concepts' })
 
   assert.equal(primaryNavRoute('code', mem), 'src/a.ts')
   assert.equal(primaryNavRoute('concepts', mem), 'view:concepts')
   assert.equal(primaryNavRoute('security', mem), 'audit:security')
   assert.equal(primaryNavRoute('tests', mem), 'audit:test')
+  assert.equal(primaryNavRoute('attention', mem), 'view:attention')
 })

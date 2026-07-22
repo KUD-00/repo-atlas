@@ -125,6 +125,10 @@ export interface ConceptStatusEntry {
   chapter: string | null
   status: ConceptState
   sources: string[]
+  /** Current legacy combined source hash when every source resolves. */
+  currentSourcesHash: string | null
+  /** Total SHA-256 identity of every declared source, including missing markers. */
+  snapshot: string
   /** Sources that no longer resolve in the scan. */
   brokenSources: string[]
   stamped: string | null
@@ -183,11 +187,108 @@ export interface ConceptNode {
   chapter: string | null
   status: ConceptState
   sources: string[]
+  currentSourcesHash: string | null
+  snapshot: string
   brokenSources: string[]
   stamped: string | null
   anchor: string | null
   html: string | null
+  /** Opening orientation derived from this page's canonical markdown. */
+  briefHtml: string | null
+  /** Ordered map of the full walkthrough, derived from markdown headings. */
+  sections: Array<{ level: number; title: string }>
   source: string | null
+}
+
+export type AttentionWorkflow = 'open' | 'snoozed' | 'done'
+export type AttentionOutcome = 'acknowledged' | 'understood' | 'decided' | 'not-relevant'
+export type AttentionAction = AttentionOutcome | 'snooze' | 'reopen'
+
+/** Clone-local workflow state for the current snapshot of one concept. */
+export interface AttentionConceptState {
+  snapshot: string
+  workflow: AttentionWorkflow
+  firstSeenAt: string
+  snoozedUntil?: string
+  lastReviewedAt?: string
+  lastOutcome?: AttentionOutcome
+}
+
+/** Immutable receipt/event. Source-driven reopen events are recorded too, so
+ * a reader can distinguish a new version from an item they simply reopened. */
+export interface AttentionEvent {
+  id: string
+  slug: string
+  snapshot: string
+  type: 'reviewed' | 'snoozed' | 'reopened' | 'source-reopened'
+  at: string
+  outcome?: AttentionOutcome
+  note?: string
+  until?: string
+}
+
+export interface AttentionState {
+  formatVersion: 1
+  concepts: Record<string, AttentionConceptState>
+  events: AttentionEvent[]
+}
+
+export interface AttentionActionRequest {
+  slug: string
+  snapshot: string
+  action: AttentionAction
+  note?: string
+  until?: string
+}
+
+export interface AttentionDiagnostic {
+  code: string
+  message: string
+}
+
+export interface AttentionItem {
+  id: string
+  slug: string
+  title: string
+  audience: ConceptAudience
+  chapter: string | null
+  conceptStatus: ConceptState
+  workflow: AttentionWorkflow
+  snapshot: string
+  sources: string[]
+  brokenSources: string[]
+  changedPaths: string[]
+  stamped: string | null
+  anchor: string | null
+  firstSeenAt: string
+  snoozedUntil?: string
+  lastReviewedAt?: string
+  lastOutcome?: AttentionOutcome
+}
+
+export interface AttentionSummary {
+  open: number
+  snoozed: number
+  done: number
+  history: number
+}
+
+export interface AttentionHealth {
+  documents: TreeAgg
+  concepts: { fresh: number; outdated: number; brokenSource: number; total: number }
+  brokenReferences: number
+  orphans: number
+}
+
+export interface AttentionPayload {
+  mode: 'live' | 'static'
+  state: 'ready' | 'invalid'
+  generatedAt: string
+  items: AttentionItem[]
+  events: AttentionEvent[]
+  summary: AttentionSummary
+  health: AttentionHealth
+  diagnostics: AttentionDiagnostic[]
 }
 
 /** Page artifact as the viewer consumes it: `.md` arrives rendered (same
@@ -388,6 +489,8 @@ export interface AtlasPayload {
   glossary: GlossaryEntry[]
   basePoints: string[]
   concepts: ConceptNode[]
+  /** Human review workflow, deliberately separate from source freshness. */
+  attention: AttentionPayload
   /** Pipeline-produced files attached to pages, keyed by page key
    * (repo path, or `concepts/<slug>` for concept pages). */
   artifacts: Record<string, ArtifactNode[]>

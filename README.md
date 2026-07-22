@@ -84,6 +84,40 @@ resolves to a scanned path — absolute (`packages/kernel/core`), relative to th
 note's directory (`core`, `src/queue.ts`), or with a `/`/`*` tail — renders as
 a link to that path's page. Notes stay plain markdown; linking is view-side.
 
+### Attention control plane
+
+Concept freshness and human follow-up are deliberately different states. A
+page can still be `outdated` after a reader has understood the change, and a
+freshly restamped page does not prove that anyone followed it. The first
+primary viewer surface therefore tracks concept snapshots that need a person:
+
+- **Needs attention** shows open and snoozed concept versions, the stamped
+  anchor → current snapshot, and only mechanically verified changed paths or
+  declared source scope. Atlas does not invent a semantic change summary.
+- **Review history** keeps version-bound receipts for acknowledgement,
+  understanding, decisions, not-relevant outcomes, snoozes, manual reopens,
+  and automatic source-driven reopens. “Understood” and “decision” require a
+  note, so those outcomes carry more evidence than acknowledgement alone.
+- **System health** keeps missing/outdated notes, broken concept sources,
+  broken references, and orphans separate from the human queue.
+
+Every concept gets a total SHA-256 snapshot over its ordered declared sources.
+Present sources contribute their type and scan hash; absent sources contribute
+an explicit missing marker. This means a remaining source can still reopen the
+item while another source is broken. An unchanged snapshot preserves the
+reader's workflow even if the page remains stale; any observed snapshot change
+reopens it. Fresh concepts establish a quiet initial baseline but create no
+review receipt.
+
+Persistent actions require `repo-atlas serve`. They are stored outside the
+tracked atlas at `<git-common-dir>/repo-atlas/attention-v1.json`, written
+atomically with owner-only permissions. The file is local to the Git clone and
+is never committed. Invalid, oversized, symlinked, or non-regular state fails
+closed: the dashboard remains readable, actions are disabled, and Atlas will
+not overwrite the file. Move the bad file aside or repair its version-1 JSON,
+then restart `serve`. A static `repo-atlas build` contains the same dashboard
+as a read-only current projection, without personal history.
+
 ### Live audit ledgers
 
 Completed audits live at `.atlas/audits/<slug>.json`. Freshness is shared across
@@ -228,13 +262,15 @@ repository checker—not mere presence in the viewer—decides authenticity.
 
 **Viewer routes** (hash paths; valid even when the portfolio is empty):
 
+- `view:attention` / `view:attention/history` / `view:attention/health` — human
+  queue, durable receipts, and separate machine health
 - `audit:security` / `audit:security/<slug>` — security portfolio home / unit
 - `audit:test` / `audit:test/<slug>` — test portfolio home / unit
 - `view:concepts` — concept index / honest empty state
 
 Legacy `#security` redirects to `#audit:security`. A real tracked path named
-`security` stays a Code route. Primary sidebar views are route-derived: Code,
-Concepts, Security, Tests.
+`security` stays a Code route. Primary sidebar views are route-derived:
+Attention, Code, Concepts, Security, Tests.
 
 `audit-stamp` only adds per-file detail when the ledger's existing
 `scope_hash` still matches current bytes. It refuses stale ledgers, so a dated
@@ -312,11 +348,14 @@ of a single one.
   semantics — direct children only, deep edits flag the nested dir, so list
   the specific subdirs you actually lean on.
 
-- **Viewer** — concept pages sit in a "concepts" group at the top of the
-  sidebar and render like any note (mermaid, raw HTML, glossary). Because a
-  concept has no file of its own, `code:` anchors must carry a full repo
-  path: `[label](code:path/to/file.ts#StartMarker..EndMarker)` — same marker
-  semantics as file pages, link and `![embed]` forms both.
+- **Viewer** — concept pages sit in a dedicated Concepts view and render like
+  any note (mermaid, raw HTML, glossary). The default **Overview** is derived
+  from the opening markdown of that same canonical page and shows the section
+  map; **Full walkthrough** reveals the unchanged complete body. There is no
+  second summary file to drift. Because a concept has no file of its own,
+  `code:` anchors must carry a full repo path:
+  `[label](code:path/to/file.ts#StartMarker..EndMarker)` — same marker semantics
+  as file pages, link and `![embed]` forms both.
 
 ## Raw HTML in notes
 

@@ -4,6 +4,7 @@ import { useLingui } from '@lingui/react/macro'
 import {
   Code2,
   FlaskConical,
+  Inbox,
   LibraryBig,
   MessageCircle,
   PanelLeftClose,
@@ -27,10 +28,12 @@ import {
   shouldClosePanelOnPrimaryTransition,
 } from '../src/audit-panel'
 import {
+  attentionRoute,
   auditRoute,
   auditUnitRoute,
   isNamespacedOrPathRoute,
   parseAuditRoute,
+  parseAttentionRoute,
   primaryNavRoute,
   primaryViewForRoute,
   rememberPrimaryRoutes,
@@ -52,6 +55,7 @@ import { isPrintScope, printScopeOf, PrintView } from './Print'
 import { PanelPane, type CodeJump, type PanelMode } from './Preview'
 import { ChatDock } from './Chat'
 import { SettingsButton, SettingsDialog } from './Settings'
+import { AttentionNav, AttentionPane } from './Attention'
 
 const PV_ICON =
   'pv-icon flex items-center justify-center w-[26px] h-[26px] border-none rounded-md bg-transparent text-muted cursor-pointer p-0 shrink-0 hover:text-accent hover:bg-[#3d6b540d] [&_svg]:w-4 [&_svg]:h-4'
@@ -63,6 +67,7 @@ const CHIP_ON = 'border-accent text-accent bg-[#3d6b540f]'
 const PRIMARY_BTN =
   'w-full flex items-center gap-2 py-1.5 px-2 rounded-md border-none cursor-pointer font-inherit text-[0.8rem] text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30'
 const PRIMARY = [
+  ['attention', Inbox],
   ['code', Code2],
   ['concepts', LibraryBig],
   ['security', ShieldAlert],
@@ -91,6 +96,8 @@ function useRoute(valid: (route: string) => boolean) {
 
 function primaryLabel(view: PrimaryView, i18n: Parameters<typeof t>[0]): string {
   switch (view) {
+    case 'attention':
+      return t(i18n)`attention`
     case 'code':
       return t(i18n)`code`
     case 'concepts':
@@ -185,6 +192,17 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   )
   const [path, navigate] = useRoute(isRoute)
 
+  // When there is human follow-up, make it the first thing a reader sees on a
+  // bare URL. An explicit hash always wins, including a deliberate Code route.
+  const initialAttentionRedirected = useRef(false)
+  useEffect(() => {
+    if (initialAttentionRedirected.current) return
+    initialAttentionRedirected.current = true
+    if (decodeURI(location.hash.slice(1)) !== '' || data.attention.summary.open === 0) return
+    history.replaceState(null, '', '#' + encodeURI(attentionRoute()))
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+  }, [data.attention.summary.open])
+
   // Legacy `#security` → `#audit:security` only when it is not a real repo path.
   useEffect(() => {
     const raw = decodeURI(location.hash.slice(1))
@@ -195,6 +213,7 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
 
   const primaryView = primaryViewForRoute(path, (p) => nodesByPath.has(p))
   const auditRouteInfo = parseAuditRoute(path)
+  const attentionRouteInfo = parseAttentionRoute(path)
   const [remembered, setRemembered] = useState<RememberedPrimaryRoutes>(() => ({
     code: primaryView === 'code' ? path : '',
     concepts: primaryView === 'concepts' ? path || 'view:concepts' : 'view:concepts',
@@ -217,7 +236,7 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const [sideOpen, setSideOpen] = useState(
     () => !(typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches),
   )
-  // Desktop Code/Concepts open; direct Security/Tests entry and compact start closed.
+  // Desktop Code/Concepts open; operational entry and compact start closed.
   const [panelOpen, setPanelOpen] = useState(() =>
     initialPanelOpen(
       typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches,
@@ -230,7 +249,7 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const jumpSeq = useRef(0)
   const compactExpandRef = useRef<HTMLButtonElement>(null)
   const wasSideOpenRef = useRef(sideOpen)
-  // Tracks primary view so audit entry closes the panel once (not on Security↔Tests).
+  // Tracks primary view so operational entry closes the panel once.
   const prevPrimaryViewRef = useRef(primaryView)
   // Concept pages have no path of their own, so the panel needs a repo file to
   // show: the first file-typed source by default, then whatever code anchors jump to.
@@ -246,6 +265,11 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
     if (!concept) return undefined
     return securityUnitForConcept(concept.slug, audits)
   }, [concept, audits])
+
+  const conceptAttention = useMemo(() => {
+    if (!concept) return undefined
+    return data.attention.items.find((item) => item.slug === concept.slug)
+  }, [concept, data.attention.items])
 
   useEffect(() => {
     if (!concept) return
@@ -318,8 +342,8 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
     return () => window.removeEventListener('atlas-code-jump', onJump)
   }, [])
 
-  // Close the generic panel only when first entering Security/Tests from
-  // Code/Concepts. Security↔Tests and staying in an audit keep an explicit reopen.
+  // Close the generic panel only when first entering an operational view from
+  // Code/Concepts. Moving among operations keeps an explicit reopen.
   useEffect(() => {
     const previous = prevPrimaryViewRef.current
     if (shouldClosePanelOnPrimaryTransition(previous, primaryView)) {
@@ -349,9 +373,10 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const security = primaryView === 'security'
   const testsView = primaryView === 'tests'
   const conceptsView = primaryView === 'concepts'
+  const attentionView = primaryView === 'attention'
   // for a concept page (or audit homes) the side panel shows the source a
   // code anchor jumped to (or the first file source); else it falls back to the root toc
-  const panelNode = concept || security || testsView || (conceptsView && !concept)
+  const panelNode = concept || attentionView || security || testsView || (conceptsView && !concept)
     ? (conceptCodePath !== null ? nodesByPath.get(conceptCodePath) : undefined) ?? data.tree
     : node
   const agg = data.tree.agg!
@@ -414,6 +439,8 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
 
   const primaryCount = (view: PrimaryView): string | null => {
     switch (view) {
+      case 'attention':
+        return String(data.attention.summary.open)
       case 'code':
         return String(agg.total)
       case 'concepts':
@@ -433,7 +460,9 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
 
   const topTitle = concept
     ? concept.title
-    : security
+    : attentionView
+      ? t(i18n)`attention`
+      : security
       ? t(i18n)`security`
       : testsView
         ? t(i18n)`tests`
@@ -646,7 +675,13 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
         )}
 
         <nav className="flex-1 min-h-0 overflow-auto px-1.5 pt-2 pb-6">
-          {primaryView === 'concepts' ? (
+          {primaryView === 'attention' ? (
+            <AttentionNav
+              attention={data.attention}
+              section={attentionRouteInfo?.section ?? 'needs'}
+              onSelect={(section) => onSelect(attentionRoute(section))}
+            />
+          ) : primaryView === 'concepts' ? (
             <ConceptList
               concepts={concepts}
               selected={path}
@@ -687,12 +722,21 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
       </aside>
       <main className={'min-w-0 min-h-0 grid overflow-hidden ' + mainCols}>
         <div className="overflow-auto min-w-0" ref={docRef}>
-          {concept ? (
+          {attentionView ? (
+            <AttentionPane
+              attention={data.attention}
+              section={attentionRouteInfo?.section ?? 'needs'}
+              onSelectConcept={(slug) => onSelect(conceptRoute(slug))}
+              onUpdate={(attention) => setData((current) => ({ ...current, attention }))}
+            />
+          ) : concept ? (
             <ConceptPane
               concept={concept}
               nodesByPath={nodesByPath}
               glossary={data.glossary}
               audit={conceptAudit}
+              attentionItem={conceptAttention}
+              onOpenAttention={() => onSelect(attentionRoute())}
             />
           ) : conceptsView ? (
             <ConceptsIndex concepts={concepts} onSelect={onSelect} />

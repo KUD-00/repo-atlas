@@ -95,6 +95,10 @@ msgstr "{0}：{status}"
 msgid "{0}/{1} fresh"
 msgstr "{0}/{1} 项最新"
 
+#: viewer/Attention.tsx
+msgid "{days} days"
+msgstr "{days} 天"
+
 #: viewer/audit-copy.ts
 msgid "{n} coverage gaps"
 msgstr "{n} 项 coverage 缺口"
@@ -158,6 +162,10 @@ msgstr "⤷ 连接到聊天"
 msgid "1 accepted risk"
 msgstr "1 项已接受风险"
 
+#: viewer/Attention.tsx
+msgid "1 day"
+msgstr "1 天"
+
 #: viewer/audit-copy.ts
 msgid "1 open ({highest})"
 msgstr "1 项未处理（{highest}）"
@@ -165,6 +173,10 @@ msgstr "1 项未处理（{highest}）"
 #: viewer/audit-copy.ts
 msgid "1 separate design"
 msgstr "1 项单独设计"
+
+#: viewer/Attention.tsx
+msgid "A source can be fresh while your understanding is not. Only an explicit review outcome closes an item; a new source snapshot reopens it."
+msgstr "来源可以是最新的，但你的理解未必如此。只有明确的审阅结果才会关闭项目；新的来源快照会将其重新打开。"
 
 #: viewer/AuditCoverage.tsx
 msgid "acceptance"
@@ -183,6 +195,14 @@ msgstr "已被当前 coverage 报告接受"
 #: viewer/Security.tsx
 msgid "accepted risk"
 msgstr "已接受风险"
+
+#: viewer/Attention.tsx
+msgid "acknowledge"
+msgstr "确认看到"
+
+#: viewer/Attention.tsx
+msgid "acknowledged"
+msgstr "已确认"
 
 #: viewer/Chat.tsx
 msgid "agent connected"
@@ -204,6 +224,19 @@ msgstr "所属页面"
 msgid "Artifacts"
 msgstr "产物"
 
+#: viewer/Attention.tsx
+msgid "Atlas will not overwrite the local review file. Fix or move it, then restart the live server."
+msgstr "Atlas 不会覆盖本地审阅文件。修复或移走该文件，然后重启实时服务器。"
+
+#: viewer/App.tsx
+#: viewer/Attention.tsx
+msgid "attention"
+msgstr "跟进"
+
+#: viewer/Attention.tsx
+msgid "attention views"
+msgstr "跟进视图"
+
 #: viewer/App.tsx
 msgid "Audit content translation is unavailable or incomplete; canonical source text is shown."
 msgstr "审计内容翻译不可用或不完整；当前显示规范源文本。"
@@ -212,9 +245,21 @@ msgstr "审计内容翻译不可用或不完整；当前显示规范源文本。
 msgid "back"
 msgstr "返回"
 
+#: viewer/Attention.tsx
+msgid "baseline"
+msgstr "基线"
+
 #: viewer/Preview.tsx
 msgid "binary file — no preview"
 msgstr "二进制文件 — 无法预览"
+
+#: viewer/Attention.tsx
+msgid "broken references"
+msgstr "断裂引用"
+
+#: viewer/Attention.tsx
+msgid "broken source"
+msgstr "来源失效"
 
 #: viewer/Concept.tsx
 msgid "broken source — a source path is gone from the scan"
@@ -227,6 +272,10 @@ msgstr "取消"
 #: viewer/Doc.tsx
 msgid "canonical home for"
 msgstr "规范归属："
+
+#: viewer/Attention.tsx
+msgid "changed paths"
+msgstr "已变更路径"
 
 #: viewer/Preview.tsx
 msgid "Changes"
@@ -281,6 +330,10 @@ msgstr "概念"
 #: viewer/App.tsx
 msgid "concept index"
 msgstr "概念索引"
+
+#: viewer/Attention.tsx
+msgid "Concept pages"
+msgstr "概念页"
 
 #: viewer/App.tsx
 msgid "concepts"
@@ -384,6 +437,14 @@ msgstr "已覆盖"
 msgid "dataflow"
 msgstr "数据流："
 
+#: viewer/Attention.tsx
+msgid "decision recorded"
+msgstr "已记录决定"
+
+#: viewer/Attention.tsx
+msgid "declared source scope"
+msgstr "声明的来源范围"
+
 #: viewer/Doc.tsx
 msgid "directory"
 msgstr "目录"
@@ -396,9 +457,17 @@ msgstr "目录框架"
 msgid "directory notes above this page"
 msgstr "本页之上的目录说明"
 
+#: viewer/Attention.tsx
+msgid "Documentation artifacts"
+msgstr "文档产物"
+
 #: viewer/AuditCoverage.tsx
 msgid "dual-domain"
 msgstr "双域"
+
+#: viewer/Attention.tsx
+msgid "Durable, version-bound receipts show what you followed up and what conclusion you recorded."
+msgstr "持久且绑定版本的回执会显示你跟进过什么，以及记录了什么结论。"
 
 #: viewer/Doc.tsx
 msgid "edit"
@@ -476,12 +545,17 @@ msgstr "筛选路径…"
 msgid "Findings"
 msgstr "发现"
 
+#: viewer/Attention.tsx
+msgid "first seen"
+msgstr "首次出现"
+
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
 msgid "fix"
 msgstr "修法："
 
 #: viewer/App.tsx
+#: viewer/Attention.tsx
 #: viewer/AuditCoverage.tsx
 #: viewer/AuditCoverageFacts.tsx
 msgid "fresh"
@@ -490,6 +564,14 @@ msgstr "最新"
 #: viewer/audit-copy.ts
 msgid "fresh evidence"
 msgstr "最新证据"
+
+#: viewer/Attention.tsx
+msgid "Fresh when first observed; these versions have no human review receipt."
+msgstr "首次观察时为最新；这些版本没有人的审阅回执。"
+
+#: viewer/Concept.tsx
+msgid "full walkthrough"
+msgstr "完整讲解"
 
 #: viewer/AuditCoverage.tsx
 msgid "gaps"
@@ -507,13 +589,22 @@ msgstr "术语表"
 msgid "gone from the scan"
 msgstr "已不在扫描范围内"
 
+#: viewer/Attention.tsx
+msgid "I understand"
+msgstr "我已理解"
+
 #: viewer/App.tsx
+#: viewer/Attention.tsx
 msgid "ignored"
 msgstr "已忽略"
 
 #: viewer/Doc.tsx
 msgid "ignored — excluded by .atlas/config.json"
 msgstr "已忽略 — 被 .atlas/config.json 排除"
+
+#: viewer/Concept.tsx
+msgid "Inside the full walkthrough"
+msgstr "完整讲解包含"
 
 #: viewer/AuditCoverage.tsx
 msgid "invalid"
@@ -552,6 +643,10 @@ msgstr "行"
 msgid "loading…"
 msgstr "加载中…"
 
+#: viewer/Attention.tsx
+msgid "Machine freshness is kept separate from human understanding. These counts diagnose Atlas artifacts only."
+msgstr "机器新鲜度与人的理解状态彼此独立。这些计数只诊断 Atlas 产物。"
+
 #: viewer/Doc.tsx
 msgid "Markdown note for this path…"
 msgstr "为此路径编写 Markdown 笔记…"
@@ -565,6 +660,7 @@ msgid "Messages go to whichever agent session is polling <0>/chat/poll</0>."
 msgstr "消息将发送到正在轮询 <0>/chat/poll</0> 的代理会话。"
 
 #: viewer/App.tsx
+#: viewer/Attention.tsx
 #: viewer/AuditCoverage.tsx
 #: viewer/AuditCoverageFacts.tsx
 msgid "missing"
@@ -578,11 +674,27 @@ msgstr "缺失证据"
 msgid "moved"
 msgstr "已移动"
 
+#: viewer/Attention.tsx
+msgid "needs attention"
+msgstr "待跟进"
+
 #: viewer/AuditNav.tsx
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
 msgid "Needs attention"
 msgstr "需要关注"
+
+#: viewer/Attention.tsx
+msgid "Needs review"
+msgstr "待审阅"
+
+#: viewer/Attention.tsx
+msgid "Needs your attention"
+msgstr "需要你跟进"
+
+#: viewer/Attention.tsx
+msgid "new source snapshot"
+msgstr "新来源快照"
 
 #: viewer/Doc.tsx
 msgid "next →"
@@ -616,6 +728,10 @@ msgstr "尚无已完成的审计证据"
 #: viewer/Concept.tsx
 msgid "no concept pages yet"
 msgstr "尚无概念页"
+
+#: viewer/Attention.tsx
+msgid "No current concept snapshot is waiting for you."
+msgstr "当前没有等待你处理的概念快照。"
 
 #: viewer/Doc.tsx
 msgid "no description yet"
@@ -654,9 +770,17 @@ msgstr "此视图中无待处理操作"
 msgid "No open findings recorded"
 msgstr "未记录未处理发现"
 
+#: viewer/Attention.tsx
+msgid "No path-level diff is available; inspect the declared concept sources."
+msgstr "没有可用的路径级差异；请检查该概念声明的来源。"
+
 #: viewer/Preview.tsx
 msgid "no preview — file contents are served by <0>repo-atlas serve</0>; the static build only carries descriptions"
 msgstr "无法预览 — 文件内容由 <0>repo-atlas serve</0> 提供；静态构建仅包含描述"
+
+#: viewer/Attention.tsx
+msgid "No review events yet."
+msgstr "尚无审阅事件。"
 
 #: viewer/AuditCoverage.tsx
 msgid "No unit file coverage rows"
@@ -674,6 +798,15 @@ msgstr "当前没有连接 — 请先连接一个。"
 msgid "Not accepted by current coverage report"
 msgstr "未被当前 coverage 报告接受"
 
+#: viewer/Attention.tsx
+msgid "not relevant"
+msgstr "与我无关"
+
+#: viewer/Attention.tsx
+msgid "Nothing has been reviewed yet."
+msgstr "尚未审阅任何内容。"
+
+#: viewer/Attention.tsx
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
 msgid "open"
@@ -691,7 +824,12 @@ msgstr "未处理发现"
 msgid "open the security assurance overview"
 msgstr "打开安全保证总览"
 
+#: viewer/Attention.tsx
+msgid "orphan notes"
+msgstr "孤立笔记"
+
 #: viewer/App.tsx
+#: viewer/Attention.tsx
 msgid "outdated"
 msgstr "已过时"
 
@@ -703,13 +841,25 @@ msgstr "已过期 — 盖章后有来源发生了变化"
 msgid "outdated — code changed since this was written"
 msgstr "已过时 — 编写后代码已更改"
 
+#: viewer/Concept.tsx
+msgid "overview"
+msgstr "概览"
+
 #: viewer/AuditNav.tsx
 msgid "Overview"
 msgstr "总览"
 
+#: viewer/Attention.tsx
+msgid "page is outdated"
+msgstr "页面已过时"
+
 #: viewer/AuditCoverage.tsx
 msgid "path"
 msgstr "路径"
+
+#: viewer/Attention.tsx
+msgid "Persistent review actions are available when this atlas is opened with atlas serve."
+msgstr "使用 atlas serve 打开此 Atlas 后，才能使用持久化审阅操作。"
 
 #: viewer/Tree.tsx
 msgid "pinned reading order"
@@ -740,6 +890,18 @@ msgstr "将此目录打印为 PDF"
 msgid "print this page as a PDF"
 msgstr "将此页打印为 PDF"
 
+#: viewer/Attention.tsx
+msgid "Quiet baselines"
+msgstr "安静基线"
+
+#: viewer/Concept.tsx
+msgid "read the full walkthrough"
+msgstr "阅读完整讲解"
+
+#: viewer/Concept.tsx
+msgid "reading mode"
+msgstr "阅读模式"
+
 #: viewer/Preview.tsx
 msgid "reading order"
 msgstr "阅读顺序"
@@ -748,6 +910,10 @@ msgstr "阅读顺序"
 #: viewer/TestAudit.tsx
 msgid "Recent accepted audits"
 msgstr "最近接受的审计"
+
+#: viewer/Attention.tsx
+msgid "record decision"
+msgstr "记录决定"
 
 #: viewer/AuditCoverage.tsx
 msgid "recorded"
@@ -762,9 +928,29 @@ msgstr "已记录的审计证据"
 msgid "referenced in {0} notes"
 msgstr "在 {0} 条说明中被引用"
 
+#: viewer/Attention.tsx
+msgid "reopen"
+msgstr "重新打开"
+
+#: viewer/Attention.tsx
+msgid "reopened"
+msgstr "已重新打开"
+
+#: viewer/Attention.tsx
+msgid "reopened by a new source snapshot"
+msgstr "因新来源快照而重新打开"
+
 #: viewer/AuditCoverage.tsx
 msgid "required"
 msgstr "必需"
+
+#: viewer/Attention.tsx
+msgid "Required for “understood” and “decision”; optional for the other outcomes."
+msgstr "“已理解”和“决定”必须填写；其他结果可选。"
+
+#: viewer/Attention.tsx
+msgid "resume now"
+msgstr "立即恢复"
 
 #: viewer/Security.tsx
 msgid "Retained risk"
@@ -781,6 +967,38 @@ msgstr "撤回上一条消息（代理已在处理）"
 #: viewer/Chat.tsx
 msgid "retracted"
 msgstr "已撤回"
+
+#: viewer/Concept.tsx
+msgid "review"
+msgstr "审阅"
+
+#: viewer/Attention.tsx
+msgid "Review actions are disabled until the local review state is repaired."
+msgstr "修复本地审阅状态前，审阅操作已禁用。"
+
+#: viewer/Attention.tsx
+msgid "review history"
+msgstr "审阅历史"
+
+#: viewer/Attention.tsx
+msgid "Review history"
+msgstr "审阅历史"
+
+#: viewer/Attention.tsx
+msgid "Review note"
+msgstr "审阅记录"
+
+#: viewer/Attention.tsx
+msgid "review state is unavailable"
+msgstr "审阅状态不可用"
+
+#: viewer/Attention.tsx
+msgid "reviewed"
+msgstr "已审阅"
+
+#: viewer/Attention.tsx
+msgid "Reviewed current versions"
+msgstr "已审阅的当前版本"
 
 #: viewer/AuditCoverage.tsx
 msgid "risk"
@@ -859,6 +1077,22 @@ msgstr "显示更少"
 msgid "since {0} (note's anchor)"
 msgstr "自 {0}（笔记 anchor）起"
 
+#: viewer/Attention.tsx
+msgid "snooze"
+msgstr "稍后处理"
+
+#: viewer/Attention.tsx
+msgid "snoozed"
+msgstr "已稍后处理"
+
+#: viewer/Attention.tsx
+msgid "Snoozed"
+msgstr "稍后处理"
+
+#: viewer/Attention.tsx
+msgid "snoozed until"
+msgstr "推迟到"
+
 #: viewer/App.tsx
 msgid "sort: a–z"
 msgstr "排序: a–z"
@@ -901,6 +1135,18 @@ msgstr "开始阅读 ↘"
 msgid "status"
 msgstr "状态"
 
+#: viewer/Attention.tsx
+msgid "Structure"
+msgstr "结构"
+
+#: viewer/Attention.tsx
+msgid "system health"
+msgstr "系统健康"
+
+#: viewer/Attention.tsx
+msgid "System health"
+msgstr "系统健康"
+
 #: viewer/TestAudit.tsx
 msgid "test audit"
 msgstr "测试审计"
@@ -923,6 +1169,10 @@ msgstr "本页之上的目录说明——它所处的框架"
 msgid "the factcheck gate could not confirm this from source"
 msgstr "factcheck 门未能从源码核实此发现"
 
+#: viewer/Concept.tsx
+msgid "This source version still needs your review."
+msgstr "这个来源版本仍需要你审阅。"
+
 #: viewer/App.tsx
 msgid "tree layout: alphabetical or reading order"
 msgstr "树形布局：按字母顺序或阅读顺序"
@@ -939,6 +1189,10 @@ msgstr "未分类"
 msgid "unclassified path"
 msgstr "未分类路径"
 
+#: viewer/Attention.tsx
+msgid "understood"
+msgstr "已理解"
+
 #: viewer/AuditCoverage.tsx
 msgid "unit"
 msgstr "单元"
@@ -950,6 +1204,15 @@ msgstr "单元"
 #: viewer/audit-copy.ts
 msgid "unknown"
 msgstr "未知"
+
+#: viewer/Attention.tsx
+#: viewer/Concept.tsx
+msgid "unstamped"
+msgstr "未标记"
+
+#: viewer/Attention.tsx
+msgid "until"
+msgstr "直到"
 
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
@@ -969,10 +1232,26 @@ msgstr "回到上层的树"
 msgid "uses →"
 msgstr "使用 →"
 
+#: viewer/Concept.tsx
+msgid "view receipt"
+msgstr "查看回执"
+
+#: viewer/Attention.tsx
+msgid "What changed, why it matters, or what you decided…"
+msgstr "发生了什么变化、为什么重要，或你做了什么决定……"
+
 #: viewer/Doc.tsx
 msgid "write note"
 msgstr "编写笔记"
 
+#: viewer/Attention.tsx
+msgid "Write what changed or what you decided before recording this outcome."
+msgstr "记录此结果前，请写下变化内容或你的决定。"
+
 #: viewer/Concept.tsx
 msgid "written for a general audience"
 msgstr "面向非开发者的讲解"
+
+#: viewer/Concept.tsx
+msgid "You reviewed this source version."
+msgstr "你已审阅这个来源版本。"

@@ -99,6 +99,20 @@ export function sourcesHashFor(
   return { hash: createHash('sha1').update(parts.join('')).digest('hex'), broken }
 }
 
+/** A total identity for the current concept inputs. Unlike `sourcesHashFor`,
+ * this remains available while sources are broken, so review receipts can be
+ * bound to — and reopened by — every observable source transition. */
+export function conceptSnapshotFor(scanResult: ScanResult, sources: string[]): string {
+  const records = sources.map((source) => {
+    const found = hashFor(scanResult, source)
+    return {
+      source,
+      digest: found ? `${found.type}:${found.hash}` : 'missing',
+    }
+  })
+  return createHash('sha256').update(`${JSON.stringify(records)}\n`).digest('hex')
+}
+
 export function conceptStatusEntries(root: string, scanResult: ScanResult): ConceptStatusEntry[] {
   return loadConceptPages(root).map((p) => {
     const { hash, broken } = sourcesHashFor(scanResult, p.sources)
@@ -113,6 +127,8 @@ export function conceptStatusEntries(root: string, scanResult: ScanResult): Conc
           ? ('fresh' as const)
           : ('outdated' as const),
       sources: p.sources,
+      currentSourcesHash: hash,
+      snapshot: conceptSnapshotFor(scanResult, p.sources),
       brokenSources: broken,
       stamped: p.stamped,
       anchor: p.anchor,

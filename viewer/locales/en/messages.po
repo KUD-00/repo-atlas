@@ -95,6 +95,10 @@ msgstr "{0}: {status}"
 msgid "{0}/{1} fresh"
 msgstr "{0}/{1} fresh"
 
+#: viewer/Attention.tsx
+msgid "{days} days"
+msgstr "{days} days"
+
 #: viewer/audit-copy.ts
 msgid "{n} coverage gaps"
 msgstr "{n} coverage gaps"
@@ -158,6 +162,10 @@ msgstr "⤷ attach to chat"
 msgid "1 accepted risk"
 msgstr "1 accepted risk"
 
+#: viewer/Attention.tsx
+msgid "1 day"
+msgstr "1 day"
+
 #: viewer/audit-copy.ts
 msgid "1 open ({highest})"
 msgstr "1 open ({highest})"
@@ -165,6 +173,10 @@ msgstr "1 open ({highest})"
 #: viewer/audit-copy.ts
 msgid "1 separate design"
 msgstr "1 separate design"
+
+#: viewer/Attention.tsx
+msgid "A source can be fresh while your understanding is not. Only an explicit review outcome closes an item; a new source snapshot reopens it."
+msgstr "A source can be fresh while your understanding is not. Only an explicit review outcome closes an item; a new source snapshot reopens it."
 
 #: viewer/AuditCoverage.tsx
 msgid "acceptance"
@@ -183,6 +195,14 @@ msgstr "Accepted by current coverage report"
 #: viewer/Security.tsx
 msgid "accepted risk"
 msgstr "accepted risk"
+
+#: viewer/Attention.tsx
+msgid "acknowledge"
+msgstr "acknowledge"
+
+#: viewer/Attention.tsx
+msgid "acknowledged"
+msgstr "acknowledged"
 
 #: viewer/Chat.tsx
 msgid "agent connected"
@@ -204,6 +224,19 @@ msgstr "artifact of"
 msgid "Artifacts"
 msgstr "Artifacts"
 
+#: viewer/Attention.tsx
+msgid "Atlas will not overwrite the local review file. Fix or move it, then restart the live server."
+msgstr "Atlas will not overwrite the local review file. Fix or move it, then restart the live server."
+
+#: viewer/App.tsx
+#: viewer/Attention.tsx
+msgid "attention"
+msgstr "attention"
+
+#: viewer/Attention.tsx
+msgid "attention views"
+msgstr "attention views"
+
 #: viewer/App.tsx
 msgid "Audit content translation is unavailable or incomplete; canonical source text is shown."
 msgstr "Audit content translation is unavailable or incomplete; canonical source text is shown."
@@ -212,9 +245,21 @@ msgstr "Audit content translation is unavailable or incomplete; canonical source
 msgid "back"
 msgstr "back"
 
+#: viewer/Attention.tsx
+msgid "baseline"
+msgstr "baseline"
+
 #: viewer/Preview.tsx
 msgid "binary file — no preview"
 msgstr "binary file — no preview"
+
+#: viewer/Attention.tsx
+msgid "broken references"
+msgstr "broken references"
+
+#: viewer/Attention.tsx
+msgid "broken source"
+msgstr "broken source"
 
 #: viewer/Concept.tsx
 msgid "broken source — a source path is gone from the scan"
@@ -227,6 +272,10 @@ msgstr "cancel"
 #: viewer/Doc.tsx
 msgid "canonical home for"
 msgstr "canonical home for"
+
+#: viewer/Attention.tsx
+msgid "changed paths"
+msgstr "changed paths"
 
 #: viewer/Preview.tsx
 msgid "Changes"
@@ -281,6 +330,10 @@ msgstr "concept"
 #: viewer/App.tsx
 msgid "concept index"
 msgstr "concept index"
+
+#: viewer/Attention.tsx
+msgid "Concept pages"
+msgstr "Concept pages"
 
 #: viewer/App.tsx
 msgid "concepts"
@@ -384,6 +437,14 @@ msgstr "covered"
 msgid "dataflow"
 msgstr "dataflow"
 
+#: viewer/Attention.tsx
+msgid "decision recorded"
+msgstr "decision recorded"
+
+#: viewer/Attention.tsx
+msgid "declared source scope"
+msgstr "declared source scope"
+
 #: viewer/Doc.tsx
 msgid "directory"
 msgstr "directory"
@@ -396,9 +457,17 @@ msgstr "directory frame"
 msgid "directory notes above this page"
 msgstr "directory notes above this page"
 
+#: viewer/Attention.tsx
+msgid "Documentation artifacts"
+msgstr "Documentation artifacts"
+
 #: viewer/AuditCoverage.tsx
 msgid "dual-domain"
 msgstr "dual-domain"
+
+#: viewer/Attention.tsx
+msgid "Durable, version-bound receipts show what you followed up and what conclusion you recorded."
+msgstr "Durable, version-bound receipts show what you followed up and what conclusion you recorded."
 
 #: viewer/Doc.tsx
 msgid "edit"
@@ -476,12 +545,17 @@ msgstr "filter paths…"
 msgid "Findings"
 msgstr "Findings"
 
+#: viewer/Attention.tsx
+msgid "first seen"
+msgstr "first seen"
+
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
 msgid "fix"
 msgstr "fix"
 
 #: viewer/App.tsx
+#: viewer/Attention.tsx
 #: viewer/AuditCoverage.tsx
 #: viewer/AuditCoverageFacts.tsx
 msgid "fresh"
@@ -490,6 +564,14 @@ msgstr "fresh"
 #: viewer/audit-copy.ts
 msgid "fresh evidence"
 msgstr "fresh evidence"
+
+#: viewer/Attention.tsx
+msgid "Fresh when first observed; these versions have no human review receipt."
+msgstr "Fresh when first observed; these versions have no human review receipt."
+
+#: viewer/Concept.tsx
+msgid "full walkthrough"
+msgstr "full walkthrough"
 
 #: viewer/AuditCoverage.tsx
 msgid "gaps"
@@ -507,13 +589,22 @@ msgstr "glossary"
 msgid "gone from the scan"
 msgstr "gone from the scan"
 
+#: viewer/Attention.tsx
+msgid "I understand"
+msgstr "I understand"
+
 #: viewer/App.tsx
+#: viewer/Attention.tsx
 msgid "ignored"
 msgstr "ignored"
 
 #: viewer/Doc.tsx
 msgid "ignored — excluded by .atlas/config.json"
 msgstr "ignored — excluded by .atlas/config.json"
+
+#: viewer/Concept.tsx
+msgid "Inside the full walkthrough"
+msgstr "Inside the full walkthrough"
 
 #: viewer/AuditCoverage.tsx
 msgid "invalid"
@@ -552,6 +643,10 @@ msgstr "lines"
 msgid "loading…"
 msgstr "loading…"
 
+#: viewer/Attention.tsx
+msgid "Machine freshness is kept separate from human understanding. These counts diagnose Atlas artifacts only."
+msgstr "Machine freshness is kept separate from human understanding. These counts diagnose Atlas artifacts only."
+
 #: viewer/Doc.tsx
 msgid "Markdown note for this path…"
 msgstr "Markdown note for this path…"
@@ -565,6 +660,7 @@ msgid "Messages go to whichever agent session is polling <0>/chat/poll</0>."
 msgstr "Messages go to whichever agent session is polling <0>/chat/poll</0>."
 
 #: viewer/App.tsx
+#: viewer/Attention.tsx
 #: viewer/AuditCoverage.tsx
 #: viewer/AuditCoverageFacts.tsx
 msgid "missing"
@@ -578,11 +674,27 @@ msgstr "missing evidence"
 msgid "moved"
 msgstr "moved"
 
+#: viewer/Attention.tsx
+msgid "needs attention"
+msgstr "needs attention"
+
 #: viewer/AuditNav.tsx
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
 msgid "Needs attention"
 msgstr "Needs attention"
+
+#: viewer/Attention.tsx
+msgid "Needs review"
+msgstr "Needs review"
+
+#: viewer/Attention.tsx
+msgid "Needs your attention"
+msgstr "Needs your attention"
+
+#: viewer/Attention.tsx
+msgid "new source snapshot"
+msgstr "new source snapshot"
 
 #: viewer/Doc.tsx
 msgid "next →"
@@ -616,6 +728,10 @@ msgstr "No completed audit evidence"
 #: viewer/Concept.tsx
 msgid "no concept pages yet"
 msgstr "no concept pages yet"
+
+#: viewer/Attention.tsx
+msgid "No current concept snapshot is waiting for you."
+msgstr "No current concept snapshot is waiting for you."
 
 #: viewer/Doc.tsx
 msgid "no description yet"
@@ -654,9 +770,17 @@ msgstr "No open actions in this view"
 msgid "No open findings recorded"
 msgstr "No open findings recorded"
 
+#: viewer/Attention.tsx
+msgid "No path-level diff is available; inspect the declared concept sources."
+msgstr "No path-level diff is available; inspect the declared concept sources."
+
 #: viewer/Preview.tsx
 msgid "no preview — file contents are served by <0>repo-atlas serve</0>; the static build only carries descriptions"
 msgstr "no preview — file contents are served by <0>repo-atlas serve</0>; the static build only carries descriptions"
+
+#: viewer/Attention.tsx
+msgid "No review events yet."
+msgstr "No review events yet."
 
 #: viewer/AuditCoverage.tsx
 msgid "No unit file coverage rows"
@@ -674,6 +798,15 @@ msgstr "None is right now — attach one first."
 msgid "Not accepted by current coverage report"
 msgstr "Not accepted by current coverage report"
 
+#: viewer/Attention.tsx
+msgid "not relevant"
+msgstr "not relevant"
+
+#: viewer/Attention.tsx
+msgid "Nothing has been reviewed yet."
+msgstr "Nothing has been reviewed yet."
+
+#: viewer/Attention.tsx
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
 msgid "open"
@@ -691,7 +824,12 @@ msgstr "open findings"
 msgid "open the security assurance overview"
 msgstr "open the security assurance overview"
 
+#: viewer/Attention.tsx
+msgid "orphan notes"
+msgstr "orphan notes"
+
 #: viewer/App.tsx
+#: viewer/Attention.tsx
 msgid "outdated"
 msgstr "outdated"
 
@@ -703,13 +841,25 @@ msgstr "outdated — a source changed since this page was stamped"
 msgid "outdated — code changed since this was written"
 msgstr "outdated — code changed since this was written"
 
+#: viewer/Concept.tsx
+msgid "overview"
+msgstr "overview"
+
 #: viewer/AuditNav.tsx
 msgid "Overview"
 msgstr "Overview"
 
+#: viewer/Attention.tsx
+msgid "page is outdated"
+msgstr "page is outdated"
+
 #: viewer/AuditCoverage.tsx
 msgid "path"
 msgstr "path"
+
+#: viewer/Attention.tsx
+msgid "Persistent review actions are available when this atlas is opened with atlas serve."
+msgstr "Persistent review actions are available when this atlas is opened with atlas serve."
 
 #: viewer/Tree.tsx
 msgid "pinned reading order"
@@ -740,6 +890,18 @@ msgstr "print this directory as a PDF"
 msgid "print this page as a PDF"
 msgstr "print this page as a PDF"
 
+#: viewer/Attention.tsx
+msgid "Quiet baselines"
+msgstr "Quiet baselines"
+
+#: viewer/Concept.tsx
+msgid "read the full walkthrough"
+msgstr "read the full walkthrough"
+
+#: viewer/Concept.tsx
+msgid "reading mode"
+msgstr "reading mode"
+
 #: viewer/Preview.tsx
 msgid "reading order"
 msgstr "reading order"
@@ -748,6 +910,10 @@ msgstr "reading order"
 #: viewer/TestAudit.tsx
 msgid "Recent accepted audits"
 msgstr "Recent accepted audits"
+
+#: viewer/Attention.tsx
+msgid "record decision"
+msgstr "record decision"
 
 #: viewer/AuditCoverage.tsx
 msgid "recorded"
@@ -762,9 +928,29 @@ msgstr "Recorded audit evidence"
 msgid "referenced in {0} notes"
 msgstr "referenced in {0} notes"
 
+#: viewer/Attention.tsx
+msgid "reopen"
+msgstr "reopen"
+
+#: viewer/Attention.tsx
+msgid "reopened"
+msgstr "reopened"
+
+#: viewer/Attention.tsx
+msgid "reopened by a new source snapshot"
+msgstr "reopened by a new source snapshot"
+
 #: viewer/AuditCoverage.tsx
 msgid "required"
 msgstr "required"
+
+#: viewer/Attention.tsx
+msgid "Required for “understood” and “decision”; optional for the other outcomes."
+msgstr "Required for “understood” and “decision”; optional for the other outcomes."
+
+#: viewer/Attention.tsx
+msgid "resume now"
+msgstr "resume now"
 
 #: viewer/Security.tsx
 msgid "Retained risk"
@@ -781,6 +967,38 @@ msgstr "retract last message (agent is already on it)"
 #: viewer/Chat.tsx
 msgid "retracted"
 msgstr "retracted"
+
+#: viewer/Concept.tsx
+msgid "review"
+msgstr "review"
+
+#: viewer/Attention.tsx
+msgid "Review actions are disabled until the local review state is repaired."
+msgstr "Review actions are disabled until the local review state is repaired."
+
+#: viewer/Attention.tsx
+msgid "review history"
+msgstr "review history"
+
+#: viewer/Attention.tsx
+msgid "Review history"
+msgstr "Review history"
+
+#: viewer/Attention.tsx
+msgid "Review note"
+msgstr "Review note"
+
+#: viewer/Attention.tsx
+msgid "review state is unavailable"
+msgstr "review state is unavailable"
+
+#: viewer/Attention.tsx
+msgid "reviewed"
+msgstr "reviewed"
+
+#: viewer/Attention.tsx
+msgid "Reviewed current versions"
+msgstr "Reviewed current versions"
 
 #: viewer/AuditCoverage.tsx
 msgid "risk"
@@ -859,6 +1077,22 @@ msgstr "show less"
 msgid "since {0} (note's anchor)"
 msgstr "since {0} (note's anchor)"
 
+#: viewer/Attention.tsx
+msgid "snooze"
+msgstr "snooze"
+
+#: viewer/Attention.tsx
+msgid "snoozed"
+msgstr "snoozed"
+
+#: viewer/Attention.tsx
+msgid "Snoozed"
+msgstr "Snoozed"
+
+#: viewer/Attention.tsx
+msgid "snoozed until"
+msgstr "snoozed until"
+
 #: viewer/App.tsx
 msgid "sort: a–z"
 msgstr "sort: a–z"
@@ -901,6 +1135,18 @@ msgstr "start reading ↘"
 msgid "status"
 msgstr "status"
 
+#: viewer/Attention.tsx
+msgid "Structure"
+msgstr "Structure"
+
+#: viewer/Attention.tsx
+msgid "system health"
+msgstr "system health"
+
+#: viewer/Attention.tsx
+msgid "System health"
+msgstr "System health"
+
 #: viewer/TestAudit.tsx
 msgid "test audit"
 msgstr "test audit"
@@ -923,6 +1169,10 @@ msgstr "the directory notes above this page — the frame it is written within"
 msgid "the factcheck gate could not confirm this from source"
 msgstr "the factcheck gate could not confirm this from source"
 
+#: viewer/Concept.tsx
+msgid "This source version still needs your review."
+msgstr "This source version still needs your review."
+
 #: viewer/App.tsx
 msgid "tree layout: alphabetical or reading order"
 msgstr "tree layout: alphabetical or reading order"
@@ -939,6 +1189,10 @@ msgstr "unclassified"
 msgid "unclassified path"
 msgstr "unclassified path"
 
+#: viewer/Attention.tsx
+msgid "understood"
+msgstr "understood"
+
 #: viewer/AuditCoverage.tsx
 msgid "unit"
 msgstr "unit"
@@ -950,6 +1204,15 @@ msgstr "Units"
 #: viewer/audit-copy.ts
 msgid "unknown"
 msgstr "unknown"
+
+#: viewer/Attention.tsx
+#: viewer/Concept.tsx
+msgid "unstamped"
+msgstr "unstamped"
+
+#: viewer/Attention.tsx
+msgid "until"
+msgstr "until"
 
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
@@ -969,10 +1232,26 @@ msgstr "up to the enclosing tree"
 msgid "uses →"
 msgstr "uses →"
 
+#: viewer/Concept.tsx
+msgid "view receipt"
+msgstr "view receipt"
+
+#: viewer/Attention.tsx
+msgid "What changed, why it matters, or what you decided…"
+msgstr "What changed, why it matters, or what you decided…"
+
 #: viewer/Doc.tsx
 msgid "write note"
 msgstr "write note"
 
+#: viewer/Attention.tsx
+msgid "Write what changed or what you decided before recording this outcome."
+msgstr "Write what changed or what you decided before recording this outcome."
+
 #: viewer/Concept.tsx
 msgid "written for a general audience"
 msgstr "written for a general audience"
+
+#: viewer/Concept.tsx
+msgid "You reviewed this source version."
+msgstr "You reviewed this source version."

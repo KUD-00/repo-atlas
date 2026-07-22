@@ -1,6 +1,7 @@
 import type { AuditDomain } from './types.js'
 
-export type PrimaryView = 'code' | 'concepts' | 'security' | 'tests'
+export type PrimaryView = 'attention' | 'code' | 'concepts' | 'security' | 'tests'
+export type AttentionSection = 'needs' | 'history' | 'health'
 
 export interface RememberedPrimaryRoutes {
   code: string
@@ -9,6 +10,17 @@ export interface RememberedPrimaryRoutes {
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u
 const AUDIT_ROUTE_RE = /^audit:(security|test)(?:\/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?))?$/u
+const ATTENTION_ROUTE_RE = /^view:attention(?:\/(history|health))?$/u
+
+export function attentionRoute(section: AttentionSection = 'needs'): string {
+  return section === 'needs' ? 'view:attention' : `view:attention/${section}`
+}
+
+export function parseAttentionRoute(route: string): { section: AttentionSection } | null {
+  const match = ATTENTION_ROUTE_RE.exec(route)
+  if (!match) return null
+  return { section: (match[1] as AttentionSection | undefined) ?? 'needs' }
+}
 
 export function auditRoute(domain: AuditDomain, slug?: string): string {
   if (slug !== undefined && !SLUG_RE.test(slug)) {
@@ -42,6 +54,7 @@ export function primaryViewForRoute(
   route: string,
   _hasPath: (path: string) => boolean = () => false,
 ): PrimaryView {
+  if (parseAttentionRoute(route)) return 'attention'
   if (isConceptsViewRoute(route) || route.startsWith('concept:')) return 'concepts'
   const audit = parseAuditRoute(route)
   if (audit?.domain === 'security') return 'security'
@@ -74,6 +87,7 @@ export function isNamespacedOrPathRoute(
   },
   hasConcept: (slug: string) => boolean,
 ): boolean {
+  if (parseAttentionRoute(route)) return true
   if (isConceptsViewRoute(route)) return true
   if (route.startsWith('concept:')) return hasConcept(route.slice('concept:'.length))
   const audit = parseAuditRoute(route)
@@ -82,7 +96,7 @@ export function isNamespacedOrPathRoute(
     return isValidAuditUnitRoute(audit.domain, audit.slug, portfolio)
   }
   // Reserved namespace: malformed audit:* never falls through to a path match.
-  if (route.startsWith('audit:')) return false
+  if (route.startsWith('audit:') || route.startsWith('view:')) return false
   return hasPath(route)
 }
 
@@ -126,6 +140,8 @@ export function primaryNavRoute(view: PrimaryView, last: RememberedPrimaryRoutes
   switch (view) {
     case 'code':
       return last.code
+    case 'attention':
+      return attentionRoute()
     case 'concepts':
       return last.concepts
     case 'security':

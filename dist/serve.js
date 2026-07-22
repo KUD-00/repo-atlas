@@ -13,10 +13,12 @@ import { loadArtifacts } from './artifacts.js';
 import { loadAuditPortfolios } from './audits.js';
 import { loadConfiguredAuditLocalizations } from './audit-localizations.js';
 import { loadReviewCoverage } from './review-coverage.js';
+import { applyAttentionAction, buildAttentionPayload, conceptChangedPaths, loadAttentionState, reconcileAttention, saveAttentionState, } from './attention.js';
 const POLL_MS = 1500;
 const PREVIEW_CAP = 500_000;
 export function serve(root, config, port, host = '127.0.0.1') {
     let lastScan = null;
+    const changedPathCache = new Map();
     const render = () => {
         const scanResult = scan(root, config);
         lastScan = scanResult;
@@ -26,6 +28,41 @@ export function serve(root, config, port, host = '127.0.0.1') {
         const portfolios = loadAuditPortfolios(root, status.audits);
         const reviewCoverage = loadReviewCoverage(root, portfolios);
         const localizations = loadConfiguredAuditLocalizations(root, config, reviewCoverage, portfolios);
+        const loadedAttention = loadAttentionState(root);
+        let attentionState = loadedAttention.state;
+        const attentionDiagnostics = [...loadedAttention.diagnostics];
+        if (attentionState) {
+            try {
+                const reconciled = reconcileAttention(attentionState, status.concepts);
+                attentionState = reconciled.state;
+                if (reconciled.changed)
+                    saveAttentionState(root, attentionState);
+            }
+            catch (error) {
+                attentionState = null;
+                attentionDiagnostics.push({
+                    code: 'state-write-failed',
+                    message: error instanceof Error ? error.message : String(error),
+                });
+            }
+        }
+        const changedPaths = Object.fromEntries(status.concepts.map((concept) => {
+            const cacheKey = `${concept.slug}\0${concept.snapshot}\0${concept.anchor ?? ''}`;
+            let paths = changedPathCache.get(cacheKey);
+            if (!paths) {
+                paths = conceptChangedPaths(root, concept);
+                if (changedPathCache.size >= 512)
+                    changedPathCache.clear();
+                changedPathCache.set(cacheKey, paths);
+            }
+            return [concept.slug, paths];
+        }));
+        const attention = buildAttentionPayload(status, {
+            mode: 'live',
+            state: attentionState,
+            diagnostics: attentionDiagnostics,
+            changedPaths,
+        });
         const input = {
             repoName: path.basename(root),
             commit: headCommit(root),
@@ -40,6 +77,7 @@ export function serve(root, config, port, host = '127.0.0.1') {
             defaultLocale: config.defaultLocale ?? 'en',
             auditSourceLocale: localizations.sourceLocale,
             auditLocalizations: localizations.portfolios,
+            attention,
         };
         const payload = buildPayload(input);
         const html = buildHtml({ ...input, payload });
@@ -48,9 +86,10 @@ export function serve(root, config, port, host = '127.0.0.1') {
             JSON.stringify(status.concepts) + glossaryRaw + JSON.stringify(artifacts) +
             JSON.stringify(portfolios.security) + JSON.stringify(portfolios.tests) +
             JSON.stringify(reviewCoverage) + JSON.stringify(localizations) +
+            JSON.stringify(attentionState) + JSON.stringify(attentionDiagnostics) +
             (config.defaultLocale ?? 'en'))
             .digest('hex');
-        return { html, digest, payloadJson: JSON.stringify(payload) };
+        return { html, digest, payloadJson: JSON.stringify(payload), payload, status, attentionState };
     };
     const clients = new Set();
     let lastDigest = render().digest;
@@ -70,7 +109,7 @@ export function serve(root, config, port, host = '127.0.0.1') {
         queueMicrotask(chatStatus);
         return msg;
     };
-    setInterval(() => {
+    const watchTimer = setInterval(() => {
         if (clients.size === 0)
             return;
         try {
@@ -85,6 +124,7 @@ export function serve(root, config, port, host = '127.0.0.1') {
             console.error(`watch error: ${err instanceof Error ? err.message : String(err)}`);
         }
     }, POLL_MS);
+    watchTimer.unref();
     const readJson = (req, res, cb) => {
         let raw = '';
         req.on('data', (chunk) => {
@@ -104,6 +144,71 @@ export function serve(root, config, port, host = '127.0.0.1') {
     const server = http.createServer((req, res) => {
         const url = new URL(req.url ?? '/', 'http://localhost');
         const json = { 'content-type': 'application/json', 'cache-control': 'no-store' };
+        if (url.pathname === '/attention/action' && req.method === 'POST') {
+            if (!(req.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) {
+                res.writeHead(415, { 'content-type': 'text/plain' }).end('expected application/json');
+                return;
+            }
+            let raw = '';
+            let bytes = 0;
+            let oversized = false;
+            req.on('data', (chunk) => {
+                bytes += chunk.length;
+                if (bytes > 64 * 1024) {
+                    oversized = true;
+                    return;
+                }
+                raw += chunk.toString('utf8');
+            });
+            req.on('end', () => {
+                if (oversized) {
+                    res.writeHead(413, { 'content-type': 'text/plain' }).end('attention action body is too large');
+                    return;
+                }
+                let request;
+                try {
+                    request = JSON.parse(raw);
+                }
+                catch {
+                    res.writeHead(400, { 'content-type': 'text/plain' }).end('attention action is not valid JSON');
+                    return;
+                }
+                let current;
+                try {
+                    current = render();
+                }
+                catch (error) {
+                    res.writeHead(500, { 'content-type': 'text/plain' }).end(error instanceof Error ? error.message : String(error));
+                    return;
+                }
+                if (!current.attentionState) {
+                    res.writeHead(409, { 'content-type': 'text/plain' }).end('attention state is unavailable');
+                    return;
+                }
+                let nextState;
+                try {
+                    nextState = applyAttentionAction(current.attentionState, current.status.concepts, request);
+                }
+                catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    const status = /snapshot|not reconciled/i.test(message) ? 409 : 400;
+                    res.writeHead(status, { 'content-type': 'text/plain' }).end(message);
+                    return;
+                }
+                try {
+                    saveAttentionState(root, nextState);
+                    const next = render();
+                    lastDigest = next.digest;
+                    for (const client of clients)
+                        client.write('event: reload\ndata: 1\n\n');
+                    res.writeHead(200, json).end(JSON.stringify(next.payload.attention));
+                }
+                catch (error) {
+                    res.writeHead(500, { 'content-type': 'text/plain' }).end(error instanceof Error ? error.message : String(error));
+                }
+            });
+            return;
+        }
         if (url.pathname === '/chat/history') {
             res.writeHead(200, json);
             res.end(JSON.stringify({
@@ -376,6 +481,7 @@ export function serve(root, config, port, host = '127.0.0.1') {
         }
         res.writeHead(404).end('not found');
     });
+    server.once('close', () => clearInterval(watchTimer));
     server.listen(port, host, () => {
         console.log(`atlas dev server: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
         if (host === '0.0.0.0') {

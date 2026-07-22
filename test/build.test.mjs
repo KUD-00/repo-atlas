@@ -216,6 +216,126 @@ function emptyStatus(root) {
   return computeStatus(root, scanResult, { readability: false })
 }
 
+test('concept snapshot changes when a present source changes beside a broken source', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/present.ts', 'export const value = 1\n')
+    write(root, '.atlas/concepts/runtime.md', `---
+title: Runtime
+audience: dev
+sources: ["src/present.ts", "src/missing.ts"]
+---
+Runtime orientation.
+`)
+    commitAll(root)
+
+    const first = emptyStatus(root).concepts[0]
+    assert.match(first.snapshot, /^[a-f0-9]{64}$/)
+    assert.equal(first.currentSourcesHash, null)
+    assert.deepEqual(first.brokenSources, ['src/missing.ts'])
+
+    write(root, 'src/present.ts', 'export const value = 2\n')
+    const second = emptyStatus(root).concepts[0]
+    assert.match(second.snapshot, /^[a-f0-9]{64}$/)
+    assert.notEqual(second.snapshot, first.snapshot)
+    assert.equal(second.currentSourcesHash, null)
+    assert.deepEqual(second.brokenSources, ['src/missing.ts'])
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('build payload exposes static attention and preserves supplied live attention', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/runtime.ts', 'export const runtime = true\n')
+    write(root, '.atlas/concepts/runtime.md', `---
+title: Runtime
+audience: dev
+sources: ["src/runtime.ts"]
+---
+Runtime orientation.
+`)
+    commitAll(root)
+    const status = emptyStatus(root)
+
+    const staticPayload = buildPayload({ repoName: 'fixture', commit: null, status })
+    assert.equal(staticPayload.attention.mode, 'static')
+    assert.equal(staticPayload.attention.state, 'ready')
+    assert.equal(staticPayload.attention.summary.open, 1)
+    assert.equal(staticPayload.attention.summary.snoozed, 0)
+    assert.equal(staticPayload.attention.summary.done, 0)
+    assert.equal(staticPayload.attention.items[0].slug, 'runtime')
+    assert.equal(staticPayload.attention.items[0].workflow, 'open')
+    assert.deepEqual(staticPayload.attention.events, [])
+    assert.equal(staticPayload.attention.health.concepts.outdated, 1)
+
+    const supplied = {
+      ...staticPayload.attention,
+      mode: 'live',
+      generatedAt: '2026-07-22T10:00:00.000Z',
+      diagnostics: [],
+    }
+    const livePayload = buildPayload({
+      repoName: 'fixture',
+      commit: null,
+      status,
+      attention: supplied,
+    })
+    assert.deepEqual(livePayload.attention, supplied)
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('concept overview projection keeps opening orientation separate from the full walkthrough', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/runtime.ts', 'export const runtime = true\n')
+    write(root, '.atlas/concepts/runtime.md', `---
+title: Runtime
+audience: dev
+sources: ["src/runtime.ts"]
+---
+Start here: the runtime turns accepted work into leased jobs.
+
+## Request path
+
+Later walkthrough detail.
+
+### Lease boundary
+
+Lease-specific detail.
+`)
+    write(root, '.atlas/concepts/no-headings.md', `---
+title: No headings
+audience: general
+sources: ["src/runtime.ts"]
+---
+The complete short explanation has no section headings.
+`)
+    commitAll(root)
+
+    const payload = buildPayload({ repoName: 'fixture', commit: null, status: emptyStatus(root) })
+    const runtime = payload.concepts.find((entry) => entry.slug === 'runtime')
+    assert.ok(runtime)
+    assert.match(runtime.briefHtml, /Start here/)
+    assert.doesNotMatch(runtime.briefHtml, /Later walkthrough detail/)
+    assert.match(runtime.html, /Later walkthrough detail/)
+    assert.deepEqual(runtime.sections, [
+      { level: 2, title: 'Request path' },
+      { level: 3, title: 'Lease boundary' },
+    ])
+
+    const short = payload.concepts.find((entry) => entry.slug === 'no-headings')
+    assert.ok(short)
+    assert.equal(short.briefHtml, short.html)
+    assert.deepEqual(short.sections, [])
+  } finally {
+    cleanup(root)
+  }
+})
+
 function extractAtlasPayload(html) {
   const marker = 'window.__ATLAS__ = '
   const start = html.indexOf(marker)

@@ -1,5 +1,15 @@
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u;
 const AUDIT_ROUTE_RE = /^audit:(security|test)(?:\/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?))?$/u;
+const ATTENTION_ROUTE_RE = /^view:attention(?:\/(history|health))?$/u;
+export function attentionRoute(section = 'needs') {
+    return section === 'needs' ? 'view:attention' : `view:attention/${section}`;
+}
+export function parseAttentionRoute(route) {
+    const match = ATTENTION_ROUTE_RE.exec(route);
+    if (!match)
+        return null;
+    return { section: match[1] ?? 'needs' };
+}
 export function auditRoute(domain, slug) {
     if (slug !== undefined && !SLUG_RE.test(slug)) {
         throw new Error('invalid audit slug');
@@ -27,6 +37,8 @@ export function isConceptsViewRoute(route) {
 }
 /** Derive the sidebar primary view from a hash route. Bare `security` is always code. */
 export function primaryViewForRoute(route, _hasPath = () => false) {
+    if (parseAttentionRoute(route))
+        return 'attention';
     if (isConceptsViewRoute(route) || route.startsWith('concept:'))
         return 'concepts';
     const audit = parseAuditRoute(route);
@@ -49,6 +61,8 @@ export function isValidAuditUnitRoute(domain, slug, portfolio) {
  * repository path. Bare paths (including `security`) use hasPath only.
  */
 export function isNamespacedOrPathRoute(route, hasPath, portfolios, hasConcept) {
+    if (parseAttentionRoute(route))
+        return true;
     if (isConceptsViewRoute(route))
         return true;
     if (route.startsWith('concept:'))
@@ -59,7 +73,7 @@ export function isNamespacedOrPathRoute(route, hasPath, portfolios, hasConcept) 
         return isValidAuditUnitRoute(audit.domain, audit.slug, portfolio);
     }
     // Reserved namespace: malformed audit:* never falls through to a path match.
-    if (route.startsWith('audit:'))
+    if (route.startsWith('audit:') || route.startsWith('view:'))
         return false;
     return hasPath(route);
 }
@@ -94,6 +108,8 @@ export function primaryNavRoute(view, last) {
     switch (view) {
         case 'code':
             return last.code;
+        case 'attention':
+            return attentionRoute();
         case 'concepts':
             return last.concepts;
         case 'security':
