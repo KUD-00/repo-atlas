@@ -288,7 +288,7 @@ Runtime orientation.
   }
 })
 
-test('concept overview projection keeps opening orientation separate from the full walkthrough', () => {
+test('concept page renders the full body into html (no overview projection)', () => {
   const root = makeRepo()
   try {
     write(root, 'src/runtime.ts', 'export const runtime = true\n')
@@ -319,18 +319,17 @@ The complete short explanation has no section headings.
     const payload = buildPayload({ repoName: 'fixture', commit: null, status: emptyStatus(root) })
     const runtime = payload.concepts.find((entry) => entry.slug === 'runtime')
     assert.ok(runtime)
-    assert.match(runtime.briefHtml, /Start here/)
-    assert.doesNotMatch(runtime.briefHtml, /Later walkthrough detail/)
+    // The whole page renders into html — the opening, the walkthrough and its
+    // subsections all land in one document; no separate overview/sections projection.
+    assert.match(runtime.html, /Start here/)
     assert.match(runtime.html, /Later walkthrough detail/)
-    assert.deepEqual(runtime.sections, [
-      { level: 2, title: 'Request path' },
-      { level: 3, title: 'Lease boundary' },
-    ])
+    assert.match(runtime.html, /Lease boundary/)
+    assert.equal(runtime.briefHtml, undefined)
+    assert.equal(runtime.sections, undefined)
 
     const short = payload.concepts.find((entry) => entry.slug === 'no-headings')
     assert.ok(short)
-    assert.equal(short.briefHtml, short.html)
-    assert.deepEqual(short.sections, [])
+    assert.match(short.html, /complete short explanation/)
   } finally {
     cleanup(root)
   }

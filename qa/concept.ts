@@ -23,7 +23,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findRepoRoot, runAgent as libRunAgent, lenientParse as lenient, dirtyPaths as libDirty, assertOnlyAtlasWrites, lintBannedPhrases, countVisuals as libVisuals, longParagraphs, listCandidates, flatStructure, validateMermaid, loadPrompt, median, relevantGlossary, DENY_TERMINAL, DENY_ALL_WRITES } from "./lib";
+import { findRepoRoot, runAgent as libRunAgent, lenientParse as lenient, dirtyPaths as libDirty, assertOnlyAtlasWrites, lintBannedPhrases, lintMetaNarration, countVisuals as libVisuals, longParagraphs, listCandidates, flatStructure, validateMermaid, loadPrompt, median, relevantGlossary, DENY_TERMINAL, DENY_ALL_WRITES } from "./lib";
 
 const REPO = findRepoRoot();
 const QA = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
@@ -32,6 +32,11 @@ const ARCHIVE = join(REPO, ".atlas/qa/_concepts");
 mkdirSync(ARCHIVE, { recursive: true });
 if (!existsSync(SPEC_FILE)) { console.error("缺 .atlas/pipeline/concept-pages.json（格式见本文件头注释）"); process.exit(2); }
 const spec = JSON.parse(readFileSync(SPEC_FILE, "utf8"));
+
+// 仓库可选的门覆盖（通用，缺文件=全用默认）：minVisuals / unclearMax / breakMax / retellMin
+// 覆盖对应阈值；metaExtra 追加元话术子串模式；metaNarration:false 关闭元话术门。
+const GATE_FILE = join(REPO, ".atlas/pipeline/concept-gate.json");
+const gateCfg: any = existsSync(GATE_FILE) ? JSON.parse(readFileSync(GATE_FILE, "utf8")) : {};
 
 // ---------- 课程表（curriculum）----------
 // pages 的数组顺序 = 阅读顺序（大纲）。每页可声明：
@@ -85,7 +90,10 @@ function countVisuals(body: string): { html: number; mermaid: number } {
   const v = libVisuals(body);
   return { html: v.html, mermaid: v.mermaid };
 }
-const lintConcept = (body: string) => lintBannedPhrases(body);
+const lintConcept = (body: string) => [
+  ...lintBannedPhrases(body),
+  ...(gateCfg.metaNarration === false ? [] : lintMetaNarration(body, gateCfg.metaExtra ?? [])),
+];
 
 // ---------- persona ----------
 function personaOf(aud: string): string {
@@ -251,7 +259,8 @@ async function runPage(slug: string): Promise<{ slug: string; pass: boolean; rea
     const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
     const reasons: string[] = [];
     const vis = countVisuals(body);
-    if (vis.html + vis.mermaid < 2) reasons.push(`可视化不足（HTML ${vis.html} + mermaid ${vis.mermaid} < 2）`);
+    const minVis = gateCfg.minVisuals ?? 1;
+    if (vis.html + vis.mermaid < minVis) reasons.push(`可视化不足（HTML ${vis.html} + mermaid ${vis.mermaid} < ${minVis}）`);
     if (page.audience === "general" && vis.html < 1) reasons.push("general 页至少 1 处 HTML 可视化");
     reasons.push(...lintConcept(body));
     // 结构机械硬门（与路径笔记同源）：长段落 / 顿号串 / 大纲可见的标题结构 / mermaid 语法
@@ -271,12 +280,12 @@ async function runPage(slug: string): Promise<{ slug: string; pass: boolean; rea
     // unclear 中位 5→4。于是从旧地板值（断≤4/懂≤5）收紧一格到 断≤3/懂≤4——让绿灯重新代表
     // "真干净"而非"到地板"。仍留的坑：环境/机器几章基础设施密，个别页可能压不到 break≤3；
     // keep-best 保底、门必要不充分、概念主页最终仍人读。盲读断线报告全量喂修订；unsupported=0 不放松。
-    const unclearMax = page.audience === "general" ? 5 : 4;
-    const breakMax = page.audience === "general" ? 4 : 3;
+    const unclearMax = gateCfg.unclearMax ?? (page.audience === "general" ? 5 : 4);
+    const breakMax = gateCfg.breakMax ?? (page.audience === "general" ? 4 : 3);
     const breakMed = median(readers.map(r => (r.progression_breaks ?? []).length));
     if (unclearMed > unclearMax) reasons.push(`读不懂句子中位 ${unclearMed} > ${unclearMax}：${readers.flatMap(r => r.unclear_sentences).slice(0, 5).join("｜")}`);
     if (breakMed > breakMax) reasons.push(`循序渐进断线中位 ${breakMed} > ${breakMax}：${readers.flatMap(r => r.progression_breaks ?? []).slice(0, 4).join("｜")}`);
-    if (retellOk < 2) reasons.push(`复述不成立（${retellOk}/3 能讲给同事）`);
+    if (retellOk < (gateCfg.retellMin ?? 2)) reasons.push(`复述不成立（${retellOk}/3 能讲给同事）`);
     if (fc.unsupported.length) reasons.push(`unsupported ${fc.unsupported.length} 条：${fc.unsupported.map((u: any) => u.claim).slice(0, 3).join("｜")}`);
     record.rounds.push({ round, visuals: vis, unclearMed, breakMed, retellOk, unsupported: fc.unsupported, reasons });
     const pen = penaltyOf(reasons, unclearMed, breakMed, fc.unsupported.length);

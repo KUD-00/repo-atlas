@@ -42,6 +42,28 @@ export function lintBannedPhrases(body: string, extra: string[] = []): string[] 
   return issues;
 }
 
+// 元话术 / 课程表叙述：文档在讲自己（"本页只讲…"）、或给读者报课程表边界（"归下一页《…》"、
+// "三问回收"、"故意不讲"）。这些是给写作者的编排指令，不该出现在正文——读者要的是内容本身。
+// 概念页尤其易犯：多页课程表把每页的 requires/owns 边界照抄进正文。默认对所有中文 atlas 生效；
+// 仓库可经 concept-gate.json 的 metaExtra 追加子串模式，或 metaNarration:false 整体关闭。
+export const META_PATTERNS: { re: RegExp; msg: string }[] = [
+  { re: /本页|本篇|这一页|这一篇/, msg: "自指（本页/本篇…）——要讲什么直接讲，别先宣布“本页要讲 X”" },
+  { re: /前置页|上一页|下一页|前一页|后页|下页/, msg: "邻页指路——删，别把读者支到别的页面" },
+  { re: /归\s*《|见\s*《|详见|见后页|见下页|见下一页|见前置页/, msg: "跨页指针（归《…》/见《…》/详见）——删" },
+  { re: /《[^》]{1,40}》/, msg: "书名号跨页引用《…》——概念页正文不引别的页面标题，删或就地点名（会自动成链）" },
+  { re: /[一二两三四五六七八九十\d]+\s*问回收|要点回收/, msg: "应试脚手架回收表（N 问回收 / 要点回收）——删复述表，事实在正文直接讲" },
+  { re: /本页边界|故意不讲|只点到不展开|点到不展开|一句点到/, msg: "课程表边界叙述（本页边界/故意不讲/点到不展开）——删" },
+];
+export function lintMetaNarration(body: string, extra: string[] = []): string[] {
+  const noCode = body.replace(/```[\s\S]*?```/g, "");
+  const issues: string[] = [];
+  for (const { re, msg } of META_PATTERNS)
+    if (re.test(noCode)) issues.push(`元话术/课程表叙述：${msg}`);
+  for (const p of extra)
+    if (noCode.includes(p)) issues.push(`元话术（仓库追加）：「${p}」——删`);
+  return issues;
+}
+
 // ---------- 结构机械门（中文行文；run.ts 有历史局部副本=已知债，新文体一律用这里） ----------
 // 长段落：一段塞太多字/句 = 没分段。callout 区允许密（渐进披露），列表项剥掉 marker 同样计。
 export function longParagraphs(body: string, hard: boolean): string[] {

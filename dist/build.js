@@ -21,29 +21,6 @@ let mermaidJs = null;
 function loadMermaid() {
     return (mermaidJs ??= fs.readFileSync(path.join(VENDOR, 'mermaid.js'), 'utf8'));
 }
-function conceptProjection(body) {
-    const tokens = marked.lexer(body);
-    const headings = [];
-    let offset = 0;
-    for (const token of tokens) {
-        if (token.type === 'heading' && token.depth >= 2 && token.depth <= 6) {
-            headings.push({ offset, level: token.depth, title: token.text.trim() });
-        }
-        offset += token.raw.length;
-    }
-    if (headings.length === 0)
-        return { overview: body, sections: [] };
-    const opening = body.slice(0, headings[0].offset);
-    // Pages that begin immediately with a section still need a useful entry:
-    // use that first section, not an empty overview or the entire long page.
-    const overview = opening.trim()
-        ? opening
-        : body.slice(0, headings[1]?.offset ?? body.length);
-    return {
-        overview,
-        sections: headings.map(({ level, title }) => ({ level, title })),
-    };
-}
 /** The data the viewer runs on — also served as JSON by `serve`'s /data so
  * open pages can refresh in place instead of reloading. */
 export function buildPayload({ repoName, commit, status, graph = null, glossary = [], basePoints = [], artifacts = [], audits = [], testAudits = [], reviewCoverage = missingReviewCoverage(), defaultLocale = 'en', auditSourceLocale = 'en', auditLocalizations = {}, attention, }) {
@@ -84,7 +61,6 @@ export function buildPayload({ repoName, commit, status, graph = null, glossary 
     // note bodies we already have. `home` was parsed from glossary.md upstream.
     fillGlossaryRefs(glossary, status.entries.map((e) => ({ path: e.path, body: e.body })));
     const concepts = status.concepts.map((c) => {
-        const projection = conceptProjection(c.body);
         return {
             slug: c.slug,
             title: c.title,
@@ -98,8 +74,6 @@ export function buildPayload({ repoName, commit, status, graph = null, glossary 
             stamped: c.stamped,
             anchor: c.anchor,
             html: c.body ? String(marked.parse(c.body)) : null,
-            briefHtml: c.body ? String(marked.parse(projection.overview)) : null,
-            sections: projection.sections,
             source: c.body || null,
         };
     });

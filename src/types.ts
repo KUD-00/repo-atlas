@@ -193,10 +193,6 @@ export interface ConceptNode {
   stamped: string | null
   anchor: string | null
   html: string | null
-  /** Opening orientation derived from this page's canonical markdown. */
-  briefHtml: string | null
-  /** Ordered map of the full walkthrough, derived from markdown headings. */
-  sections: Array<{ level: number; title: string }>
   source: string | null
 }
 

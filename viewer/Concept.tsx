@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import { Printer } from 'lucide-react'
@@ -192,10 +192,7 @@ export function ConceptPane({
   onOpenAttention?: () => void
 }) {
   const { i18n } = useLingui()
-  const [readingMode, setReadingMode] = useState<'overview' | 'full'>('overview')
-  useEffect(() => setReadingMode('overview'), [concept.slug])
   const broken = new Set(concept.brokenSources)
-  const hasWalkthrough = concept.sections.length > 0 && concept.briefHtml !== concept.html
   return (
     <div className="max-w-[760px] py-9 px-12 pb-24 max-md:py-5 max-md:px-4 max-md:pb-16">
       <div className="text-[0.78rem] text-muted break-all">{t(i18n)`concept`}</div>
@@ -232,32 +229,6 @@ export function ConceptPane({
       {attentionItem && onOpenAttention && (
         <ConceptAttentionNotice item={attentionItem} onOpenAttention={onOpenAttention} />
       )}
-      {hasWalkthrough && (
-        <div className="mb-5 inline-flex rounded-lg border border-border bg-panel p-0.5" role="group" aria-label={t(i18n)`reading mode`}>
-          <button
-            type="button"
-            className={
-              'font-inherit text-[0.75rem] rounded-md border-none py-1.5 px-3 cursor-pointer ' +
-              (readingMode === 'overview' ? 'bg-[#3d6b5414] text-accent font-semibold' : 'bg-transparent text-muted hover:text-text')
-            }
-            aria-pressed={readingMode === 'overview'}
-            onClick={() => setReadingMode('overview')}
-          >
-            {t(i18n)`overview`}
-          </button>
-          <button
-            type="button"
-            className={
-              'font-inherit text-[0.75rem] rounded-md border-none py-1.5 px-3 cursor-pointer ' +
-              (readingMode === 'full' ? 'bg-[#3d6b5414] text-accent font-semibold' : 'bg-transparent text-muted hover:text-text')
-            }
-            aria-pressed={readingMode === 'full'}
-            onClick={() => setReadingMode('full')}
-          >
-            {t(i18n)`full walkthrough`}
-          </button>
-        </div>
-      )}
       {concept.sources.length > 0 && (
         <div className="-mt-2 mb-5 flex gap-2 items-baseline text-[0.75rem]">
           <span className="text-muted shrink-0 w-[92px] text-right">{t(i18n)`sources →`}</span>
@@ -286,27 +257,10 @@ export function ConceptPane({
       )}
       <ConceptProse
         concept={concept}
-        html={readingMode === 'overview' ? concept.briefHtml : concept.html}
+        html={concept.html}
         nodesByPath={nodesByPath}
         glossary={glossary}
       />
-      {readingMode === 'overview' && hasWalkthrough && (
-        <div className="mt-7 rounded-xl border border-border bg-panel py-4 px-5">
-          <div className="text-[0.78rem] font-semibold">{t(i18n)`Inside the full walkthrough`}</div>
-          <ol className="mt-2 mb-0 pl-5 text-[0.78rem] text-muted leading-relaxed">
-            {concept.sections.map((section, index) => (
-              <li key={`${section.level}-${section.title}-${index}`} className={section.level > 2 ? 'ml-4' : ''}>{section.title}</li>
-            ))}
-          </ol>
-          <button
-            type="button"
-            className="mt-3 font-inherit text-[0.75rem] py-1.5 px-3 rounded-md border border-accent bg-accent text-white cursor-pointer hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
-            onClick={() => setReadingMode('full')}
-          >
-            {t(i18n)`read the full walkthrough`}
-          </button>
-        </div>
-      )}
       {audit && <ConceptSecuritySection unit={audit} />}
     </div>
   )

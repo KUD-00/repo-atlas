@@ -58,33 +58,6 @@ export interface BuildInput {
   attention?: AttentionPayload
 }
 
-function conceptProjection(body: string): {
-  overview: string
-  sections: Array<{ level: number; title: string }>
-} {
-  const tokens = marked.lexer(body)
-  const headings: Array<{ offset: number; level: number; title: string }> = []
-  let offset = 0
-  for (const token of tokens) {
-    if (token.type === 'heading' && token.depth >= 2 && token.depth <= 6) {
-      headings.push({ offset, level: token.depth, title: token.text.trim() })
-    }
-    offset += token.raw.length
-  }
-  if (headings.length === 0) return { overview: body, sections: [] }
-
-  const opening = body.slice(0, headings[0].offset)
-  // Pages that begin immediately with a section still need a useful entry:
-  // use that first section, not an empty overview or the entire long page.
-  const overview = opening.trim()
-    ? opening
-    : body.slice(0, headings[1]?.offset ?? body.length)
-  return {
-    overview,
-    sections: headings.map(({ level, title }) => ({ level, title })),
-  }
-}
-
 /** The data the viewer runs on — also served as JSON by `serve`'s /data so
  * open pages can refresh in place instead of reloading. */
 export function buildPayload({
@@ -141,7 +114,6 @@ export function buildPayload({
   fillGlossaryRefs(glossary, status.entries.map((e) => ({ path: e.path, body: e.body })))
 
   const concepts: ConceptNode[] = status.concepts.map((c) => {
-    const projection = conceptProjection(c.body)
     return {
       slug: c.slug,
       title: c.title,
@@ -155,8 +127,6 @@ export function buildPayload({
       stamped: c.stamped,
       anchor: c.anchor,
       html: c.body ? String(marked.parse(c.body)) : null,
-      briefHtml: c.body ? String(marked.parse(projection.overview)) : null,
-      sections: projection.sections,
       source: c.body || null,
     }
   })
