@@ -1,4 +1,4 @@
-import type { AuditDomain } from './types.js'
+import type { PortfolioDomain } from './types.js'
 
 export type PrimaryView = 'attention' | 'code' | 'concepts' | 'security' | 'tests'
 export type AttentionSection = 'needs' | 'history' | 'health'
@@ -22,7 +22,7 @@ export function parseAttentionRoute(route: string): { section: AttentionSection 
   return { section: (match[1] as AttentionSection | undefined) ?? 'needs' }
 }
 
-export function auditRoute(domain: AuditDomain, slug?: string): string {
+export function auditRoute(domain: PortfolioDomain, slug?: string): string {
   if (slug !== undefined && !SLUG_RE.test(slug)) {
     throw new Error('invalid audit slug')
   }
@@ -34,15 +34,15 @@ export function auditRoute(domain: AuditDomain, slug?: string): string {
  * Returns a namespaced route for kebab slugs; null for unrouteable legacy
  * v1 slugs (which may still appear in the portfolio) without throwing.
  */
-export function auditUnitRoute(domain: AuditDomain, slug: string): string | null {
+export function auditUnitRoute(domain: PortfolioDomain, slug: string): string | null {
   if (!SLUG_RE.test(slug)) return null
   return auditRoute(domain, slug)
 }
 
-export function parseAuditRoute(route: string): { domain: AuditDomain; slug: string | null } | null {
+export function parseAuditRoute(route: string): { domain: PortfolioDomain; slug: string | null } | null {
   const match = AUDIT_ROUTE_RE.exec(route)
   if (!match) return null
-  return { domain: match[1] as AuditDomain, slug: match[2] ?? null }
+  return { domain: match[1] as PortfolioDomain, slug: match[2] ?? null }
 }
 
 export function isConceptsViewRoute(route: string): boolean {
@@ -65,7 +65,7 @@ export function primaryViewForRoute(
 /** Portfolio homes (slug null) are always valid — including empty portfolios.
  * Unit deep-links require the slug to exist in the domain portfolio. */
 export function isValidAuditUnitRoute(
-  domain: AuditDomain,
+  domain: PortfolioDomain,
   slug: string | null,
   portfolio: ReadonlyArray<{ slug: string }>,
 ): boolean {

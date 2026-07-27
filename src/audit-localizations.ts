@@ -5,7 +5,7 @@ import { TextDecoder } from 'node:util'
 import type { AuditPortfolios } from './audits.js'
 import { atlasDir, readRepoFile } from './scan.js'
 import type {
-  AuditDomain,
+  PortfolioDomain,
   AuditLocalizationDiagnostic,
   AuditLocalizationPortfolio,
   AtlasConfig,
@@ -37,7 +37,7 @@ export type AuditLocalizationSourceFinding =
   | TestLocalizationSourceFinding
 
 export interface AuditLocalizationSourceUnit {
-  domain: AuditDomain
+  domain: PortfolioDomain
   slug: string
   sourceDigest: string
   title: string
@@ -97,7 +97,7 @@ export function auditFindingSourceDigest(finding: AuditFinding | TestAuditFindin
 }
 
 export function auditUnitSourceDigest(
-  domain: AuditDomain,
+  domain: PortfolioDomain,
   slug: string,
   title: string,
   findingDigests: readonly string[],
@@ -130,13 +130,13 @@ function testSourceFinding(finding: TestAuditFinding): TestLocalizationSourceFin
 }
 
 interface UnitAccumulator {
-  domain: AuditDomain
+  domain: PortfolioDomain
   slug: string
   title: string
   findings: AuditLocalizationSourceFinding[]
 }
 
-function unitKey(domain: AuditDomain, slug: string): string {
+function unitKey(domain: PortfolioDomain, slug: string): string {
   return `${domain}\0${slug}`
 }
 
@@ -190,7 +190,7 @@ function localizationFileState(root: string, locale: AtlasLocale): 'missing' | '
 
 function parseFindingTranslation(
   locale: AtlasLocale,
-  domain: AuditDomain,
+  domain: PortfolioDomain,
   value: unknown,
   slug: string,
 ): { value: VerifiedAuditFindingTranslation } | { error: AuditLocalizationDiagnostic } {

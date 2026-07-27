@@ -4,7 +4,7 @@ import path from 'node:path'
 import type { AuditPortfolios } from './audits.js'
 import { atlasDir, git, hashFilePaths, readRepoFile } from './scan.js'
 import type {
-  AuditDomain,
+  PortfolioDomain,
   BaseAuditUnit,
   CoverageClassification,
   CoverageDiagnostic,
@@ -284,7 +284,7 @@ function parseEvidenceStatus(value: unknown): CoverageEvidenceStatus | null {
     : null
 }
 
-function parseDomainEvidence(value: unknown, domain: AuditDomain): { status: CoverageEvidenceStatus; ledgers: string[] } | string {
+function parseDomainEvidence(value: unknown, domain: PortfolioDomain): { status: CoverageEvidenceStatus; ledgers: string[] } | string {
   if (!isPlainObject(value)) return `evidence.${domain} must be an object`
   if (!exactKeys(value, ['status', 'ledgers'])) return `evidence.${domain} must have exact status and ledgers fields`
   const status = parseEvidenceStatus(value.status)
@@ -306,7 +306,7 @@ function parseEvidence(value: unknown): CoverageEntry['evidence'] | string {
   const out: CoverageEntry['evidence'] = {}
   for (const key of Object.keys(value)) {
     if (key !== 'security' && key !== 'test') return `evidence has unknown domain ${key}`
-    const domain = key as AuditDomain
+    const domain = key as PortfolioDomain
     const parsed = parseDomainEvidence(value[key], domain)
     if (typeof parsed === 'string') return parsed
     out[domain] = parsed
@@ -321,7 +321,7 @@ function parseReviewDomains(value: unknown): Extract<CoverageClassification, { k
   const out: Extract<CoverageClassification, { kind: 'review' }>['domains'] = {}
   for (const key of keys) {
     if (key !== 'security' && key !== 'test') return `review classification has unknown domain ${key}`
-    const domain = key as AuditDomain
+    const domain = key as PortfolioDomain
     const ref = value[key]
     if (!isPlainObject(ref) || !exactKeys(ref, ['unit'])) {
       return `review classification.${domain} must have exact unit field`
@@ -407,13 +407,13 @@ function parseEntry(value: unknown): CoverageEntry | string {
       return `excluded, unclassified, and conflict entries carry no domain evidence (${value.path})`
     }
   } else {
-    const requiredDomains = Object.keys(classification.domains) as AuditDomain[]
+    const requiredDomains = Object.keys(classification.domains) as PortfolioDomain[]
     for (const domain of requiredDomains) {
       if (!evidence[domain]) {
         return `missing required domain evidence for ${domain} (${value.path})`
       }
     }
-    for (const domain of Object.keys(evidence) as AuditDomain[]) {
+    for (const domain of Object.keys(evidence) as PortfolioDomain[]) {
       if (!classification.domains[domain]) {
         return `evidence domain ${domain} is not required by classification (${value.path})`
       }
@@ -549,7 +549,7 @@ function unitOwnershipErrors(
   const errors: CoverageDiagnostic[] = []
   for (const entry of entries) {
     if (entry.classification.kind !== 'review') continue
-    for (const domain of Object.keys(entry.classification.domains) as AuditDomain[]) {
+    for (const domain of Object.keys(entry.classification.domains) as PortfolioDomain[]) {
       const unitSlug = entry.classification.domains[domain]?.unit
       if (!unitSlug) continue
       const registered = byDomainSlug.get(`${domain}:${unitSlug}`)
@@ -978,13 +978,13 @@ function freshEvidenceErrors(
 
   for (const entry of report.entries) {
     if (entry.classification.kind === 'review') {
-      for (const domain of Object.keys(entry.classification.domains) as AuditDomain[]) {
+      for (const domain of Object.keys(entry.classification.domains) as PortfolioDomain[]) {
         const unitSlug = entry.classification.domains[domain]?.unit
         if (unitSlug) assignedUnits.add(`${domain}:${unitSlug}`)
       }
     }
 
-    for (const domain of Object.keys(entry.evidence) as AuditDomain[]) {
+    for (const domain of Object.keys(entry.evidence) as PortfolioDomain[]) {
       const claim = entry.evidence[domain]
       if (!claim) continue
 

@@ -9,6 +9,16 @@ const TEST_CATEGORIES = new Set([
     'missing-invariant', 'weak-assertion', 'mock-only', 'nondeterminism',
     'isolation-leak', 'fixture-drift', 'coverage-gap', 'privileged-side-effect',
 ]);
+const DESIGN_SEVERITIES = new Set(['low', 'medium', 'high']);
+const DESIGN_DISPOSITIONS = new Set(['open', 'accepted-design', 'deferred']);
+const DESIGN_CATEGORIES = new Set([
+    'optionality', 'absence-semantics', 'boolean-trap', 'type-escape',
+    'over-abstraction', 'layering-violation', 'duplicate-logic', 'dead-code',
+    'redundant-fields', 'over-complication', 'first-principles',
+    'masking-default', 'swallowed-failure', 'magic-constant',
+    'dead-forward-compat', 'compat-shim', 'stale-marker',
+    'naming-drift', 'unexplained-export',
+]);
 const MAX_FINDING_ID_LENGTH = 256;
 export function auditsRoot(root) {
     return path.join(atlasDir(root), 'audits');
@@ -152,7 +162,7 @@ function v2EnvelopeError(j) {
     }
     if (!isV2(j))
         return 'version 2 ledgers must use format atlas-audit-v2';
-    if (j.domain !== 'security' && j.domain !== 'test')
+    if (j.domain !== 'security' && j.domain !== 'test' && j.domain !== 'design')
         return 'unsupported audit domain';
     if (j.reviewState !== 'complete')
         return 'reviewState must be complete';
@@ -331,6 +341,17 @@ function validTestFinding(f) {
         normalizedLocations(finding.locations) &&
         (finding.confidence === undefined || nonemptyString(finding.confidence));
 }
+function validDesignFinding(f) {
+    if (!f || typeof f !== 'object')
+        return false;
+    const finding = f;
+    return typeof finding.severity === 'string' && DESIGN_SEVERITIES.has(finding.severity) &&
+        typeof finding.category === 'string' && DESIGN_CATEGORIES.has(finding.category) &&
+        nonemptyString(finding.title) && nonemptyString(finding.evidence) && nonemptyString(finding.fix) &&
+        normalizedLocations(finding.locations) &&
+        (finding.confidence === undefined || nonemptyString(finding.confidence)) &&
+        (finding.disposition === undefined || DESIGN_DISPOSITIONS.has(finding.disposition));
+}
 function isSupportedFormat(j) {
     return isV1(j) || isV2(j);
 }
@@ -459,12 +480,30 @@ function testLedgerError(root, j, entry) {
     }
     return null;
 }
+/** Design ledgers are ledger-grade, not viewer-grade: same envelope + freshness
+ * contract as the portfolio domains, but no coverage claim and no unit render. */
+function designLedgerError(root, j, entry) {
+    if (!isV2(j) || j.domain !== 'design')
+        return 'unsupported audit domain';
+    const meta = viewerMetadataError(root, j, entry, 'design');
+    if (meta)
+        return meta;
+    const refsError = evidenceRefsError(root, j);
+    if (refsError)
+        return refsError;
+    if (!findingsOf(j).every(validDesignFinding)) {
+        return 'every design finding must satisfy the strict design schema (severity, category, locations, evidence, fix)';
+    }
+    return null;
+}
 function domainLedgerError(root, j, raw, entry) {
     if (isV2(j)) {
         if (j.domain === 'security')
             return securityLedgerError(root, j, raw, entry);
         if (j.domain === 'test')
             return testLedgerError(root, j, entry);
+        if (j.domain === 'design')
+            return designLedgerError(root, j, entry);
         return 'unsupported audit domain';
     }
     if (isLegacySecurityLedger(j))
@@ -574,9 +613,10 @@ export function loadAuditPortfolios(root, statuses) {
                 }
                 tests.push(toTestUnit(root, j, file, statusByFile));
             }
-            else {
+            else if (j.domain !== 'design') {
                 console.warn(`  ⚠ .atlas/audits/${entry}: unsupported audit domain, skipped`);
             }
+            // design ledgers are valid but render no portfolio — status owns them.
             continue;
         }
         if (!isLegacySecurityLedger(j))
@@ -633,7 +673,7 @@ export function auditStatusEntries(root, scanResult) {
             continue;
         const domainError = domainLedgerError(root, j, read.raw, entry);
         if (domainError) {
-            const kind = isV2(j) && j.domain === 'test' ? 'test' : 'security';
+            const kind = isV2(j) && (j.domain === 'test' || j.domain === 'design') ? j.domain : 'security';
             console.warn(`  ⚠ .atlas/audits/${entry}: malformed ${kind} ledger (${domainError}); reported stale/invalid`);
             out.push(invalidStatus(file, domainError));
             continue;

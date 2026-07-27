@@ -484,6 +484,16 @@ export function isSupportedReadabilityReport(value) {
         typeof report.generatedAt === 'string' && !!report.files && typeof report.files === 'object' &&
         !!report.norms && typeof report.norms === 'object';
 }
+/**
+ * Split a source file into per-line code/comment halves for any language the
+ * readability lexer knows; null for anything else. Shared so a detector never
+ * has to invent a second, worse lexer — matching a pattern against `code`
+ * skips comments and string bodies, against `comment` skips real code.
+ */
+export function maskedLinesOf(text, ext) {
+    const lang = Object.hasOwn(LANGS, ext) ? LANGS[ext] : undefined;
+    return lang ? maskSource(text, lang) : null;
+}
 const MAX_FILE_BYTES = 512 * 1024;
 /** metric -> [extractor, tail] ; tail 'high' flags z >= 2, 'low' flags z <= -2.
  *  Extractors may return NaN to exclude a file from that metric (e.g. files

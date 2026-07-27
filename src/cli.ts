@@ -22,6 +22,7 @@ import { buildImportGraph } from './deps.js'
 import { loadGlossaryRaw, parseGlossary } from './glossary.js'
 import { computeCheck, type CheckFinding } from './check.js'
 import { concepts } from './concepts.js'
+import { assertQualityAuditOwnership, computeQuality, failingFindings, formatQualitySummary, parseLayers, writeQualityArtifacts, writeQualityAuditLedger, writeQualityReport } from './quality.js'
 import { assertCanonicalReadabilityOutput, assertReadabilityAuditOwnership, assertReadabilityReportOutput, computeReadability, formatReadabilitySummary, isSupportedReadabilityReport, readReadabilityReport, writeCanonicalReadabilityReport, writeReadabilityArtifacts, writeReadabilityAuditLedger, writeReadabilityReport, diffReadabilityReports } from './readability.js'
 import { stampAudits } from './audits.js'
 import type { AtlasConfig, AtlasLocale, PathType, ReviewCoveragePortfolio } from './types.js'
@@ -59,6 +60,17 @@ usage: repo-atlas <command> [args]
                            duplication, barrel) + repo-relative outliers — no LLM,
                            works without .atlas/ too (design: docs/readability-audit.md);
                            --artifacts writes per-file/dir cards to .atlas/artifacts/
+  quality [--json] [--write] [--artifacts] [--top N] [--exclude <glob>]...
+          [--stale-days N] [--fail-on <detector|category|severity>]...
+          [--ingest <file>] [--ingest-eslint <file>] [--ingest-knip <file>]
+                           mechanical design defects — import cycles, upward
+                           layer imports (.atlas/config.json "layers"), rotting
+                           TODO markers, type-system escapes, one interface
+                           spelling absence two ways, boolean-trap signatures —
+                           plus findings ingested from external tools. No LLM.
+                           Judgment-level design review is the design audit
+                           domain instead (docs/design-audit.md).
+                           --write stores .atlas/quality.json + a thin ledger
   serve [-p <port>] [--host [addr]]
                            dev server with auto-reload (default 127.0.0.1:4400;
                            --host with no addr binds 0.0.0.0 for LAN access)
@@ -96,6 +108,7 @@ function dispatch(cmd: string | undefined, args: string[]) {
     case 'check': return check(root!, args)
     case 'concepts': return concepts(root!, args)
     case 'readability': return readability(root!, args)
+    case 'quality': return quality(root!, args)
     case 'audit-stamp': return auditStamp(root!, args)
     case 'audit-import': return auditImport(root!, args)
     case 'audit-localization-input': return auditLocalizationInput(root!, args)
@@ -574,6 +587,66 @@ function readability(root: string, args: string[]) {
   }
   if (json) console.log(JSON.stringify(report, null, 2))
   else console.log(formatReadabilitySummary(report, top))
+}
+
+function quality(root: string, args: string[]) {
+  const config = loadConfig(root) ?? {}
+  const json = args.includes('--json')
+  const flagValues = (flag: string): string[] => {
+    const out: string[] = []
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] !== flag) continue
+      if (!args[i + 1] || args[i + 1].startsWith('--')) throw new Error(`${flag} requires a value`)
+      out.push(args[i + 1])
+    }
+    return out
+  }
+  const numberFlag = (flag: string, fallback: number): number => {
+    const index = args.indexOf(flag)
+    if (index < 0) return fallback
+    const value = Number(args[index + 1])
+    if (!Number.isFinite(value) || value < 0) throw new Error(`${flag} requires a nonnegative number`)
+    return value
+  }
+
+  const layers = parseLayers(config.layers)
+  const ingest = [
+    ...flagValues('--ingest').map((file) => ({ tool: 'generic' as const, file })),
+    ...flagValues('--ingest-eslint').map((file) => ({ tool: 'eslint' as const, file })),
+    ...flagValues('--ingest-knip').map((file) => ({ tool: 'knip' as const, file })),
+  ]
+  const report = computeQuality(root, config, {
+    exclude: flagValues('--exclude'),
+    layers,
+    staleMarkerDays: numberFlag('--stale-days', 180),
+    ingest,
+  })
+
+  const log = json ? console.error : console.log
+  if (args.includes('--write')) {
+    assertQualityAuditOwnership(root)
+    const file = writeQualityReport(root, report)
+    const ledger = writeQualityAuditLedger(root, report)
+    log(`wrote ${path.relative(root, file)}${ledger ? ` + ${path.relative(root, ledger)}` : ''}`)
+  }
+  if (args.includes('--artifacts')) {
+    const written = writeQualityArtifacts(root, report)
+    log(written ? `wrote ${written} quality artifact(s) under .atlas/artifacts/`
+      : 'no .atlas/ (or no changes) — artifacts skipped')
+  }
+  const top = numberFlag('--top', 10)
+  if (json) console.log(JSON.stringify(report, null, 2))
+  else console.log(formatQualitySummary(report, top))
+
+  const failOn = flagValues('--fail-on')
+  const failing = failingFindings(report, failOn)
+  if (failing.length) {
+    console.error(`\n${failing.length} finding(s) match --fail-on ${failOn.join(', ')}:`)
+    for (const finding of failing.slice(0, 20)) {
+      console.error(`  [${finding.severity}] ${finding.detector} — ${finding.title} (${finding.locations[0]})`)
+    }
+    process.exitCode = 1
+  }
 }
 
 function build(root: string, args: string[]) {

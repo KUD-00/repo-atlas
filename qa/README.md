@@ -111,6 +111,27 @@ bun $QA/audit.ts auth-identity --fresh   # scope 没变也强制重审
 
 仓库定制沿用同一契约：`.atlas/pipeline/audit.md` 整替、`audit.extra.md` 追加（放仓库专属 ruleset/定标）；`audit-factcheck` 同理。
 
+## 设计合理性审计（design.ts）
+
+问的是**"这段代码的形状，是不是它要表达的东西的最简正确形状"**——不是安全、不是测试、不是好不好读。完整设计见 [`docs/design-audit.md`](../docs/design-audit.md)。
+
+```sh
+cd <目标仓库>
+bun $QA/design.ts --all --concurrency 2                      # 按单元清单全跑
+bun $QA/design.ts design-type-contract-layer                 # 单个单元
+bun $QA/design.ts --slug design-adhoc --scope packages/x/src # 一次性，不进清单
+```
+
+- **先跑机械层，别让 LLM 重复劳动**：`repo-atlas quality` 用零误差检测器扫 import 环、逆向分层 import、陈旧 marker、type-escape 计数、单声明内 `?:`/`| null` 混用、布尔陷阱。prompt 里明确要求 agent 不要重复报这些——那半边判死的事实不该每轮花 token 重新发现，还带幻觉风险。
+- **审计单元 = 路径集合**（不是概念页）：设计缺陷住在模块的形状里，不在信任边界上。清单是仓库自有内容 `.atlas/pipeline/design-units.json`：`[{ "slug": "design-x", "title": "…", "scope": ["packages/x/src"] }]`。跳过条件同 audit.ts：scope 指纹 + ruleset + `reviewState === "complete"`。
+- **四道硬门**：只读（transcript 归因）· 工具证据（读类调用 ≥ 文件数 / ≥ finding 数）· **形状**（19 个 category 之外、`critical` severity、一个 location 都不落在被审单元内的一律拒收，记进 `rejected_shape`；跨文件引用是允许的——契约层 finding 天生要引用范围外的 handler 当证据，只要求至少一个 location 在单元内，卡片也只落在单元内的页面）· 事实（`unsupported` 与 `out-of-scope` 丢弃，`unverifiable` 标未核实保留）。
+- **factcheck 专杀设计审计的三种幻觉**：编"零引用"（实际有 re-export / 字符串键 / 跨包消费者）、编"从不缺失"（实际有调用点省略）、编"同一个事实"（实际有会分叉的路径）。核查员被要求自己去搜、去找构造点、去找分叉路径。
+- **失败绝不降级一份仍成立的评审**：盘上已有针对当前字节的 `complete` 档案时，失败只以退出码+日志汇报。没有档案（或已对不上当前字节）才落 `reviewState: "in-progress"`，让 `repo-atlas status` 报成 invalid——而不是"零 finding 的干净单元"。
+- **投影落被点名的那个文件的页面**：`.atlas/artifacts/<文件>/<slug>.md`。design 域刻意没有 portfolio 页——设计结论要在代码页上遇到读者，不是在又一个孤岛列表里。卡片按 slug 命名，多单元点到同一文件不互相覆盖，也能按单元清理。
+- **严重度只有 low/medium/high**。没有 critical：设计缺陷是清晰度债不是崩溃；想报 critical 说明找到的是 bug，属于 security 或 test 域。
+
+定制：`.atlas/pipeline/design.md` 整替、`design.extra.md` 追加（放仓库专属分层规则、命名约定、承重豁免）；`design-factcheck` 同理。
+
 ## 省 token（按 ROI 排序，多数已内建自动生效）
 
 1. **别删 QA 档案**——resume-skip 是最大的省法：已过门的直接跳过，重跑同一命令只花在没过的上。`--fresh` 只在规则大改、要求全量重验时用。

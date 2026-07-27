@@ -69,6 +69,10 @@ repo-atlas audit-import audits/security-scan/ledger.json
                                # convert a legacy scans[] ledger without losing scan-time hashes
 repo-atlas readability         # mechanical code-readability features + repo-relative
                                # outliers (no LLM; design: docs/readability-audit.md)
+repo-atlas quality             # mechanical DESIGN defects: import cycles, upward layer
+                               # imports, rotting markers, type escapes, one declaration
+                               # spelling absence two ways, boolean-trap signatures
+                               # (no LLM; design: docs/design-audit.md)
 repo-atlas serve               # dev server at http://localhost:4400 (-p to change)
 ```
 
@@ -146,12 +150,20 @@ files, and findings that point at drifted files. Domain validation is an extra
 layer on top of that shared envelope — never a bypass.
 
 **Viewer-grade ledgers use `atlas-audit-v2`.** `domain` is required
-(`security` | `test`). `reviewState` must be exactly `complete` before a ledger
+(`security` | `test` | `design`). `reviewState` must be exactly `complete` before a ledger
 enters a viewer portfolio; incomplete or partial runs must not publish an empty
 `findings: []` as if the review were finished with no issues. The filename stem
 must equal `slug`. Unknown domains, format/version mismatches, and
 domain-invalid findings stay out of the portfolio and remain visible in
 `status` as stale + invalid.
+
+**`design` is ledger-grade, not viewer-grade.** It shares the envelope, the
+freshness contract, and `audit-stamp`, but it has no portfolio and makes no
+coverage claim: its findings reach a reader as artifact cards on the pages they
+concern, and `review-coverage` closure covers the portfolio domains only
+(`PortfolioDomain` = security | test). See [docs/design-audit.md](docs/design-audit.md)
+for the axis as a whole — the machine-decidable half is `repo-atlas quality`, and
+only that half may gate CI.
 
 Security v2 (optional `conceptSlug` associates the unit with a concept page —
 slug equality alone is not enough for v2). Digest values below are illustrative
@@ -222,6 +234,43 @@ fixture-drift|coverage-gap|privileged-side-effect`; non-empty `title`,
 `invariant`, `evidence`, `fix`; one or more normalized `locations`; optional
 `confidence`. The schema is about whether a test proves the intended invariant,
 not whether the product is secure.
+
+Design v2:
+
+```json
+{
+  "formatVersion": 2,
+  "format": "atlas-audit-v2",
+  "domain": "design",
+  "reviewState": "complete",
+  "slug": "design-contracts",
+  "title": "Contract layer shape",
+  "ruleset": "atlas-designscan-v1",
+  "scanned_at": "2026-07-25",
+  "scope_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "file_count": 1,
+  "files": ["src/types.ts"],
+  "hashes": {"src/types.ts": "ffffffffffffffffffffffffffffffffffffffff"},
+  "findings": [{
+    "severity": "medium",
+    "category": "dead-forward-compat",
+    "title": "reserved field has no reader",
+    "locations": ["src/types.ts:14"],
+    "evidence": "searched the repo for `reserved`: definition + barrel re-export only, zero consumers",
+    "fix": "delete it until a consumer exists",
+    "disposition": "open"
+  }]
+}
+```
+
+Design findings: `severity` ∈ `low|medium|high` — a reasonableness defect costs
+clarity, not correctness, so there is deliberately no `critical` (that would be a
+bug, and belongs to another domain). `category` is one of the 19 ids in
+`atlas-designscan-v1` (see docs/design-audit.md §4); non-empty `title`,
+`evidence`, `fix`; one or more normalized `locations`; optional `confidence` and
+`disposition` ∈ `open | accepted-design | deferred`. `evidence` is required
+because the bar is "the proof, not the impression" — grep counts, call-site
+tallies, behaviour comparisons. Taste is not a finding.
 
 **Compatibility:** v1 ledgers with `finalPass: true` and the strict security
 finding schema still load as legacy security units. v1 generic ledgers
@@ -314,6 +363,33 @@ a thin `.atlas/audits/readability.json` index, and retains its comparison with
 the previous report (modified/added/removed plus exact improved/worsened counts
 and top-N detail). `status` reads the thin index rather than reparsing the full
 feature corpus, so it stays cheap while still showing drift and the last trend.
+
+The design equivalent (mechanical half) is:
+
+```sh
+repo-atlas quality --write --artifacts
+```
+
+Same shape: `.atlas/quality.json` holds the findings, `.atlas/audits/quality.json`
+is the thin hash-bound index `status` reads, and `--artifacts` writes a
+`quality.md` card onto every page a finding touches. Detectors whose precision
+is ~1 can gate CI — `repo-atlas quality --fail-on import-cycle --fail-on layer-violation`
+exits nonzero — while the judgment-level half of the axis stays report-only in
+`domain: design` ledgers. Declare the dependency order once in
+`.atlas/config.json` to activate the layer detector (TOP layer first; an import
+climbing toward index 0 is the violation):
+
+```jsonc
+{ "layers": [
+    { "name": "app",       "paths": ["apps/**"] },
+    { "name": "domains",   "paths": ["packages/domains/**"] },
+    { "name": "kernel",    "paths": ["packages/kernel/**"] }
+] }
+```
+
+If the repo already has a stronger layering gate of its own, leave `layers`
+unset rather than duplicating a weaker rule — the report says out loud that the
+detector is inactive. Full axis: [docs/design-audit.md](docs/design-audit.md).
 
 On a file page, notes can also anchor into the file's own source. Both forms
 take content markers (symbol names), resolved against the CURRENT source at
@@ -506,3 +582,9 @@ driver for whole-repo runs. It shells out to a headless agent CLI (grok by defau
 strictly optional — the core stays LLM-free. Per-repo customization (prompt overrides,
 extra rules, rubric tweaks) lives in the target repo's `.atlas/pipeline/`.
 See [qa/README.md](qa/README.md) for the new-repo recipe.
+
+The same suite carries the judgment-level audits, which produce ledgers rather
+than notes: `qa/audit.ts` (security, per concept page) and `qa/design.ts`
+(design reasonableness, per path set from `.atlas/pipeline/design-units.json`).
+Both run read-only behind a tool-evidence gate and a per-finding fact-check
+gate, and neither may overwrite a review that still holds for the current bytes.

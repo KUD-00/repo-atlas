@@ -13,6 +13,16 @@ export interface AtlasConfig {
   auditSourceLocale?: AtlasLocale
   /** Derived audit-prose locale projections required by repository guardrails. */
   auditContentLocales?: AtlasLocale[]
+  /** Dependency layers, TOP (most dependent) first. `quality` reports every
+   * import that climbs toward index 0 — the one design rule a repo can state
+   * once and have checked mechanically. */
+  layers?: LayerSpec[]
+}
+
+export interface LayerSpec {
+  name: string
+  /** picomatch globs; a path matching no layer is simply not checked. */
+  paths: string[]
 }
 
 export interface ScanResult {
@@ -316,7 +326,21 @@ export interface AuditFinding {
   disposition: SecurityFindingDisposition
 }
 
-export type AuditDomain = 'security' | 'test'
+/**
+ * Domains that carry a viewer portfolio and a closed-world coverage claim.
+ * Widening this set means answering "every required path must be reviewed for
+ * it" — only add a domain here once that question has a real answer.
+ */
+export type PortfolioDomain = 'security' | 'test'
+
+/**
+ * Every domain the v2 ledger envelope accepts. `design` is ledger-grade only:
+ * status/stamp track its freshness and drift, but it makes no coverage claim
+ * and has no portfolio — its findings reach a reader through the artifact
+ * cards on the pages they concern.
+ */
+export type AuditDomain = PortfolioDomain | 'design'
+
 export type TestAuditImpact = 'blocking' | 'warning' | 'advisory'
 export type TestAuditCategory =
   | 'missing-invariant' | 'weak-assertion' | 'mock-only' | 'nondeterminism'
@@ -331,6 +355,43 @@ export interface TestAuditFinding {
   fix: string
   locations: string[]
   confidence?: string
+}
+
+/**
+ * Design-reasonableness categories: is this code the simplest correct shape for
+ * what it expresses? Not "is it safe" (security), "is it proven" (test), or "is
+ * it pleasant to read" (readability) — those axes have their own domains.
+ */
+export type DesignAuditCategory =
+  // shape of types and contracts
+  | 'optionality' | 'absence-semantics' | 'boolean-trap' | 'type-escape'
+  // abstraction and structure
+  | 'over-abstraction' | 'layering-violation' | 'duplicate-logic' | 'dead-code'
+  // state and single source of truth
+  | 'redundant-fields' | 'over-complication' | 'first-principles'
+  // failure modes
+  | 'masking-default' | 'swallowed-failure' | 'magic-constant'
+  // evolution residue
+  | 'dead-forward-compat' | 'compat-shim' | 'stale-marker'
+  // concept integrity (only atlas can see these: notes + glossary are the truth)
+  | 'naming-drift' | 'unexplained-export'
+
+/** A reasonableness defect costs clarity, not correctness — hence no `critical`. */
+export type DesignAuditSeverity = 'low' | 'medium' | 'high'
+
+/** `accepted-design` = the audit was wrong, this shape is intended. */
+export type DesignFindingDisposition = 'open' | 'accepted-design' | 'deferred'
+
+export interface DesignAuditFinding {
+  severity: DesignAuditSeverity
+  category: DesignAuditCategory
+  title: string
+  locations: string[]
+  /** The proof: grep counts, call-site tallies, excerpts. Taste is not a finding. */
+  evidence: string
+  fix: string
+  confidence?: string
+  disposition: DesignFindingDisposition
 }
 
 export interface BaseAuditUnit {
@@ -362,6 +423,11 @@ export interface TestAuditUnit extends BaseAuditUnit {
   findings: TestAuditFinding[]
 }
 
+/* `design` has no unit projection: nothing renders a design portfolio. Its
+ * ledgers are validated and tracked for freshness, and readers meet the
+ * findings as artifact cards on the pages they concern. Add a DesignAuditUnit
+ * when a surface actually consumes one — not before. */
+
 /** Legacy alias: security portfolio units only during the domain migration. */
 export type AuditUnit = SecurityAuditUnit
 
@@ -369,13 +435,13 @@ export type ReviewCoverageVerdict = 'complete' | 'incomplete' | 'invalid'
 export type CoverageEvidenceStatus = 'fresh' | 'missing' | 'stale' | 'invalid'
 
 export interface CoverageUnitRef {
-  domain: AuditDomain
+  domain: PortfolioDomain
   slug: string
   title: string
 }
 
 export type CoverageClassification =
-  | { kind: 'review'; domains: Partial<Record<AuditDomain, { unit: string }>> }
+  | { kind: 'review'; domains: Partial<Record<PortfolioDomain, { unit: string }>> }
   | { kind: 'excluded'; ruleId: string; category: string; reason: string; owner?: string }
   | { kind: 'unclassified' }
   | { kind: 'conflict' }
@@ -385,7 +451,7 @@ export interface CoverageEntry {
   blob?: string
   ruleIds: string[]
   classification: CoverageClassification
-  evidence: Partial<Record<AuditDomain, { status: CoverageEvidenceStatus; ledgers: string[] }>>
+  evidence: Partial<Record<PortfolioDomain, { status: CoverageEvidenceStatus; ledgers: string[] }>>
 }
 
 export interface CoverageDiagnostic {
@@ -440,7 +506,7 @@ export interface AuditLocalizationDiagnostic {
   code: string
   message: string
   locale: AtlasLocale
-  domain?: AuditDomain
+  domain?: PortfolioDomain
   slug?: string
   sourceDigest?: string
 }
@@ -465,7 +531,7 @@ export type VerifiedAuditFindingTranslation =
   | VerifiedTestFindingTranslation
 
 export interface VerifiedAuditUnitTranslation {
-  domain: AuditDomain
+  domain: PortfolioDomain
   slug: string
   sourceDigest: string
   title: string

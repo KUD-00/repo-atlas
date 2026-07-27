@@ -1,5 +1,5 @@
 import type {
-  AuditDomain,
+  PortfolioDomain,
   AuditFinding,
   CoverageDiagnostic,
   CoverageEntry,
@@ -58,7 +58,7 @@ export type UnitRiskSummary =
 export interface AuditUnitRow {
   slug: string
   title: string
-  domain: AuditDomain
+  domain: PortfolioDomain
   coverage: UnitCoverageSummary
   risk: UnitRiskSummary
   hasLedger: boolean
@@ -258,7 +258,7 @@ function acceptanceLabel(evidenceAccepted: boolean, hasLedger: boolean): string 
     : 'Not accepted by current coverage report'
 }
 
-function domainLabel(domain: AuditDomain): 'Security' | 'Tests' {
+function domainLabel(domain: PortfolioDomain): 'Security' | 'Tests' {
   return domain === 'security' ? 'Security' : 'Tests'
 }
 
@@ -283,7 +283,7 @@ function unitBySlug<T extends { slug: string }>(
 }
 
 function effectiveFileStatus(
-  domain: AuditDomain,
+  domain: PortfolioDomain,
   entry: CoverageEntry,
   portfolioState: ReviewCoveragePortfolio['state'],
 ): AuditFileStatus {
@@ -482,7 +482,7 @@ function buildCoverageSummary(
 }
 
 function collectDomainFiles(
-  domain: AuditDomain,
+  domain: PortfolioDomain,
   report: ReviewCoverageReport | null,
   portfolioState: ReviewCoveragePortfolio['state'],
 ): {
@@ -634,7 +634,7 @@ function statusLabel(status: AuditFileStatus): string {
 }
 
 function registeredUnits(
-  domain: AuditDomain,
+  domain: PortfolioDomain,
   report: ReviewCoverageReport | null,
   ledgers: ReadonlyArray<SecurityAuditUnit | TestAuditUnit>,
 ): CoverageUnitRef[] {
@@ -663,7 +663,7 @@ function registeredUnits(
  * Unit coverage completeness is orthogonal and does not imply acceptance.
  */
 function acceptedLedgerSlugs(
-  domain: AuditDomain,
+  domain: PortfolioDomain,
   report: ReviewCoverageReport | null,
   portfolioState: ReviewCoveragePortfolio['state'],
   ledgers: Map<string, SecurityAuditUnit | TestAuditUnit>,
@@ -714,7 +714,7 @@ function buildUnitEvidence(
 }
 
 function buildUnitRow(
-  domain: AuditDomain,
+  domain: PortfolioDomain,
   ref: CoverageUnitRef,
   ledger: SecurityAuditUnit | TestAuditUnit | undefined,
   counts: { required: number; fresh: number; missing: number; stale: number; invalid: number },
@@ -775,7 +775,7 @@ function compareUnitRows(a: AuditUnitRow, b: AuditUnitRow): number {
 }
 
 function buildActions(
-  domain: AuditDomain,
+  domain: PortfolioDomain,
   unitRows: ReadonlyArray<AuditUnitRow>,
   filesByUnit: ReadonlyMap<string, AuditFileRow[]>,
   orphanGaps: ReadonlyArray<AuditFileRow>,
@@ -883,7 +883,7 @@ function buildActions(
  * React and route helpers must not invent coverage; they render this model.
  */
 export function domainAssurance(
-  domain: AuditDomain,
+  domain: PortfolioDomain,
   coverage: ReviewCoveragePortfolio | undefined,
   units: ReadonlyArray<SecurityAuditUnit | TestAuditUnit>,
 ): DomainAssurance {
