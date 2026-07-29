@@ -255,19 +255,20 @@ partiality is represented honestly inside exact or semantic coverage.
   slug NUL
   producer.adapter NUL
   producer.runId NUL
+  producer.identityDigest NUL
   target.targetId NUL
-  target.snapshotDigest NUL
-  scope.scopeHash NUL
-  producer.ruleset.digest
+  target.identityDigest NUL
+  scope.identityDigest
 ))
 ```
 
 The adapter rejects duplicate IDs with different digests. Wall-clock time is
-not identity material. Codex imports use the sealed producer run ID and
-completion time; RelayOS migrations derive run IDs, target digests, and
-observation times from sealed source facts; Grok runs allocate their run ID
-before execution and retain it through finalization. A dry-run and apply over
-the same migration/import inputs therefore produce the same observation IDs.
+not identity material. Codex imports use the sealed producer run ID plus the
+contract/target/scope identity receipts defined below; RelayOS migrations
+derive run IDs and identity receipts from sealed source facts; Grok runs
+allocate their run ID before execution and use ruleset, snapshot, and exact
+inventory digests. A dry-run and apply over the same migration/import inputs
+therefore produce the same observation IDs.
 
 ### Producer receipt
 
@@ -279,6 +280,8 @@ the same migration/import inputs therefore produce the same observation IDs.
   "adapter": "repo-atlas/grok-v1",
   "adapterVersion": "0.1.0",
   "runId": "<provider or Atlas run id>",
+  "identityDigest": "sha256:<hex>",
+  "identityBasis": "ruleset | codex-contract",
   "ruleset": {
     "id": "atlas-security-v3",
     "digest": "sha256:<hex>"
@@ -291,7 +294,17 @@ the same migration/import inputs therefore produce the same observation IDs.
   },
   "effectiveConfigDigest": "sha256:<hex>",
   "environmentPolicyDigest": "sha256:<hex>",
-  "transcriptDigest": "sha256:<hex>"
+  "transcriptDigest": "sha256:<hex>",
+  "sourceContract": {
+    "namespace": "codex-security/1.0",
+    "status": "completed",
+    "startedAt": "<exact source string>",
+    "completedAt": "<exact source string>",
+    "sealedAt": "<exact source string>",
+    "manifestPath": "scan-manifest.json",
+    "coverageRef": "coverage.json",
+    "findingsRef": "findings.json"
+  }
 }
 ```
 
@@ -305,6 +318,32 @@ model identifier, adapter version, and validation rubric. A changed prompt or
 effective provider configuration therefore makes existing evidence stale for
 policies that require that ruleset.
 
+First-party and migrated observations use `identityBasis: "ruleset"` and set
+`identityDigest` to the ruleset digest. Codex Security 1.0 does not seal its
+prompt or scanner ruleset, so the importer must not invent them. It uses
+`identityBasis: "codex-contract"` and hashes this canonical value:
+
+```json
+{
+  "namespace": "repo-atlas/codex-contract-identity/v1",
+  "documents": [
+    "codex-security.scan-manifest/1.0",
+    "codex-security.findings/1.0",
+    "codex-security.coverage/1.0"
+  ],
+  "producer": { "name": "<source>", "version": "<source>" },
+  "adapter": { "name": "<Atlas adapter>", "version": "<Atlas adapter version>" }
+}
+```
+
+That digest identifies a contract interpretation, not a hidden producer
+prompt. It does not satisfy policy that requires evidence from a named accepted
+ruleset. A Codex receipt omits unavailable `ruleset`, `prompt`,
+effective-config, environment-policy, and transcript fields. Its
+`sourceContract` retains exact source timestamps, status, and refs;
+`observedAt` normalizes `completedAt`, and import requires `sealedAt` to be
+byte-for-byte equal to `completedAt`.
+
 ### Target receipt
 
 ```json
@@ -312,11 +351,13 @@ policies that require that ruleset.
   "kind": "git-revision | git-worktree | git-diff | directory-snapshot",
   "repositoryId": "repo_<stable lowercase identifier>",
   "targetId": "<stable producer-neutral target id>",
+  "identityDigest": "sha256:<hex>",
+  "identityBasis": "snapshot | revision-coordinate",
   "displayName": "<bounded text>",
   "revision": "<full commit, when applicable>",
   "baseRevision": "<full commit, when applicable>",
   "headRevision": "<full commit, when applicable>",
-  "snapshotDigest": "sha256:<hex>",
+  "snapshotDigest": "sha256:<hex, when supplied>",
   "dirty": false
 }
 ```
@@ -334,14 +375,25 @@ derivation in a migration receipt; later remote or directory renames do not
 change it. `targetId` identifies this particular producer target and may change
 between observations.
 
-Remote URLs are metadata only. Importers strip credentials, query strings, and
-fragments before preserving a normalized remote identity.
+`target.identityDigest` is the snapshot digest for first-party exact snapshots.
+When an imported Codex `git_revision` target lacks `snapshotDigest`, the
+importer hashes a canonical domain-separated receipt containing source target
+kind, target ID, revision/base/head members, and the optional source snapshot
+digest. It labels the result `revision-coordinate`; it never serializes or
+describes that coordinate digest as a content snapshot.
+
+Remote URLs are optional metadata and never identity material. An importer
+rejects a remote containing userinfo, query, fragment, backslash ambiguity,
+control characters, or an opaque or relative form. It never strips unsafe
+parts and continues. A safe canonical absolute URL is preserved exactly.
 
 ### Scope and per-file receipts
 
 ```json
 {
   "mode": "repository | scoped_path | unit | diff | custom",
+  "identityDigest": "sha256:<hex>",
+  "identityBasis": "exact-inventory | semantic-declaration",
   "includePaths": ["apps/daemon/**"],
   "excludePaths": ["**/*.snap"],
   "scopeHash": "sha256:<hex>",
@@ -394,11 +446,22 @@ Date-only legacy facts normalize to midnight UTC with
 provenance. This is a deterministic encoding, not invented timestamp
 precision.
 
+A semantic-only Codex import has no exact inventory. It sets
+`identityBasis: "semantic-declaration"` and hashes the canonical source
+coverage mode, inventory strategy, include/exclude patterns, and explicit
+exclusions with namespace `repo-atlas/codex-semantic-scope/v1`. It omits
+`inventoryDigest`, `fileCount`, and `files`; those members are required for
+`exact-inventory`. Semantic paths, finding locations, code snippets, target
+revisions, and aggregate snapshot digests are never promoted into per-file
+blob receipts.
+
 ### Exact coverage
 
 ```json
 {
   "completeness": "complete | partial | unknown",
+  "basis": "full-read-receipts | unavailable",
+  "reason": "<required when unavailable>",
   "reviewedFileCount": 2,
   "unreviewed": [
     {
@@ -415,6 +478,13 @@ not a receipt. For very large files the producer may prove contiguous,
 non-overlapping ranges whose union covers all lines. Failed reads, truncated
 tool results, missing ranges, source changes, or unverified transcript formats
 make the result partial or prevent finalization according to policy.
+
+`basis: "full-read-receipts"` is required for complete or partial exact
+coverage. A semantic-only Codex import uses `completeness: "unknown"`,
+`basis: "unavailable"`, and the stable reason that Codex Security 1.0 did not
+supply exact per-file blob receipts. The full-read form requires
+`reviewedFileCount` and `unreviewed` and omits `reason`; the unavailable form
+requires `reason` and omits those count/row claims.
 
 ### Semantic coverage
 
@@ -483,6 +553,8 @@ An absent threat model is omitted. An empty invented object is invalid.
   "path": "artifacts/02_analysis/receipt.json",
   "sha256": "<hex>",
   "mediaType": "application/json",
+  "integrityKind": "producer-manifest | adapter-bundle",
+  "integrityIndex": "scan-manifest.json",
   "referencedBy": ["/semanticCoverage/surfaces/0/receiptRefs/0"],
   "retainedInAtlas": false
 }
@@ -492,6 +564,16 @@ Every sealed Codex manifest artifact is represented even when its content is
 not copied. Receipt references are resolved to this inventory. Grok
 clone-local transcripts are represented only by `producer.transcriptDigest`,
 not as recoverable source artifacts.
+
+`producer-manifest` means the source manifest listed the path exactly once and
+its SHA-256 matched safely opened raw bytes; `integrityIndex` is then required.
+`adapter-bundle` means Atlas safely hashed bytes presented at import but the
+producer manifest did not protect them. That digest becomes protected only by
+the Atlas observation/history chain. Neither label claims a signature,
+producer authentication, or a self-sealed manifest. The Codex manifest itself
+is `adapter-bundle`; canonical findings, coverage, and sealed coverage receipts
+are `producer-manifest`. A write-up or hardening artifact is
+`producer-manifest` only when the manifest actually listed its exact path.
 
 ## V3 security finding
 
@@ -732,11 +814,32 @@ under the namespaced extension mechanism if they do not match these documented
 fields. An explicitly present Codex `validation: null` or `attackPath: null`
 remains explicit `null` in V3; absence remains absence.
 
+Because Codex 1.0 intentionally leaves both objects open, import uses a
+projection-and-preservation algorithm:
+
+1. project a documented member only when its value has the documented type and
+   meaning;
+2. never coerce incompatible scalar/array shapes;
+3. preserve every unprojected member at its exact source JSON pointer;
+4. when a spelling is renamed or normalized, preserve the original pointer and
+   value in addition to the semantic projection;
+5. reject conflicting accepted spellings that would populate one destination
+   differently; and
+6. never silently truncate a value to satisfy Atlas bounds.
+
+For example, upstream `counterEvidence` may project to
+`counterevidenceOrProofGap`, but its original pointer/value is still retained.
+The same rule applies to workbench spellings such as
+`confidence_rationale`, `remaining_uncertainty`, or `artifact_paths` when they
+occur in sealed findings. An entirely unrecognized subtree is preserved at the
+highest unrecognized pointer without duplicating recognized descendants.
+
 ### Provenance and external artifacts
 
 ```json
 {
   "source": "codex-security",
+  "producerSource": "<exact finding.provenance.source>",
   "sourceFindingId": "csf_...",
   "sourceOccurrenceId": "occ_...",
   "candidateId": "<optional>",
@@ -745,14 +848,19 @@ remains explicit `null` in V3; absence remains absence.
 }
 ```
 
-`artifactRefs` retain the existence and seal of a detailed write-up, hardening
-portfolio, validation artifact, or coverage receipt without copying sensitive
-content:
+`source` identifies the Atlas producer family. `producerSource` preserves the
+original Codex value instead of overwriting it. Additional source provenance
+properties remain namespaced extensions at their exact JSON pointers.
+
+`artifactRefs` retain bounded integrity metadata for a detailed write-up,
+hardening portfolio, validation artifact, or coverage receipt without copying
+sensitive content:
 
 ```json
 {
-  "kind": "external-sealed",
-  "path": "findings/csf_.../csf_....md",
+  "kind": "external",
+  "sourceArtifactPath": "findings/csf_.../csf_....md",
+  "integrityKind": "producer-manifest | adapter-bundle",
   "sha256": "<hex>",
   "mediaType": "text/markdown",
   "retainedInAtlas": false
@@ -1356,10 +1464,10 @@ semantic evidence remains useful and is labeled honestly.
 
 | Codex field | Atlas V3 treatment |
 | --- | --- |
-| producer, timestamps, target, scope | first-class producer/target/scope receipt |
+| producer, timestamps, target, scope | first-class receipts; exact source timestamps/refs retained in `sourceContract` |
 | threat model | first-class threat model |
-| hardening portfolio | sealed external artifact ref; content not copied |
-| manifest artifacts/seals | complete observation-level sealed artifact inventory; content not copied by default |
+| hardening portfolio | producer-manifest artifact only when listed; otherwise adapter-bundle metadata; content not copied |
+| manifest artifacts/seals | integrity-kind-aware observation inventory; content not copied by default |
 | finding/occurrence IDs | verified provider aliases in provenance |
 | rule, anchor, instance, fingerprint | first-class identity + producer alias |
 | title, summary | first-class |
@@ -1374,7 +1482,7 @@ semantic evidence remains useful and is labeled honestly.
 | attack path | documented fields first-class; bounded unknowns preserved |
 | remediation tests/preventive controls | first-class |
 | provenance/extensions | first-class provenance + namespaced extensions |
-| detailed write-up path | sealed external artifact ref; report body excluded |
+| detailed write-up path | producer-manifest or adapter-bundle external ref according to actual source integrity; body excluded |
 | coverage mode/completeness/inventory | first-class semantic coverage |
 | surfaces/dispositions/receipt refs | first-class |
 | explicit exclusions/deferred/open questions | first-class |
