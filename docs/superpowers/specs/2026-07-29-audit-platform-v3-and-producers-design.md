@@ -391,11 +391,18 @@ byte-for-byte equal to `completedAt`.
 The first-party Grok producer audits a snapshot of current tracked worktree
 bytes and records `kind: "git-worktree"`. A clean worktree also records the
 full HEAD revision. `kind` is Atlas's canonical producer-neutral spelling.
-An imported Codex target additionally records its exact source spelling
-(`git_revision`, `git_worktree`, `git_diff`, or `directory_snapshot`) in
-`sourceKind`; first-party targets omit `sourceKind`. Target kinds that cannot
-be joined to current exact blobs may still carry semantic evidence, but exact
-coverage remains `unknown`.
+An imported Codex target is a separate strict union branch. It records the
+canonical `kind`, exact source spelling (`git_revision`, `git_worktree`,
+`git_diff`, or `directory_snapshot`) in `sourceKind`, and exact producer
+coordinates in `sourceRevision`, `sourceBaseRevision`,
+`sourceHeadRevision`, and `sourceSnapshotDigest` when present. It forbids
+`dirty` because Codex Security 1.0 does not supply that fact, and forbids the
+verified Atlas `revision`/`baseRevision`/`headRevision` members. The upstream
+contract permits opaque coordinates such as the official fixture's
+`deadbeef`; those are preserved but never promoted into a verified full Git
+object ID. First-party targets omit all `source*` members. Target kinds that
+cannot be joined to current exact blobs may still carry semantic evidence, but
+exact coverage remains `unknown`.
 
 `repositoryId` is the committed, producer-neutral identity initialized in
 `.atlas/config.json`. It survives revision, worktree, unit, and provider
@@ -414,18 +421,24 @@ snapshot, the importer hashes this canonical receipt:
   "namespace": "repo-atlas/revision-coordinate/v1",
   "sourceKind": "git_revision",
   "targetId": "<exact source target id>",
-  "revision": "<exact source value or omitted>",
-  "baseRevision": "<exact source value or omitted>",
-  "headRevision": "<exact source value or omitted>",
+  "sourceRevision": "<exact source value or omitted>",
+  "sourceBaseRevision": "<exact source value or omitted>",
+  "sourceHeadRevision": "<exact source value or omitted>",
   "sourceSnapshotDigest": "<exact source value or omitted>"
 }
 ```
 
 Only members present in the source are included. It labels the result
 `revision-coordinate`; it never serializes or describes that coordinate digest
-as a content snapshot. A canonical `git-revision` target requires `revision`;
-a clean `git-worktree` requires the full `revision`; and a `git-diff` requires
-its applicable base/head coordinates. The strict target union rejects
+as a content snapshot. A first-party canonical `git-revision` target requires
+verified `revision`; a first-party clean `git-worktree` requires the full
+`revision`; and a first-party `git-diff` requires applicable verified
+base/head coordinates. The Codex branch instead enforces the upstream
+source-kind coordinate matrix on `source*` members. A valid Codex
+`codex-security-snapshot/v1:sha256:<hex>` is preserved verbatim as
+`sourceSnapshotDigest`, normalized to `snapshotDigest: "sha256:<hex>"`, and
+may back `identityBasis: "snapshot"`; this identity still does not imply
+per-file receipts or exact coverage. The strict target union rejects
 half-present or cross-variant members.
 
 Remote URLs are optional metadata and never identity material. An importer
@@ -619,6 +632,11 @@ where its own policy supplies the inventory. Semantic `complete` requires no
 deferred rows and no `needs_follow_up` surface, matching Codex's closure
 semantics, but still says nothing about exact file reads.
 
+`openQuestions[].question` is required and `followUpPrompt` is optional.
+`deferred[].paths` and `surfaceIds` are independently optional in imported
+semantic evidence; absent source members remain absent rather than becoming
+invented empty arrays.
+
 ### Threat model
 
 ```json
@@ -776,7 +794,9 @@ supported because scanners can split or merge the same root cause.
 ```
 
 V2 `info` maps to V3 `informational` and renders as `info`. Numeric scores must
-be finite and between 0 and 10.
+be finite and between 0 and 10. Only `level` is required. `score`,
+`scoringSystem`, `vector`, `rationale`, and `changeConditions` are independently
+optional and are omitted rather than filled with placeholders.
 
 ### Taxonomy and locations
 
@@ -797,9 +817,11 @@ be finite and between 0 and 10.
 ```
 
 At least one safe location is required. Lines must be positive and ordered.
-Locations may reference a historical blob only when provenance makes that
-explicit; a current observation cannot imply that stale line numbers match
-current bytes.
+Only `path` and `startLine` are required; `endLine` and `role` are optional.
+When `endLine` is absent, validation and rendering treat the range as the
+single `startLine` without manufacturing a stored member. Locations may
+reference a historical blob only when provenance makes that explicit; a
+current observation cannot imply that stale line numbers match current bytes.
 
 ### Structured code evidence
 
@@ -846,10 +868,13 @@ inventing a blob:
 }
 ```
 
-The two variants have the same bounded common fields. `exact-blob` requires
-`blob` and forbids `sourceSeal`. `sealed-producer-snippet` requires
-`sourceSeal` and forbids `blob`. Its artifact path and digest must resolve to
-exactly one `sourceArtifacts` entry with
+The two variants have the same bounded common fields. Common required members
+are `evidenceBasis`, `id`, `label`, `path`, `startLine`, `code`, and
+`explanation`; `endLine`, `language`, and `role` are independently optional.
+An absent `endLine` denotes the single `startLine` but remains absent in
+storage. `exact-blob` additionally requires `blob` and forbids `sourceSeal`.
+`sealed-producer-snippet` requires `sourceSeal` and forbids `blob`. Its
+artifact path and digest must resolve to exactly one `sourceArtifacts` entry with
 `integrityKind: "producer-manifest"`, and the JSON pointer must be a strict
 pointer into that sealed artifact. A sealed producer snippet is not an exact
 file-read or blob receipt and never contributes exact coverage.
@@ -880,6 +905,11 @@ artifact; the importer never truncates silently.
   }
 }
 ```
+
+For the object variant only `summary` is required. `evidenceRefs` and
+`legacyCode` are optional; within `legacyCode`, `code` is required and
+`language` is optional. The importer preserves source absence instead of
+creating empty arrays or empty language labels.
 
 `validation` supports the durable Codex fields:
 
@@ -1000,7 +1030,7 @@ excluded from Git. Their bounded structured conclusions remain in V3.
 
 ```json
 {
-  "namespace": "codex-security/1.0",
+  "namespace": "codex-security.findings/1.0",
   "path": "/findings/0/validation/customField",
   "value": {},
   "digest": "sha256:<hex>"
@@ -1011,6 +1041,14 @@ Documented stable fields are first-class. Schema-permitted unknown properties
 are either preserved exactly as bounded canonical JSON in `producerExtensions`
 or `extensions`, or the import fails with their JSON pointers. There is no
 "ignore unknown fields" mode.
+
+Codex extensions use the source-document namespaces
+`codex-security.scan-manifest/1.0`,
+`codex-security.findings/1.0`, and `codex-security.coverage/1.0`. The `path`
+is an exact JSON pointer within that document. The document-specific namespace
+is part of extension identity, so the same pointer in two canonical documents
+cannot collide. The generic `codex-security/1.0` namespace is not accepted for
+an imported source pointer.
 
 Each extension value is limited to 64 KiB, nesting depth 16, 1,000 members, and
 the ledger-wide size limit. Keys containing control characters, prototype
@@ -1756,6 +1794,27 @@ canonical documents use schema 1.0. It:
 9. records semantic coverage exactly as produced; and
 10. sets exact coverage only when Atlas independently possesses exact per-file
     blob receipts.
+
+Every imported source path is a safe repository-relative path. A finding must
+have at least one location matched by the declared Codex scope, as required by
+the upstream scan workflow; additional supporting locations and code evidence
+may be elsewhere in the same repository and are retained. Supporting evidence
+outside the requested scope is not rejected merely for being supporting
+context.
+
+Artifact seals are checked against the exact bounded raw bytes returned by the
+same descriptor-anchored core reader used for audit state. For JSON documents,
+one read returns both the bytes to hash and the strictly parsed value to map.
+Parsing and canonical reserialization never stand in for a producer byte seal,
+and the adapter never reopens a pathname after a safety check.
+
+Atlas intentionally applies a stricter resource policy than Codex Security's
+maximum wire allowances: each imported canonical JSON document is limited to
+the core 32 MiB byte cap, each preserved extension value to 64 KiB, and the
+canonical V3 ledger to 1 MiB unless repository policy explicitly raises that
+output bound. Codex permits a findings document up to 128 MiB; an otherwise
+valid bundle above Atlas's configured limit fails with an explicit limit
+diagnostic. No input, extension, snippet, or finding is silently truncated.
 
 All completed Codex target/mode combinations can be represented. A diff,
 directory snapshot, branch, working-tree, deep-repository, or custom inventory

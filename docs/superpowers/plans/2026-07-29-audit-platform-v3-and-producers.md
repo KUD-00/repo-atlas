@@ -96,6 +96,12 @@ export const AUDIT_LIMITS = {
 } as const
 
 export function normalizeAuditRepoPath(value: string): string
+export function readBoundedAuditBytes(root: string, repoPath: string, maxBytes?: number): Uint8Array
+export function readBoundedAuditJsonDocument(
+  root: string,
+  repoPath: string,
+  maxBytes?: number,
+): { bytes: Uint8Array; value: unknown }
 export function readBoundedAuditJson(root: string, repoPath: string, maxBytes?: number): unknown
 export function canonicalJson(value: unknown): string
 export function stableAuditId(
@@ -124,14 +130,26 @@ stolen without explicit liveness-checked recovery. Atomic replacement fsyncs
 the temporary file and best-effort fsyncs the containing directory after
 rename.
 
-The bounded reader uses a bounded JSON grammar parser rather than calling
-`JSON.parse` before depth/member/duplicate-key checks. Git discovery removes
-environment variables that can redirect repository administration and verifies
-the requested real top level. Async operations retain the state lock until
-their thenable settles. Directory fsync suppresses only known unsupported
-platform errors; real I/O failures propagate. The generic NUL-domain helper
-does not claim the direct `atf_ = sha256(fingerprint)` formula—Task 2 supplies
-formula-specific helpers and golden vectors.
+The raw bounded reader returns the exact safely opened bytes, including binary
+or invalid UTF-8, so sealed producer artifacts can be hashed without
+canonicalizing or reopening a pathname. `readBoundedAuditJsonDocument` returns
+those same one-read bytes plus the value parsed from them; an importer hashes
+the returned bytes and maps the returned value, never reopening the document.
+The convenience JSON reader only projects `.value`. All three share one
+descriptor-anchored implementation. JSON decoding is fatal UTF-8 and uses a
+bounded grammar parser rather than calling `JSON.parse` before
+depth/member/duplicate-key checks. Integer-valued JSON numbers outside
+JavaScript's safe-integer range are rejected instead of silently rounded;
+finite non-integer IEEE-754 values retain RFC 8785 semantics. Readers retain
+the root, parent, and file identities through the whole read and aggregate
+primary plus descriptor
+cleanup failures. Git discovery removes environment variables that can
+redirect repository administration and verifies the requested real top level.
+Async operations retain the state lock until their thenable settles. Directory
+fsync suppresses only known unsupported platform errors; real I/O failures
+propagate. The generic NUL-domain helper does not claim the direct
+`atf_ = sha256(fingerprint)` formula—Task 2 supplies formula-specific helpers
+and golden vectors.
 
 Safe file operations and the Git-admin lock retain verified root/parent
 descriptors for their whole transaction; no exported API returns a bare
@@ -304,8 +322,13 @@ The RED matrix must additionally cover:
   digests but not scope identity or observation ID; semantic result surfaces
   likewise do not change semantic declaration identity;
 - repository identity, filename/slug/history path, timestamp/precision,
-  Codex timestamp equality, clean-worktree revision, and source-kind
-  coordinate validation;
+  Codex timestamp equality, first-party clean-worktree revision, and the Codex
+  source-kind/source-coordinate matrix without an invented dirty or verified
+  revision claim;
+- upstream-optional versus V3-required member boundaries: severity requires
+  only level; locations require path/startLine; code evidence requires its
+  common core but not endLine/language/role; root-cause references and
+  semantic follow-up prompts remain optional without invented placeholders;
 - duplicate and unknown references across files, findings, fingerprints,
   snippets, semantic surfaces, artifacts, and extensions;
 - the exact-blob versus sealed-producer-snippet code-evidence union, including
@@ -415,6 +438,16 @@ Implement:
 ```ts
 export function loadAuditObservations(root: string): AuditObservationLoadResult
 export function loadAuditObservationHistory(root: string): AuditObservationHistoryLoadResult
+export function prepareAuditObservationPublication(
+  root: string,
+  observation: AtlasSecurityObservationV3,
+  metadata: { slug: string; title?: string; conceptSlug?: string },
+): {
+  ledger: AtlasSecurityCurrentLedgerV3
+  historyEntry: AuditObservationHistoryEntryV3
+  currentBytes: string
+  historyBytes: string
+}
 export function publishAuditObservation(root: string, ledger: AtlasSecurityCurrentLedgerV3): {
   currentPath: string
   historyPath: string
@@ -422,9 +455,12 @@ export function publishAuditObservation(root: string, ledger: AtlasSecurityCurre
 }
 ```
 
-Publication validates the observation and repository bytes, appends a new
-hash-chain history entry first, rejects conflicting history IDs/digests, then
-atomically switches the current wrapper while holding the lock. The current
+Preparation validates the observation and repository bytes, loads and
+validates the existing chain, selects the next history head, and derives
+canonical history/current bytes without mutation. Every producer uses this
+single seam. Publication revalidates that prepared state under the lock,
+appends a new hash-chain history entry first, rejects conflicting history
+IDs/digests, then atomically switches the current wrapper. The current
 observation/digest must equal the latest history entry exactly.
 
 Tests inject a pre-held lock, traversal and symlink targets, history-write and
@@ -718,10 +754,13 @@ adapter must not invent either.
 Reject URL-like bundle inputs, non-local or symlinked bundle members, missing
 canonical documents, scan-ID/reference/timestamp mismatch, digest mismatch,
 unsafe or duplicate artifact paths, duplicate/colliding findings, unsupported
-document types/versions, invalid Codex identity formulas, out-of-scope
-locations/evidence, broken sealed-snippet source pointers, and unknown fields
-that cannot be preserved within V3 bounds. Missing full-read proof is an
-honest semantic import, not an import failure.
+document types/versions, invalid Codex identity formulas, findings with no
+location in the declared scope, and unknown fields that cannot be preserved
+within V3 bounds. Require at least one finding location in the declared scope,
+but preserve safe same-repository supporting locations/evidence outside it.
+`sourceSeal` is adapter-derived; malformed source-seal pointer rejection
+belongs to Task 2 V3 parser tests. Missing full-read proof is an honest
+semantic import, not an import failure.
 
 - [ ] **Step 2: Run and verify RED**
 
@@ -737,24 +776,51 @@ Export:
 export interface CodexSecurityImportOptions {
   bundlePath: string
   unitSlug: string
-  unitTitle: string
-  publish?: boolean
+  unitTitle?: string
+  conceptSlug?: string
+  apply?: boolean
+}
+
+export interface CodexSecurityImportResult {
+  observation: AtlasSecurityObservationV3
+  ledger: AtlasSecurityCurrentLedgerV3
+  historyEntry: AuditObservationHistoryEntryV3
+  currentBytes: string
+  applied: boolean
+  publication?: {
+    currentPath: string
+    historyPath: string
+    appendedObservationId: string
+  }
 }
 
 export function importCodexSecurityBundle(
   root: string,
   options: CodexSecurityImportOptions,
-): { observation: AuditObservationV3; receiptPath: string }
+): CodexSecurityImportResult
 ```
 
 Read only local regular files under the supplied bundle root; never invoke
 Codex or fetch a URL. Use bounded duplicate-key-aware JSON reads, verify the
-manifest's actual seal relationships before mapping, and describe the
+manifest's actual seal relationships against exact raw bytes from
+`readBoundedAuditJsonDocument` (and `readBoundedAuditBytes` for non-JSON
+artifacts) before mapping, and describe the
 unsealed manifest itself as `adapter-bundle`, never producer-manifest. Preserve
 every schema-permitted unmapped source field as a bounded namespaced extension
-at its exact JSON pointer or reject the import. Import code evidence as
+at its exact JSON pointer or reject the import. Use distinct
+`codex-security.scan-manifest/1.0`, `codex-security.findings/1.0`, and
+`codex-security.coverage/1.0` namespaces so identical pointers in different
+documents cannot collide. Import code evidence as
 `sealed-producer-snippet` unless Atlas independently proves the referenced
 source blob and lines; neither variant manufactures full-read coverage.
+
+Task 2 exposes a shared
+`prepareAuditObservationPublication(root, observation, metadata)` helper that
+selects and validates the history head, derives the next history entry/current
+wrapper, and returns canonical bytes without writing. Import, migration, and
+provider producers all use it; only `publishAuditObservation` performs the
+locked history-first mutation. Dry-run and apply therefore build identical
+bytes and no producer reimplements chain logic.
 
 - [ ] **Step 4: Verify and commit**
 
