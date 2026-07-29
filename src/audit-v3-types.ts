@@ -689,3 +689,636 @@ export interface AuditDiagnostic {
 export type AuditParseResult<T> =
   | { ok: true; value: T }
   | { ok: false; diagnostics: AuditDiagnostic[] }
+
+export type AuditNonEmptyArray<T> = [T, ...T[]]
+
+export interface AuditBlobBindingV3 {
+  path: string
+  blob: AuditGitBlob
+}
+
+export interface AuditDecisionSourceArtifactV3 {
+  path: string
+  repositoryRevision: string
+  gitBlob: AuditGitBlob
+  sha256: AuditSha256
+}
+
+export interface AuditRevisionBindingV3 {
+  repositoryRevision: string
+  observationId?: AtlasObservationId
+  files: AuditNonEmptyArray<AuditBlobBindingV3>
+}
+
+export interface AuditDecisionReviewContextV3 {
+  observationId: AtlasObservationId
+  bindings: AuditNonEmptyArray<AuditBlobBindingV3>
+  ruleset: AuditRulesetReceiptV3
+  policyDigest: AuditSha256
+}
+
+export type AuditDecisionProofV3 =
+  | {
+      kind: 'current-review'
+      observationId: AtlasObservationId
+      reviewedBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      outcome: 'finding-present'
+      summary: string
+      sourceArtifact?: AuditDecisionSourceArtifactV3
+    }
+  | {
+      kind: 'post-fix'
+      beforeObservationId: AtlasObservationId
+      afterObservationId: AtlasObservationId
+      beforeBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      afterBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      fixRevision: string
+      outcome: 'finding-absent-after-fix'
+      summary: string
+      sourceArtifact?: AuditDecisionSourceArtifactV3
+    }
+  | {
+      kind: 'source-evidence'
+      observationId: AtlasObservationId
+      reviewedBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      outcome: 'not-reportable'
+      summary: string
+      sourceArtifact?: AuditDecisionSourceArtifactV3
+    }
+  | {
+      kind: 'replacement'
+      observationId: AtlasObservationId
+      replacementFindingId: AtlasFindingId
+      replacementOccurrenceId: AtlasOccurrenceId
+      replacementBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      outcome: 'replacement-tracks-root-cause'
+      summary: string
+      sourceArtifact?: AuditDecisionSourceArtifactV3
+    }
+  | {
+      kind: 'deletion'
+      deletionCommit: string
+      parentRevision: string
+      deletedBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      outcome: 'exact-source-deleted'
+      summary: string
+      sourceArtifact?: AuditDecisionSourceArtifactV3
+    }
+  | {
+      kind: 'no-replacement'
+      observationId: AtlasObservationId
+      searchRevision: string
+      reviewedBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      outcome: 'no-reportable-replacement'
+      summary: string
+      sourceArtifact?: AuditDecisionSourceArtifactV3
+    }
+
+export type AuditActionEvidenceV3 =
+  | {
+      kind: 'source-evidence'
+      reviewedBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      conclusion: 'not-reportable'
+      rationale: string
+    }
+  | {
+      kind: 'remediation'
+      beforeBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      afterBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      fixRevision: string
+    }
+  | {
+      kind: 'replacement'
+      replacementFindingId: AtlasFindingId
+      replacementOccurrenceId: AtlasOccurrenceId
+    }
+  | {
+      kind: 'deletion'
+      deletionCommit: string
+      deletedBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      noReplacementEvidence: {
+        observationId: AtlasObservationId
+        searchRevision: string
+        reviewedBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+        summary: string
+      }
+    }
+
+export type AuditRegressionKind = 'test' | 'guardrail' | 'check' | 'manual'
+
+interface AuditDecisionRegressionBaseV3 {
+  name: string
+  result: 'passed' | 'failed' | 'not-run'
+  binding: AuditRevisionBindingV3
+  observedAt?: string
+}
+
+export type AuditDecisionRegressionV3 =
+  | (AuditDecisionRegressionBaseV3 & {
+      kind: 'test' | 'guardrail' | 'check'
+      command: string
+    })
+  | (AuditDecisionRegressionBaseV3 & {
+      kind: 'manual'
+      command?: never
+    })
+
+export interface AuditDecisionReviewV3 {
+  reviewer: string
+  verdict: 'approve' | 'reject'
+  reason: string
+  evidence: string
+  evidenceRefs: string[]
+  createdAt: string
+}
+
+export type AuditFindingAction =
+  | 'open'
+  | 'remediated'
+  | 'accepted-risk'
+  | 'separate-design'
+  | 'false-positive'
+  | 'superseded'
+  | 'reopened'
+
+export type AuditCreatedAtBasis =
+  | 'recorded'
+  | 'source'
+  | 'source-revision-upper-bound'
+
+interface AuditFindingDispositionEventBaseV3 {
+  type: 'finding-disposition'
+  findingId: AtlasFindingId
+  occurrenceId: AtlasOccurrenceId
+  action: AuditFindingAction
+  actor: string
+  owner: string
+  reason: string
+  createdAt: string
+  createdAtBasis: AuditCreatedAtBasis
+  reviewContext: AuditDecisionReviewContextV3
+  evidenceRefs: string[]
+  proofs: AuditDecisionProofV3[]
+  reviews: AuditDecisionReviewV3[]
+}
+
+export type AuditFindingDispositionEventInputV3 =
+  | (AuditFindingDispositionEventBaseV3 & {
+      action: 'open'
+      proofs: Extract<AuditDecisionProofV3, { kind: 'current-review' }>[]
+      supersedesEventId?: string
+      expiresAt?: never
+      regression?: never
+      actionEvidence?: never
+    })
+  | (AuditFindingDispositionEventBaseV3 & {
+      action: 'reopened'
+      proofs: AuditNonEmptyArray<
+        Extract<AuditDecisionProofV3, { kind: 'current-review' }>
+      >
+      supersedesEventId: string
+      expiresAt?: never
+      regression?: never
+      actionEvidence?: never
+    })
+  | (AuditFindingDispositionEventBaseV3 & {
+      action: 'accepted-risk' | 'separate-design'
+      expiresAt: string
+      proofs: AuditNonEmptyArray<
+        Extract<AuditDecisionProofV3, { kind: 'current-review' }>
+      >
+      supersedesEventId?: never
+      regression?: never
+      actionEvidence?: never
+    })
+  | (AuditFindingDispositionEventBaseV3 & {
+      action: 'false-positive'
+      expiresAt: null
+      proofs: AuditNonEmptyArray<
+        Extract<AuditDecisionProofV3, { kind: 'source-evidence' }>
+      >
+      actionEvidence: Extract<AuditActionEvidenceV3, { kind: 'source-evidence' }>
+      supersedesEventId?: never
+      regression?: never
+    })
+  | (AuditFindingDispositionEventBaseV3 & {
+      action: 'remediated'
+      proofs: AuditNonEmptyArray<
+        Extract<AuditDecisionProofV3, { kind: 'post-fix' }>
+      >
+      regression: AuditDecisionRegressionV3 & {
+        kind: 'test' | 'guardrail' | 'check'
+        result: 'passed'
+      }
+      actionEvidence: Extract<AuditActionEvidenceV3, { kind: 'remediation' }>
+      expiresAt?: never
+      supersedesEventId?: never
+    })
+  | (AuditFindingDispositionEventBaseV3 & {
+      action: 'superseded'
+      proofs: AuditNonEmptyArray<
+        Extract<AuditDecisionProofV3, { kind: 'replacement' }>
+      >
+      actionEvidence: Extract<AuditActionEvidenceV3, { kind: 'replacement' }>
+      expiresAt?: never
+      supersedesEventId?: never
+      regression?: never
+    })
+  | (AuditFindingDispositionEventBaseV3 & {
+      action: 'superseded'
+      proofs: AuditNonEmptyArray<
+        Extract<AuditDecisionProofV3, { kind: 'deletion' | 'no-replacement' }>
+      >
+      actionEvidence: Extract<AuditActionEvidenceV3, { kind: 'deletion' }>
+      expiresAt?: never
+      supersedesEventId?: never
+      regression?: never
+    })
+
+export type AuditFindingDispositionEventV3 =
+  AuditFindingDispositionEventInputV3 & { eventId: string }
+
+export type AuditRetirementReason =
+  | 'deleted'
+  | 'moved'
+  | 'superseded'
+  | 'staged-deletion'
+  | 'uncommitted-snapshot-absent'
+
+export interface AuditRetirementHistoryProofV3 {
+  slug: string
+  observationId: AtlasObservationId
+  path: string
+  blob: AuditGitBlob
+}
+
+export interface AuditStagedDeletionAbsenceProofV3 {
+  kind: 'worktree-index-absence'
+  headRevision: string
+  headBinding: AuditBlobBindingV3
+  indexState: 'absent'
+  worktreeState: 'absent'
+}
+
+export interface AuditDeletionCommitProofV3 {
+  kind: 'git-deletion'
+  parentRevision: string
+  parentBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+  absentPaths: AuditNonEmptyArray<string>
+}
+
+export interface AuditVerifiedTreeStateV3 {
+  kind: 'git-tree-state'
+  repositoryRevision: string
+  presentBindings: AuditBlobBindingV3[]
+  absentPaths: string[]
+}
+
+export interface AuditMigrationSourceProofV3 {
+  kind: 'sealed-migration-source'
+  sourceArtifact: AuditDecisionSourceArtifactV3
+  jsonPointer: string
+  sourceReason: 'uncommitted_snapshot_absent'
+  summary: string
+}
+
+interface AuditScopeRetirementEventBaseV3 {
+  type: 'scope-retirement'
+  decisionLedger: string
+  path: string
+  blob: AuditGitBlob
+  reason: AuditRetirementReason
+  retiredAt: string
+  actor: string
+  createdAt: string
+  createdAtBasis: AuditCreatedAtBasis
+  historyProof: AuditRetirementHistoryProofV3
+  evidenceRefs: string[]
+}
+
+type AuditRetirementPrecisionV3 =
+  | {
+      retiredAtPrecision: 'timestamp'
+      originalRetiredDate?: never
+    }
+  | {
+      retiredAtPrecision: 'date'
+      originalRetiredDate: string
+    }
+
+type AuditRetirementReasonMembersV3 =
+  | {
+      reason: 'staged-deletion'
+      absenceProof: AuditStagedDeletionAbsenceProofV3
+      deletionCommit?: never
+      deletionProof?: never
+      successor?: never
+      revisionProof?: never
+      noReplacementProof?: never
+      migrationSourceProof?: never
+      supersedesEventId?: never
+    }
+  | {
+      reason: 'deleted'
+      deletionCommit: string
+      deletionProof: AuditDeletionCommitProofV3
+      supersedesEventId?: string
+      absenceProof?: never
+      successor?: never
+      revisionProof?: never
+      noReplacementProof?: never
+      migrationSourceProof?: never
+    }
+  | {
+      reason: 'moved'
+      successor: AuditBlobBindingV3
+      revisionProof: AuditVerifiedTreeStateV3
+      absenceProof?: never
+      deletionCommit?: never
+      deletionProof?: never
+      noReplacementProof?: never
+      migrationSourceProof?: never
+      supersedesEventId?: never
+    }
+  | {
+      reason: 'superseded'
+      successor: AuditBlobBindingV3
+      revisionProof: AuditVerifiedTreeStateV3
+      absenceProof?: never
+      deletionCommit?: never
+      deletionProof?: never
+      noReplacementProof?: never
+      migrationSourceProof?: never
+      supersedesEventId?: never
+    }
+  | {
+      reason: 'superseded'
+      noReplacementProof: Extract<
+        AuditDecisionProofV3,
+        { kind: 'no-replacement' }
+      >
+      revisionProof: AuditVerifiedTreeStateV3
+      absenceProof?: never
+      deletionCommit?: never
+      deletionProof?: never
+      successor?: never
+      migrationSourceProof?: never
+      supersedesEventId?: never
+    }
+  | {
+      reason: 'uncommitted-snapshot-absent'
+      migrationSourceProof: AuditMigrationSourceProofV3
+      absenceProof?: never
+      deletionCommit?: never
+      deletionProof?: never
+      successor?: never
+      revisionProof?: never
+      noReplacementProof?: never
+      supersedesEventId?: never
+    }
+
+export type AuditScopeRetirementEventInputV3 =
+  AuditScopeRetirementEventBaseV3 &
+  AuditRetirementPrecisionV3 &
+  AuditRetirementReasonMembersV3
+
+export type AuditScopeRetirementEventV3 =
+  AuditScopeRetirementEventInputV3 & { eventId: string }
+
+export type AuditReconciliationSourceV3 =
+  | {
+      kind: 'grok-cli' | 'codex-security' | 'migration'
+      name: string
+      version: string
+      sourceArtifact?: AuditDecisionSourceArtifactV3
+    }
+  | {
+      kind: 'manual'
+      name: string
+      version?: never
+      sourceArtifact?: AuditDecisionSourceArtifactV3
+    }
+
+export interface AuditFindingReconciliationEventInputV3 {
+  type: 'finding-reconciliation'
+  comparisonId: string
+  decisionLedger: string
+  beforeOccurrenceIds: AuditNonEmptyArray<AtlasOccurrenceId>
+  afterOccurrenceIds: AuditNonEmptyArray<AtlasOccurrenceId>
+  outcome: 'equivalent' | 'distinct' | 'uncertain'
+  confidence: AuditConfidence
+  reason: string
+  source: AuditReconciliationSourceV3
+  createdAt: string
+  createdAtBasis: AuditCreatedAtBasis
+  evidenceRefs: string[]
+  supersedesEventId?: string
+}
+
+export type AuditFindingReconciliationEventV3 =
+  AuditFindingReconciliationEventInputV3 & { eventId: string }
+
+export interface AuditIdentityAliasV3 {
+  scheme: string
+  value: string
+}
+
+export interface AuditIdentityAliasReconciliationEventInputV3 {
+  type: 'identity-alias-reconciliation'
+  decisionLedger: string
+  aliases: AuditNonEmptyArray<AuditIdentityAliasV3>
+  findingId: AtlasFindingId
+  occurrenceIds: AuditNonEmptyArray<AtlasOccurrenceId>
+  relationship: 'canonical' | 'duplicate-of'
+  source: AuditReconciliationSourceV3
+  createdAt: string
+  createdAtBasis: AuditCreatedAtBasis
+  evidenceRefs: string[]
+}
+
+export type AuditIdentityAliasReconciliationEventV3 =
+  AuditIdentityAliasReconciliationEventInputV3 & { eventId: string }
+
+export type AuditDecisionEventInputV3 =
+  | AuditFindingDispositionEventInputV3
+  | AuditScopeRetirementEventInputV3
+  | AuditFindingReconciliationEventInputV3
+  | AuditIdentityAliasReconciliationEventInputV3
+
+export type AuditDecisionEventV3 =
+  | AuditFindingDispositionEventV3
+  | AuditScopeRetirementEventV3
+  | AuditFindingReconciliationEventV3
+  | AuditIdentityAliasReconciliationEventV3
+
+export interface AuditDecisionLedgerEntryV1 {
+  eventId: string
+  previousEntryDigest: AuditSha256 | null
+  event: AuditDecisionEventV3
+  entryDigest: AuditSha256
+}
+
+export interface AuditDecisionLedgerV1 {
+  formatVersion: 1
+  format: 'atlas-audit-decisions-v1'
+  domain: 'security'
+  slug: string
+  entries: AuditDecisionLedgerEntryV1[]
+}
+
+export interface AuditDecisionLedgerPortfolioResult {
+  ledgers: AuditDecisionLedgerV1[]
+  diagnostics: AuditDiagnostic[]
+}
+
+export interface AuditDecisionAppendPlan {
+  ledger: AuditDecisionLedgerV1
+  event: AuditDecisionEventV3
+  entry: AuditDecisionLedgerEntryV1
+  bytes: string
+  status: 'append' | 'already-present'
+}
+
+export interface AuditDecisionAppendResult {
+  path: string
+  eventId: string
+  entryDigest: AuditSha256
+  status: 'appended' | 'already-present'
+}
+
+export interface AuditIdentityRecord {
+  namespace: 'decision-event' | 'decision-entry' | 'comparison'
+  id: string
+  digest: AuditSha256
+  location: string
+}
+
+export interface AuditIndexedOccurrenceV3 {
+  occurrenceId: AtlasOccurrenceId
+  findingId: AtlasFindingId
+  observationId: AtlasObservationId
+  decisionLedger: string
+  bindings: AuditBlobBindingV3[]
+  reviewedBindings: AuditBlobBindingV3[]
+  closureEligible: boolean
+  ruleset: AuditRulesetReceiptV3 | null
+  repositoryRevision: string | null
+  severity: AuditSeverity
+  authoritative: boolean
+}
+
+export interface AuditIndexedObservationV3 {
+  observationId: AtlasObservationId
+  slug: string
+  historyIndex: number
+  occurrenceIds: AtlasOccurrenceId[]
+  inventoryBindings: AuditBlobBindingV3[]
+  reviewedBindings: AuditBlobBindingV3[]
+  ruleset: AuditRulesetReceiptV3 | null
+  repositoryRevision: string | null
+  authoritative: boolean
+  publicationState: 'historical' | 'current' | 'history-ahead'
+}
+
+export interface AuditIndexedFindingV3 {
+  findingId: AtlasFindingId
+  decisionLedger: string
+  occurrenceIds: AtlasOccurrenceId[]
+  currentOccurrenceIds: AtlasOccurrenceId[]
+}
+
+export interface AuditIndexedDecisionEventV3 {
+  decisionLedger: string
+  chainIndex: number
+  eventDigest: AuditSha256
+  event: AuditDecisionEventV3
+}
+
+export interface AuditDecisionIndexV3 {
+  findings: Map<AtlasFindingId, AuditIndexedFindingV3>
+  occurrences: Map<AtlasOccurrenceId, AuditIndexedOccurrenceV3>
+  observations: Map<AtlasObservationId, AuditIndexedObservationV3>
+  events: Map<string, AuditIndexedDecisionEventV3>
+  decisionLedgers: Map<string, AuditDecisionLedgerV1>
+  retirementEvents: AuditScopeRetirementEventV3[]
+  reconciliationEvents: AuditFindingReconciliationEventV3[]
+  aliasEvents: AuditIdentityAliasReconciliationEventV3[]
+}
+
+export interface AuditDecisionExpirySeverityOverrideV1 {
+  severities: AuditNonEmptyArray<AuditSeverity>
+  maximumDays: number
+  minimumIndependentReviews: number
+  reviewEvidenceRequired: boolean
+}
+
+export interface AuditDecisionPolicyInputV1 {
+  requireDisposition: boolean
+  blockingActions: AuditFindingAction[]
+  drift: {
+    findingBearing: 'blocking' | 'advisory'
+    clean: 'blocking' | 'advisory'
+    unknown: 'blocking' | 'advisory'
+  }
+  expiry: {
+    warningDays: number
+    requiredFor: Array<'accepted-risk' | 'separate-design'>
+    acceptedRiskMaximumDays: number
+    separateDesignMaximumDays: number
+    falsePositiveMustBeNull: boolean
+    severityOverrides: AuditDecisionExpirySeverityOverrideV1[]
+  }
+  remediation: {
+    fixBlobRequired: boolean
+    postFixProofRequired: boolean
+    passingRegressionRequired: boolean
+    allowedRegressionKinds: Array<'test' | 'guardrail' | 'check'>
+  }
+  falsePositive: {
+    reviewedBlobRequired: boolean
+    sourceEvidenceRequired: boolean
+  }
+  superseded: {
+    replacementOrDeletionProofRequired: boolean
+    existingPathRequiresCurrentReview: boolean
+  }
+  retirement: {
+    historyProofRequired: boolean
+    allowedReasons: AuditRetirementReason[]
+  }
+  acceptedRulesets: string[]
+}
+
+export interface AuditDecisionPolicyV1 extends AuditDecisionPolicyInputV1 {
+  readonly policyDigest: AuditSha256
+}
+
+export interface AuditEffectiveFindingStateV3 {
+  disposition: AuditFindingAction
+  blocking: boolean
+  derivation:
+    | 'implicit-open'
+    | 'explicit-event'
+    | 'carried'
+    | 'carry-invalidated'
+    | 'automatic-reopen'
+    | 'reconciliation-conflict'
+  lifecycle: 'new' | 'persisting' | 'resolved' | 'reopened' | 'unknown'
+  currentOccurrenceIds: string[]
+  eventId: string | null
+  basisEventIds: string[]
+  expiresAt: string | null
+  expiryState: 'not-applicable' | 'active' | 'warning' | 'expired'
+  reopenAcknowledged: boolean
+}
+
+export interface AuditDecisionStateV3 {
+  findings: Map<AtlasFindingId, AuditEffectiveFindingStateV3>
+  retirements: Map<string, AuditScopeRetirementEventV3>
+  aliases: Map<string, {
+    findingId: AtlasFindingId
+    occurrenceIds: AtlasOccurrenceId[]
+    relationship: 'canonical' | 'duplicate-of'
+    eventId: string
+  }>
+}

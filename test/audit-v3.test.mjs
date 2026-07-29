@@ -21,11 +21,17 @@ import {
   loadAuditObservationHistory,
   loadAuditObservations,
   parseAuditCurrentLedger,
+  parseAuditObservationHistory,
   prepareAuditObservationPublication,
   publishAuditObservation,
   registerAuditUniqueBlobBytes,
 } from '../dist/audit-v3.js'
 import { withAuditLock } from '../dist/audit-core.js'
+import {
+  buildAuditDecisionIndex,
+  parseAuditDecisionPolicy,
+  reduceAuditDecisionState,
+} from '../dist/audit-decisions.js'
 
 const REPOSITORY_ID = 'repo_fixture'
 const SOURCE_BLOB = 'git-sha1:41715495f45f651e6cf7d38f58a3d512abcfa440'
@@ -884,6 +890,137 @@ test('strict current-ledger parsing accepts the exact one-file fixture', () => {
     )
     assert.equal(result.ok, true)
     assert.deepEqual(result.value, fixture.ledger)
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('strict V3 current and history snapshots build and reduce without reopening the trust boundary', () => {
+  const root = makeV3Repo()
+  try {
+    const fixture = buildExactFixture()
+    const current = parseAuditCurrentLedger(
+      root,
+      '.atlas/audits/security-runtime.json',
+      fixture.ledger,
+    )
+    const history = parseAuditObservationHistory(
+      root,
+      '.atlas/audit-history/security-runtime.json',
+      fixture.history,
+    )
+    assert.equal(current.ok, true)
+    assert.equal(history.ok, true)
+    const policy = parseAuditDecisionPolicy({
+      requireDisposition: true,
+      blockingActions: ['open', 'reopened'],
+      drift: {
+        findingBearing: 'blocking',
+        clean: 'advisory',
+        unknown: 'blocking',
+      },
+      expiry: {
+        warningDays: 14,
+        requiredFor: ['accepted-risk', 'separate-design'],
+        acceptedRiskMaximumDays: 90,
+        separateDesignMaximumDays: 90,
+        falsePositiveMustBeNull: true,
+        severityOverrides: [],
+      },
+      remediation: {
+        fixBlobRequired: true,
+        postFixProofRequired: true,
+        passingRegressionRequired: true,
+        allowedRegressionKinds: ['test', 'guardrail', 'check'],
+      },
+      falsePositive: {
+        reviewedBlobRequired: true,
+        sourceEvidenceRequired: true,
+      },
+      superseded: {
+        replacementOrDeletionProofRequired: true,
+        existingPathRequiresCurrentReview: true,
+      },
+      retirement: {
+        historyProofRequired: true,
+        allowedReasons: [
+          'deleted',
+          'moved',
+          'superseded',
+          'staged-deletion',
+          'uncommitted-snapshot-absent',
+        ],
+      },
+      acceptedRulesets: ['relayos-security-v1'],
+    }, ENVIRONMENT_POLICY_DIGEST)
+    const state = reduceAuditDecisionState(
+      buildAuditDecisionIndex(
+        [current.value],
+        [history.value],
+        [],
+      ),
+      policy,
+      '2026-07-30T00:00:00.000Z',
+    )
+    assert.equal(state.findings.get(FINDING_ID).disposition, 'open')
+    assert.equal(state.findings.get(FINDING_ID).blocking, true)
+
+    const hostileCurrent = structuredClone(current.value)
+    let getterCalls = 0
+    Object.defineProperty(hostileCurrent, 'current', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        getterCalls += 1
+        throw new Error('hostile current getter executed')
+      },
+    })
+    assert.throws(
+      () => buildAuditDecisionIndex(
+        [hostileCurrent],
+        [history.value],
+        [],
+      ),
+      /data|canonical|property|accessor|snapshot/i,
+    )
+    assert.equal(getterCalls, 0)
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('finding decision ledgers retain a stable security home across source units', () => {
+  const root = makeV3Repo()
+  try {
+    const moved = buildExactFixture().ledger
+    moved.current.findings[0].decisionLedger = 'security-origin'
+    resealCurrent(moved)
+    assert.equal(
+      parseAuditCurrentLedger(
+        root,
+        '.atlas/audits/security-runtime.json',
+        moved,
+      ).ok,
+      true,
+    )
+
+    for (const decisionLedger of [
+      'runtime',
+      'security-Origin',
+      'security-origin/',
+    ]) {
+      const invalid = structuredClone(moved)
+      invalid.current.findings[0].decisionLedger = decisionLedger
+      resealCurrent(invalid)
+      assertInvalid(
+        parseAuditCurrentLedger(
+          root,
+          '.atlas/audits/security-runtime.json',
+          invalid,
+        ),
+        /decisionLedger|decision ledger|security|slug/i,
+      )
+    }
   } finally {
     cleanup(root)
   }

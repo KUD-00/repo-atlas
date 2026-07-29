@@ -1870,7 +1870,6 @@ function parseAttackPath(
 
 function parseFinding(
   root: string,
-  slug: string,
   findingIndex: number,
   observationId: AtlasObservationId,
   repositoryId: string,
@@ -1921,8 +1920,16 @@ function parseFinding(
   if (!OCCURRENCE_ID_RE.test(occurrenceId)) {
     invalid('invalid-occurrence-id', `${pointer}/occurrenceId`, 'must be an Atlas occurrence ID')
   }
-  if (stringAt(finding.decisionLedger, `${pointer}/decisionLedger`) !== slug) {
-    invalid('decision-ledger-mismatch', `${pointer}/decisionLedger`, 'must equal the owning ledger slug')
+  const decisionLedger = stringAt(
+    finding.decisionLedger,
+    `${pointer}/decisionLedger`,
+  )
+  if (!SECURITY_SLUG_RE.test(decisionLedger)) {
+    invalid(
+      'invalid-decision-ledger',
+      `${pointer}/decisionLedger`,
+      'must be a security- prefixed lowercase kebab-case stable home',
+    )
   }
   const ruleId = stringAt(finding.ruleId, `${pointer}/ruleId`)
   const identity = recordAt(finding.identity, `${pointer}/identity`)
@@ -2768,7 +2775,6 @@ function parseObservation(
   for (const [index, row] of findings.entries()) {
     const finding = parseFinding(
       root,
-      slug,
       index,
       observationId as AtlasObservationId,
       target.repositoryId,

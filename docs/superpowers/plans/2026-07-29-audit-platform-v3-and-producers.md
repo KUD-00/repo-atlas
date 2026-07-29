@@ -518,7 +518,7 @@ git commit -m "feat(audit): add strict V3 observations and history"
 - Modify: `src/audit-v3-types.ts`
 - Modify: `test/audit-core.test.mjs`
 
-- [ ] **Step 1: Write failing lifecycle tests**
+- [x] **Step 1: Write failing lifecycle tests**
 
 Cover implicit open state, remediated, accepted-risk, separate-design, false-positive, superseded, reopened, deleted, moved, staged deletion, uncommitted-snapshot-absent, and reconciliation. The reducer assertion is:
 
@@ -544,7 +544,9 @@ Add table-driven RED fixtures for:
 - exact closed unions for every finding action, retirement reason, temporal
   reconciliation, identity-alias reconciliation, proof, review, regression,
   and action-evidence variant;
-- independent literal `eventId` and `entryDigest` golden vectors;
+- independent literal `eventId` and `entryDigest` golden vectors using the two
+  complete canonical event payloads fixed in the normative design (including
+  the deliberately nonmonotonic second event);
 - the literal `comparisonId` golden
   `acmp_49e952b6b12da976599461aa`, plus direction, empty, overlap, and
   observation-resolution failures;
@@ -576,13 +578,13 @@ Add table-driven RED fixtures for:
 Migrated proofs must fail without their sealed source artifact; exact native
 Atlas proofs may omit one.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 ```bash
 pnpm build:cli && node --test test/audit-decisions.test.mjs
 ```
 
-- [ ] **Step 3: Implement append-only event contracts**
+- [x] **Step 3: Implement append-only event contracts**
 
 Store one stable decision-ledger unit at
 `.atlas/audit-decisions/<decisionLedger>.json`. It is the
@@ -652,7 +654,7 @@ the current bytes, returns explicit `appended | already-present`, and uses
 atomic replacement. An identical deterministic event is the only idempotent
 no-op; same ID with different canonical content is a collision.
 
-- [ ] **Step 4: Implement retirement and reconciliation**
+- [x] **Step 4: Implement retirement and reconciliation**
 
 Retirement events are reason-discriminated and carry self-contained
 history/absence/deletion/successor proof plus timestamp precision. Temporal
@@ -662,7 +664,7 @@ home ledgers, earlier-event corrections, and validated split/merge groups;
 alias events map producer identities to canonical finding/occurrence IDs
 without mutating observations or manufacturing lifecycle equivalence.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 pnpm build:cli

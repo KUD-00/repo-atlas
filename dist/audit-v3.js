@@ -1385,7 +1385,7 @@ function parseAttackPath(value, pointer, evidenceIds) {
         parseDocumentedJsonArray(attack.limitations, `${pointer}/limitations`);
     }
 }
-function parseFinding(root, slug, findingIndex, observationId, repositoryId, targetId, producerKind, producerRunId, exactInventory, value, pointer, fileByPath, sourceArtifacts, extensionKeys) {
+function parseFinding(root, findingIndex, observationId, repositoryId, targetId, producerKind, producerRunId, exactInventory, value, pointer, fileByPath, sourceArtifacts, extensionKeys) {
     const finding = recordAt(value, pointer);
     exactKeys(finding, [
         'findingId',
@@ -1419,8 +1419,9 @@ function parseFinding(root, slug, findingIndex, observationId, repositoryId, tar
     if (!OCCURRENCE_ID_RE.test(occurrenceId)) {
         invalid('invalid-occurrence-id', `${pointer}/occurrenceId`, 'must be an Atlas occurrence ID');
     }
-    if (stringAt(finding.decisionLedger, `${pointer}/decisionLedger`) !== slug) {
-        invalid('decision-ledger-mismatch', `${pointer}/decisionLedger`, 'must equal the owning ledger slug');
+    const decisionLedger = stringAt(finding.decisionLedger, `${pointer}/decisionLedger`);
+    if (!SECURITY_SLUG_RE.test(decisionLedger)) {
+        invalid('invalid-decision-ledger', `${pointer}/decisionLedger`, 'must be a security- prefixed lowercase kebab-case stable home');
     }
     const ruleId = stringAt(finding.ruleId, `${pointer}/ruleId`);
     const identity = recordAt(finding.identity, `${pointer}/identity`);
@@ -1962,7 +1963,7 @@ function parseObservation(root, slug, value, pointer, context) {
     const findingIds = new Set();
     const occurrenceIds = new Set();
     for (const [index, row] of findings.entries()) {
-        const finding = parseFinding(root, slug, index, observationId, target.repositoryId, target.targetId, producer.kind, producer.runId, identityBasis === 'exact-inventory', row, `${pointer}/findings/${index}`, fileByPath, sourceArtifacts, extensionKeys);
+        const finding = parseFinding(root, index, observationId, target.repositoryId, target.targetId, producer.kind, producer.runId, identityBasis === 'exact-inventory', row, `${pointer}/findings/${index}`, fileByPath, sourceArtifacts, extensionKeys);
         if (findingIds.has(finding.findingId)) {
             invalid('duplicate', `${pointer}/findings/${index}/findingId`, 'duplicate finding ID');
         }

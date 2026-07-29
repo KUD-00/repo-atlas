@@ -1203,6 +1203,29 @@ previous entry digest. Array/chain order is authoritative. Timestamps need not
 be monotonic, especially for deterministic migrations, and are never used to
 sort or repair a chain.
 
+The decision-chain golden vector uses this canonical first event input
+(without `eventId`):
+
+```json
+{"aliases":[{"scheme":"relayos-security-scan/v1","value":"SEC-ABC123"}],"createdAt":"2026-07-29T12:34:56.000Z","createdAtBasis":"source-revision-upper-bound","decisionLedger":"security-identity-access","evidenceRefs":[],"findingId":"atf_0d465ed12cdccf67f62645b4","occurrenceIds":["atocc_fe401c5bdff9b7bbde7c5fe6"],"relationship":"canonical","source":{"kind":"migration","name":"relayos-security-scan","version":"1"},"type":"identity-alias-reconciliation"}
+```
+
+Its event ID is `adev_070b9b350a2dde2bae75a794`. With
+`previousEntryDigest: null`, the genesis entry digest is
+`sha256:cf599f11d6339bf9460e2222c5159fde9a903fb675be1d14c5f8d8dcf2d4e1cf`.
+The second event input deliberately has an earlier timestamp so that the
+vector also proves chain order is not timestamp order:
+
+```json
+{"aliases":[{"scheme":"relayos-security-scan/v1","value":"SEC-OLDER-TIMESTAMP"}],"createdAt":"2026-07-01T00:00:00.000Z","createdAtBasis":"source-revision-upper-bound","decisionLedger":"security-identity-access","evidenceRefs":[],"findingId":"atf_0d465ed12cdccf67f62645b4","occurrenceIds":["atocc_fe401c5bdff9b7bbde7c5fe6"],"relationship":"canonical","source":{"kind":"migration","name":"relayos-security-scan","version":"1"},"type":"identity-alias-reconciliation"}
+```
+
+Its event ID is `adev_2ad52a2807387d80876f3807`. With the genesis digest
+above as `previousEntryDigest`, its entry digest is
+`sha256:38594e57db9ef22ff1fdab17f9a31a67d4f84f14ae9ec25c089ba13df2368d14`.
+These literal outputs are always tested against the literal canonical inputs;
+a production helper never generates the expected side of its own test.
+
 Production hashing is not injectable. Duplicate and collision handling is
 factored after independent recomputation into the pure registry seam:
 
@@ -1608,10 +1631,12 @@ interface AuditEffectiveFindingStateV3 {
 code units. Reducers and renderers must not leak discovery, filesystem, or
 insertion order through either array.
 
-`eventId` is non-null only when one explicit event directly governs a current
-occurrence. `basisEventIds` records earlier decisions used for carry,
-invalidation, merge, or automatic reopen. An automatic reopen without an
-event has `eventId: null`, the prior closure IDs in `basisEventIds`,
+`eventId` is non-null only when one explicit disposition event directly
+governs the effective finding state. This includes a terminal historical
+`remediated` state with no current occurrence. `basisEventIds` records earlier
+decisions used for carry, invalidation, merge, or automatic reopen. An
+automatic reopen without an event has `eventId: null`, the prior closure IDs
+in `basisEventIds`,
 `disposition: "reopened"`, `blocking: true`, and
 `reopenAcknowledged: false`. An explicit reopened event carries its own ID,
 retains the closure ID as a basis, and acknowledges the reopen. A carried
@@ -1892,6 +1917,18 @@ post-fix proof and no later reportable confirmed equivalent. Mere absence never
 resolves. Historical `false-positive` and `superseded` dispositions retain
 their action but have temporal lifecycle `unknown`; a later reportable
 equivalent still reopens them.
+
+Published occurrence frontiers are computed by canonical `findingId` across
+all observation histories, not independently per history slug. History-chain
+order proves succession within one slug. When two histories leave unconnected
+frontiers for the same finding and no temporal reconciliation proves their
+order, reduction fails closed to blocking `open` with lifecycle `unknown`; it
+must not restore an earlier terminal closure merely because both current
+observations are now clean. Because one canonical finding ID is deterministic
+identity, a reconciliation whose before/after finding-ID sets intersect is
+valid only as high-confidence `equivalent`; `distinct`, `uncertain`, or
+lower-confidence equivalent events contradict that identity and invalidate the
+decision portfolio.
 
 Derived labels are:
 

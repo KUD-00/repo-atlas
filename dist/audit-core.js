@@ -17,7 +17,7 @@ const AUDIT_ID_MAX_BYTES = 256 * 1024;
 const UTF8 = new TextDecoder('utf-8', { fatal: true });
 const PROCESS_STARTED_AT = new Date(Date.now() - process.uptime() * 1_000).toISOString();
 const PROTOTYPE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-const AUDIT_ID_PREFIXES = new Set(['aobs', 'atocc', 'adev', 'amig']);
+const AUDIT_ID_PREFIXES = new Set(['aobs', 'atocc', 'adev', 'amig', 'acmp']);
 function errnoCode(error) {
     return error && typeof error === 'object' && 'code' in error
         ? String(error.code)
@@ -451,20 +451,31 @@ function readAnchoredAuditFile(root, repoPath, maxBytes, subject, transform) {
 export function readBoundedAuditBytes(root, repoPath, maxBytes = AUDIT_LIMITS.jsonBytes) {
     return readAnchoredAuditFile(root, repoPath, maxBytes, 'audit file', (bytes) => bytes);
 }
+export function parseBoundedAuditJsonBytes(bytes, maxBytes = AUDIT_LIMITS.jsonBytes, source = 'audit JSON') {
+    if (!(bytes instanceof Uint8Array)) {
+        throw new Error('audit JSON bytes must be a Uint8Array');
+    }
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+        throw new Error('audit JSON byte limit must be a nonnegative safe integer');
+    }
+    const byteLimit = Math.min(maxBytes, AUDIT_LIMITS.jsonBytes);
+    if (bytes.byteLength > byteLimit) {
+        throw new Error(`audit JSON exceeds the ${byteLimit}-byte limit: ${source}`);
+    }
+    let text;
+    try {
+        text = UTF8.decode(bytes);
+    }
+    catch {
+        throw new Error(`audit JSON is not strict UTF-8: ${source}`);
+    }
+    return new BoundedJsonParser(text, source).parse();
+}
 export function readBoundedAuditJsonDocument(root, repoPath, maxBytes = AUDIT_LIMITS.jsonBytes) {
-    return readAnchoredAuditFile(root, repoPath, maxBytes, 'audit JSON', (bytes, normalized) => {
-        let text;
-        try {
-            text = UTF8.decode(bytes);
-        }
-        catch {
-            throw new Error(`audit JSON is not strict UTF-8: ${normalized}`);
-        }
-        return {
-            bytes,
-            value: new BoundedJsonParser(text, normalized).parse(),
-        };
-    });
+    return readAnchoredAuditFile(root, repoPath, maxBytes, 'audit JSON', (bytes, normalized) => ({
+        bytes,
+        value: parseBoundedAuditJsonBytes(bytes, Math.min(maxBytes, AUDIT_LIMITS.jsonBytes), normalized),
+    }));
 }
 export function readBoundedAuditJson(root, repoPath, maxBytes = AUDIT_LIMITS.jsonBytes) {
     return readBoundedAuditJsonDocument(root, repoPath, maxBytes).value;
@@ -651,6 +662,9 @@ function canonicalize(value) {
         if (typeof current === 'number') {
             if (!Number.isFinite(current))
                 throw new Error('canonical JSON numbers must be finite');
+            if (Number.isInteger(current) && !Number.isSafeInteger(current)) {
+                throw new Error('canonical JSON integers must use safe integer precision');
+            }
             return current;
         }
         if (!current || typeof current !== 'object') {

@@ -12,6 +12,7 @@ import {
   atomicWriteAuditFile,
   canonicalJson,
   normalizeAuditRepoPath,
+  parseBoundedAuditJsonBytes,
   readBoundedAuditJson,
   stableAuditId,
   withAuditLock,
@@ -145,6 +146,32 @@ test('reads only bounded, strict UTF-8 JSON from safe regular files', () => {
   } finally {
     cleanup(root)
   }
+})
+
+test('raw bounded JSON parsing validates its own byte limit', () => {
+  const bytes = Buffer.from('{"ok":true}', 'utf8')
+  assert.deepEqual(
+    parseBoundedAuditJsonBytes(bytes, bytes.byteLength, 'fixture'),
+    { ok: true },
+  )
+  assert.throws(
+    () => parseBoundedAuditJsonBytes(bytes, bytes.byteLength - 1, 'fixture'),
+    /byte limit|exceeds|bounded/i,
+  )
+  for (const invalidLimit of [-1, 1.5, Number.NaN]) {
+    assert.throws(
+      () => parseBoundedAuditJsonBytes(bytes, invalidLimit, 'fixture'),
+      /byte limit|safe|integer|nonnegative/i,
+    )
+  }
+  assert.throws(
+    () => parseBoundedAuditJsonBytes(
+      Buffer.from('{"a":1,"a":2}', 'utf8'),
+      AUDIT_LIMITS.jsonBytes,
+      'fixture',
+    ),
+    /duplicate.*key/i,
+  )
 })
 
 test('bounded readers open FIFOs nonblocking before rejecting them', () => {
@@ -627,8 +654,8 @@ test('canonical JSON recursively sorts keys into compact digest bytes', () => {
 
 test('canonical JSON matches RFC 8785 number and UTF-16 property ordering vectors', () => {
   assert.equal(
-    canonicalJson([333333333.33333329, 1e30, 4.50, 2e-3, 1e-27, -0]),
-    '[333333333.3333333,1e+30,4.5,0.002,1e-27,0]',
+    canonicalJson([333333333.33333329, 4.50, 2e-3, 1e-27, -0]),
+    '[333333333.3333333,4.5,0.002,1e-27,0]',
   )
   assert.equal(
     canonicalJson({
@@ -641,6 +668,26 @@ test('canonical JSON matches RFC 8785 number and UTF-16 property ordering vector
       '\u00f6': 'Latin Small Letter O With Diaeresis',
     }),
     '{"\\r":"Carriage Return","1":"One","\u0080":"Control","ö":"Latin Small Letter O With Diaeresis","€":"Euro Sign","😀":"Emoji: Grinning Face","דּ":"Hebrew Letter Dalet With Dagesh"}',
+  )
+})
+
+test('canonical JSON rejects unsafe integer-valued numbers before serialization', () => {
+  for (const unsafe of [
+    Number.MAX_SAFE_INTEGER + 1,
+    Number.MIN_SAFE_INTEGER - 1,
+    1e20,
+  ]) {
+    assert.throws(
+      () => canonicalJson({ unsafe }),
+      /canonical JSON|safe integer|precision/i,
+    )
+  }
+  assert.equal(
+    canonicalJson({
+      minimum: Number.MIN_SAFE_INTEGER,
+      maximum: Number.MAX_SAFE_INTEGER,
+    }),
+    `{"maximum":${Number.MAX_SAFE_INTEGER},"minimum":${Number.MIN_SAFE_INTEGER}}`,
   )
 })
 
@@ -736,7 +783,7 @@ test('stable audit IDs use approved prefixes and a domain-separated SHA-256 vect
     stableAuditId('aobs', domainTag, parts),
     stableAuditId('aobs', domainTag, [...parts]),
   )
-  for (const prefix of ['atocc', 'adev', 'amig']) {
+  for (const prefix of ['atocc', 'adev', 'amig', 'acmp']) {
     assert.match(
       stableAuditId(prefix, `atlas-${prefix}/v1`, parts),
       new RegExp(`^${prefix}_[0-9a-f]{24}$`),
