@@ -55,7 +55,7 @@ assert.equal(normalizeAuditRepoPath('src/a.ts'), 'src/a.ts')
 assert.throws(() => normalizeAuditRepoPath('../outside'), /normalized repository-relative/)
 assert.throws(() => normalizeAuditRepoPath('src\\a.ts'), /normalized repository-relative/)
 assert.equal(canonicalJson({ z: 1, a: { d: 2, b: 1 } }),
-  '{\n  "a": {\n    "b": 1,\n    "d": 2\n  },\n  "z": 1\n}\n')
+  '{"a":{"b":1,"d":2},"z":1}')
 assert.equal(stableAuditId('aobs', ['repo', 'security', 'unit', 'blob']).length, 29)
 assert.equal(
   stableAuditId('aobs', ['repo', 'security', 'unit', 'blob']),
@@ -108,10 +108,12 @@ export function withAuditLock<T>(root: string, operation: () => T): T
 `${prefix}_${first24(sha256(domainTag + NUL + parts.join(NUL)))}`. Callers use
 the exact domain tags and ordered identity members in the normative spec;
 repository IDs are committed producer-neutral `repo_...` values rather than
-being synthesized by this helper. Canonical JSON recursively sorts object
-keys, preserves array order, rejects non-finite numbers/undefined/cycles, and
-ends with one newline for storage (digest helpers hash the RFC 8785 value
-without the presentation newline). The lock lives outside tracked `.atlas` in
+being synthesized by this helper. `canonicalJson` is the compact RFC 8785
+digest form: it recursively sorts object keys, preserves array order, rejects
+invalid Unicode, non-finite numbers, undefined, cycles, and unsupported
+values, and has no presentation whitespace or trailing newline. Stored JSON
+documents append exactly one newline after canonicalization. The lock lives
+outside tracked `.atlas` in
 worktree-specific Git administrative state, keyed by real worktree path. It
 contains PID, host, process start time, command, and source snapshot, uses
 `wx`, and is always released in `finally`; a stale lock is never silently
