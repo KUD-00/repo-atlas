@@ -323,6 +323,12 @@ exact coverage, source-artifact `integrityKind`, and preserved
 `producerSource`. A semantic-only observation has no file/count/blob claims and
 cannot project as exact coverage.
 
+For exact scope, `scope.identityDigest` is the pre-result canonical digest of
+scope mode, include/exclude patterns, and sorted path/blob input pairs. It
+excludes status/outcome/receipt/occurrence results. `inventoryDigest` and
+`scopeHash` continue to seal the full result receipts. This prevents the
+observation-ID → occurrence-ID → result-scope-digest cycle.
+
 - [ ] **Step 4: Publish observations without losing history**
 
 Implement:

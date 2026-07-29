@@ -435,6 +435,29 @@ receiptRefs)` determines
 first-class so a RelayOS migration does not flatten 457 distinct historical
 facts into one synthetic timestamp.
 
+`scope.identityDigest` is intentionally a pre-result input identity, distinct
+from both digests above. For `exact-inventory`, it is SHA-256 over canonical:
+
+```json
+{
+  "namespace": "repo-atlas/exact-scope-identity/v1",
+  "mode": "<scope mode>",
+  "includePaths": [],
+  "excludePaths": [],
+  "files": [
+    { "path": "<normalized path>", "blob": "git-sha1:<hex>" }
+  ]
+}
+```
+
+Files sort by path. This identity excludes status, outcome, review metadata,
+receipt refs, and finding occurrence IDs. That separation is required because
+an occurrence ID depends on the observation ID; making the observation ID
+depend on a receipt digest that already contained occurrence IDs would create
+a cryptographic cycle. `inventoryDigest` and `scopeHash` still seal all result
+receipts and are themselves protected by `currentDigest` and the history
+chain.
+
 `outcome: "clean"` means this observation associated no reportable occurrence
 with that exact file/blob; it is not a safety guarantee. `findings` requires at
 least one listed occurrence bound to the file/blob. `unknown` is used only when
