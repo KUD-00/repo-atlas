@@ -660,7 +660,7 @@ git commit -m "feat(audit): migrate RelayOS legacy evidence"
 Create an executable fixture that records argv/env/cwd/stdin and emits controlled JSON. Assert:
 
 - Grok is never invoked by `audit check`, `status`, `build`, install, or hooks;
-- `audit run --provider grok` is required;
+- `audit run security --provider grok` is required;
 - execution uses a temporary HOME/XDG/config directory and a read-only source snapshot;
 - ambient hooks/plugins/MCP/config are absent;
 - phase order is inventory → parallel bounded review → verification → synthesis;
@@ -725,14 +725,17 @@ Cover help, unknown arguments, dry-run/apply separation, exit codes, stdout JSON
 repo-atlas audit check [--allow-incomplete]
 repo-atlas audit coverage check [--allow-incomplete]
 repo-atlas audit coverage update [--allow-incomplete]
-repo-atlas audit run --provider grok [--unit <slug>] [--resume <id>]
-repo-atlas audit import codex-security --bundle <path> --unit <slug> [--apply]
-repo-atlas audit migrate relayos [--source-root <path>] [--apply]
-repo-atlas audit decision append --file <event.json>
-repo-atlas audit reconcile --file <event.json>
-repo-atlas audit retire --file <event.json>
+repo-atlas audit status [--json]
+repo-atlas audit run security --provider grok [--unit <slug> | --all | --stale] [--resume <id>]
+repo-atlas audit import codex-security <scan-dir> --slug <slug> [--apply]
+repo-atlas audit migrate relayos-security-v1 --scan-root <path> --policy <path> [--include-history] [--apply]
+repo-atlas audit migrate relayos-root-audits-v1 --audits-root <path> --source-revision <commit> [--apply]
+repo-atlas audit decision set <finding-or-occurrence> <action>
+repo-atlas audit reconcile <before> <after>
+repo-atlas audit retire <path>
+repo-atlas audit retire --finalize-staged
+repo-atlas audit localization input --locale <locale>
 repo-atlas audit localization check
-repo-atlas audit localization input
 ```
 
 - [ ] **Step 2: Run and verify RED**
