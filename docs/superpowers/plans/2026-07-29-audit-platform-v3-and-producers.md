@@ -315,6 +315,14 @@ never drops malformed entries. V3 current files remain
 `.atlas/audit-history/<slug>.json`; and the stable producer-neutral
 `repositoryId` comes from committed Atlas config/identity state.
 
+The discriminated receipt types also include the verified Codex 1.0
+amendments in the normative spec: producer/target/scope
+`identityDigest`+`identityBasis`, optional producer `sourceContract`,
+exact-inventory versus semantic-declaration scope, full-read versus unavailable
+exact coverage, source-artifact `integrityKind`, and preserved
+`producerSource`. A semantic-only observation has no file/count/blob claims and
+cannot project as exact coverage.
+
 - [ ] **Step 4: Publish observations without losing history**
 
 Implement:
