@@ -1048,8 +1048,7 @@ Its envelope is:
 }
 ```
 
-`entryDigest` hashes the entry except itself. `eventId` appears in both the
-entry and event and must agree:
+`eventId` appears in both the entry and event and must agree:
 
 ```text
 eventId =
@@ -1057,7 +1056,20 @@ eventId =
     "atlas-decision-event/v1" NUL
     canonicalJson(event excluding eventId)
   ))
+
+entryDigest =
+  "sha256:" + sha256Utf8(canonicalJson({
+    eventId,
+    previousEntryDigest,
+    event
+  }))
 ```
+
+The stored file's single trailing newline is not part of either digest.
+Genesis uses `previousEntryDigest: null`; every later entry repeats the exact
+previous entry digest. Array/chain order is authoritative. Timestamps need not
+be monotonic, especially for deterministic migrations, and are never used to
+sort or repair a chain.
 
 Manual events use their actual recording time. Migrated events use a sealed
 source timestamp when one exists; otherwise they use the phase-zero source
@@ -1076,14 +1088,23 @@ did not record them.
   "findingId": "atf_...",
   "occurrenceId": "atocc_...",
   "action": "open | accepted-risk | separate-design | false-positive | remediated | superseded | reopened",
+  "actor": "identity:reviewer@example.invalid",
   "owner": "identity-access",
   "reason": "<required>",
   "createdAt": "<RFC 3339>",
   "createdAtBasis": "recorded | source | source-revision-upper-bound",
-  "expiresAt": "<optional RFC 3339>",
-  "sourceBlob": "git-sha1:<optional>",
-  "reviewedBlob": "git-sha1:<optional>",
-  "fixBlob": "git-sha1:<optional>",
+  "expiresAt": "<action-specific RFC 3339, null, or omitted>",
+  "reviewContext": {
+    "observationId": "aobs_...",
+    "bindings": [
+      { "path": "apps/daemon/src/service.ts", "blob": "git-sha1:<hex>" }
+    ],
+    "ruleset": {
+      "id": "atlas-security-v3",
+      "digest": "sha256:<hex>"
+    },
+    "policyDigest": "sha256:<canonical review policy>"
+  },
   "evidenceRefs": [],
   "proofs": [
     {
@@ -1109,7 +1130,14 @@ did not record them.
     "name": "<text>",
     "command": "<text>",
     "result": "passed | failed | not-run",
-    "observedAt": "<RFC 3339>"
+    "binding": {
+      "repositoryRevision": "<full commit>",
+      "observationId": "aobs_<optional>",
+      "files": [
+        { "path": "apps/daemon/src/service.ts", "blob": "git-sha1:<hex>" }
+      ]
+    },
+    "observedAt": "<optional RFC 3339>"
   },
   "reviews": [
     {
@@ -1121,15 +1149,74 @@ did not record them.
       "createdAt": "<RFC 3339>"
     }
   ],
-  "supersedesEventId": "<optional>"
+  "actionEvidence": {},
+  "supersedesEventId": "<action-specific earlier event id or omitted>"
 }
 ```
+
+This display example is a union of possible members. Runtime and TypeScript
+contracts are closed, action-discriminated variants:
+
+- `open` omits `expiresAt`, `regression`, and closing `actionEvidence`; it may
+  supersede an earlier closure when explicitly reopening policy state;
+- `reopened` omits expiry, requires `supersedesEventId` naming an earlier
+  closing event for the same finding, and binds the new occurrence's
+  `reviewContext`;
+- `accepted-risk` and `separate-design` require a non-null `expiresAt`,
+  `reviewContext`, and current-review proof;
+- `false-positive` requires `expiresAt: null`, `reviewContext`, and structured
+  `actionEvidence: { kind: "source-evidence", ... }`;
+- `remediated` omits expiry, requires a revision-bound passing `regression`,
+  post-fix proof, and
+  `actionEvidence: { kind: "remediation", beforeBindings, afterBindings,
+  fixRevision }`; and
+- `superseded` omits expiry and requires exactly one strict action-evidence
+  branch: a canonical `replacementFindingId` with replacement proof, or a full
+  `deletionCommit` with bounded `noReplacementEvidence`.
+
+Members from another action are rejected rather than ignored. `reviewContext`
+bindings are a nonempty, unique, sorted set covering every authoritative
+finding location for that occurrence, so one unqualified blob can never stand
+for a multi-file finding. Its ruleset and policy digests describe the exact
+context in which Atlas validated the decision, including a deterministic
+migration validation context when the historical source predates Atlas.
+
+Proofs are themselves closed unions (`current-review`, `post-fix`,
+`source-evidence`, `replacement`, `deletion`, and `no-replacement`) with
+kind-specific required fields. When a proof cites a source artifact it requires
+the normalized source path, full repository revision, Git blob, SHA-256, and a
+self-contained bounded conclusion; a path alone is invalid. Regression proof
+always binds its command/result to a full repository revision and exact file
+blobs. `observedAt` is optional because a migrated source may not have recorded
+it.
+
+`actor`, `owner`, and reviewer identities use lowercase NFC strings matching
+`^[a-z0-9][a-z0-9._:@/+-]{0,127}$`; noncanonical input is rejected rather
+than silently normalized. Equality is exact byte equality. Only
+`verdict: "approve"` counts toward an independent-review minimum. Counted
+reviewers are distinct from the event actor and accountable owner, contain
+nonempty evidence when policy requires it, and count once even if multiple
+receipts exist. Reject reviews remain auditable but never satisfy closure.
 
 Derived state is the latest valid event in chain order, not the latest
 timestamp. A current occurrence with no disposition event derives to implicit
 `open`; policy may require an explicit closing decision, and an implicit open
 is always blocking when `requireDisposition` is enabled. Producers do not
 forge a human `open` event merely to make the chain nonempty.
+
+Reduction never validates against one current observation alone. Loaders first
+build a fail-closed global history/decision index:
+
+```text
+occurrenceId -> findingId, observationId, decisionLedger, exact file/blob bindings, ruleset
+findingId    -> stable decisionLedger, every historical/current occurrence
+eventId      -> decisionLedger, chain index, event digest
+```
+
+This permits decisions for remediated or superseded historical occurrences
+without copying them into a current observation. Unknown references, identity
+collisions, or the same finding owned by two decision ledgers invalidate the
+decision portfolio; malformed events are never skipped.
 
 `reopened` must supersede a closing event. `remediated` requires a fix blob and
 self-contained post-fix proof under policy. `false-positive` requires the exact
@@ -1141,8 +1228,9 @@ A later reportable occurrence reconciled to a previously remediated,
 false-positive, or superseded finding derives to blocking `reopened` even
 before an acknowledgment event is appended. An accepted-risk or
 separate-design decision may carry to a later occurrence only when its exact
-reviewed blob still matches, it is unexpired, and the policy/ruleset did not
-change. A changed blob or policy derives to blocking `open`. An explicit
+review bindings still match, it is unexpired, and the policy/ruleset digests
+match its recorded `reviewContext`. A changed blob or policy derives to
+blocking `open`. An explicit
 `reopened` event records acknowledgment; it is not required for Atlas to notice
 the reappearance.
 
@@ -1166,10 +1254,21 @@ reason still applies.
   "blob": "git-sha1:<hex>",
   "reason": "deleted | moved | superseded | staged-deletion | uncommitted-snapshot-absent",
   "retiredAt": "<RFC 3339>",
+  "retiredAtPrecision": "timestamp | date",
+  "originalRetiredDate": "<required YYYY-MM-DD when precision is date>",
+  "actor": "<stable identity>",
   "createdAt": "<RFC 3339>",
   "createdAtBasis": "recorded | source | source-revision-upper-bound",
-  "deletionCommit": "<full commit or omitted before final deletion>",
-  "successorPath": "<optional>",
+  "historyProof": {
+    "observationId": "aobs_...",
+    "path": "apps/old.ts",
+    "blob": "git-sha1:<hex>"
+  },
+  "deletionCommit": "<reason-specific full commit>",
+  "successor": {
+    "path": "apps/new.ts",
+    "blob": "git-sha1:<same bytes>"
+  },
   "evidenceRefs": [],
   "supersedesEventId": "<optional staged event>"
 }
@@ -1187,28 +1286,88 @@ verifies the deleted blob and full deletion commit. A migrated
 `uncommitted-snapshot-absent` and retains its legacy proof; it never claims a
 deletion commit.
 
+Retirement is a strict reason-discriminated union. `staged-deletion` requires a
+worktree/index absence proof and forbids a deletion commit.
+`deleted` requires a full deletion commit and, when a matching staged event
+exists, explicitly supersedes it without rewriting it. `moved` requires
+`successor.path` and `successor.blob`; the successor must exist at the verified
+revision and have exactly the retired blob bytes. `superseded` requires either
+a validated successor or structured no-replacement proof.
+`uncommitted-snapshot-absent` requires the sealed migration source proof and
+forbids claims about a deletion commit. Every branch binds the retired
+`(path, blob)` to an observation-history proof.
+
+Date-only legacy retirements normalize to midnight UTC, set
+`retiredAtPrecision: "date"`, and retain the exact source calendar date.
+Timestamp precision is never invented.
+
 ### Reconciliation event
 
 ```json
 {
   "eventId": "adev_...",
   "type": "finding-reconciliation",
+  "comparisonId": "acmp_<24 hex>",
+  "decisionLedger": "security-identity-access",
   "beforeOccurrenceIds": ["atocc_old"],
   "afterOccurrenceIds": ["atocc_new"],
   "outcome": "equivalent | distinct | uncertain",
   "confidence": "high | medium | low",
   "reason": "<root-cause comparison>",
-  "producer": {},
+  "source": {
+    "kind": "grok-cli | codex-security | migration | manual",
+    "name": "<bounded producer or actor>",
+    "version": "<bounded version>",
+    "sourceArtifact": "<optional sealed artifact ref>"
+  },
   "createdAt": "<RFC 3339>",
   "createdAtBasis": "recorded | source | source-revision-upper-bound",
-  "evidenceRefs": []
+  "evidenceRefs": [],
+  "supersedesEventId": "<optional earlier reconciliation correction>"
 }
 ```
 
 Only high-confidence `equivalent` groups affect lifecycle derivation.
 `uncertain` remains visible and prevents automatic `resolved` or `reopened`
 classification. Each occurrence appears in at most one confirmed group for a
-comparison pair. Atlas supports one-to-many and many-to-one groups.
+comparison. Atlas supports one-to-many and many-to-one groups and rejects
+many-to-many, empty, overlapping, duplicate, conflicting, or cyclic groups.
+
+`comparisonId` deterministically binds the sorted before/after observation
+sets, making the comparison boundary explicit instead of attempting to invert
+occurrence IDs. A correction must have the same `comparisonId`, point to the
+earlier active reconciliation event, and live later in the same chain. The
+event's global home is the lexicographically smallest stable
+`decisionLedger` among the indexed findings involved; the event is stored once
+and the global index projects it to every endpoint. A many-to-one merge carries
+a prior closure only when every applicable prior effective decision is
+compatible and its review context remains valid; disagreement fails closed to
+`open`/`unknown`.
+
+Legacy/provider aliases are a different fact and use a separate event:
+
+```json
+{
+  "eventId": "adev_...",
+  "type": "identity-alias-reconciliation",
+  "decisionLedger": "security-identity-access",
+  "aliases": [
+    { "scheme": "relayos-security-scan/v1", "value": "SEC-ABC123" }
+  ],
+  "findingId": "atf_...",
+  "occurrenceIds": ["atocc_..."],
+  "relationship": "canonical | duplicate-of",
+  "source": {},
+  "createdAt": "<RFC 3339>",
+  "createdAtBasis": "recorded | source | source-revision-upper-bound",
+  "evidenceRefs": []
+}
+```
+
+Alias events preserve legacy identity-to-canonical mappings but do not by
+themselves drive temporal lifecycle. Their home is the canonical finding's
+stable decision ledger. Alias pairs and canonical endpoints are unique; a
+single alias cannot name two canonical findings.
 
 Derived labels are:
 
@@ -1316,6 +1475,14 @@ renames the owner-neutral format to `atlas-review-policy-v1`:
   }
 }
 ```
+
+Expiry maximums are validated once against the event, using
+`expiresAt - createdAt`, never against the moving check time. Otherwise an
+initially invalid overlong acceptance could become valid merely by aging.
+Effective-state evaluation treats `now >= expiresAt` as expired/blocking and
+warns when `now < expiresAt <= now + warningDays`. A decision exactly at the
+maximum duration is valid; a decision one instant beyond it is invalid.
+Severity overrides use the finding severity bound by the indexed occurrence.
 
 Rules classify every Git-tracked regular file as review-required or explicitly
 excluded. Conflicts, unclassified paths, broad executable exclusions,
@@ -1734,13 +1901,15 @@ never truncates a record.
 Within each migrated decision ledger, append order is deterministic:
 
 1. scope-retirement events sorted by `(retiredAt, path, blob)`;
-2. reconciliation events sorted by canonical before/after occurrence tuples;
-3. finding-disposition events sorted by legacy finding ID; and
-4. any remaining bounded extension event sorted by `(type, eventId)`.
+2. identity-alias reconciliation events sorted by `(scheme, value, findingId)`;
+3. temporal reconciliation events sorted by
+   `(comparisonId, beforeOccurrenceIds, afterOccurrenceIds)`;
+4. finding-disposition events sorted by legacy finding ID; and
+5. any remaining bounded extension event sorted by `(type, eventId)`.
 
 The type order is migration serialization, not a claim that the original human
-decisions occurred in that order. Original source timing remains in event
-provenance when available.
+decisions occurred in that order. `createdAt` therefore need not be monotonic.
+Original source timing remains in event provenance when available.
 
 The root-audits migrator seals and projects historical reports and verifies
 existing design-ledger parity. Product-specific egress-policy relocation
@@ -1937,6 +2106,27 @@ All loaders use shared limits before allocating deeply:
 
 Errors carry stable codes and JSON pointers but do not echo credentials,
 unbounded producer prose, source snippets, or absolute private scan paths.
+
+### Filesystem threat boundary
+
+The V3 audit-state reader/writer and lock backend requires Linux with an
+available `/proc/self/fd` filesystem. Other Repo Atlas features remain
+portable, but V3 state operations fail before creating directories,
+temporaries, targets, or locks when this capability is unavailable. The CLI
+and README report this requirement explicitly; RelayOS CI and migration run on
+that supported backend.
+
+Descriptor anchoring protects against untrusted repository paths, symlinks,
+parent replacement, and path races before a kernel operation. It does not
+claim to confine an already-open directory inode against a malicious
+same-credential process that renames that exact inode outside the repository
+during the final kernel mutation. Linux exposes no atomic
+"rename only while this open directory remains beneath that root" primitive
+through Node. Atlas detects the relocation immediately after the operation and
+fails, but the relocated inode may contain the completed atomic replacement.
+This actor already has direct write/rename authority over both locations and
+is outside the repository-content threat model. Atlas must never follow a
+replacement symlink or mutate a different outside inode, even in this race.
 
 ## Test strategy
 

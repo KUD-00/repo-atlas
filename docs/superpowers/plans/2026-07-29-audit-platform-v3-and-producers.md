@@ -92,13 +92,10 @@ export const AUDIT_LIMITS = {
   jsonBytes: 32 * 1024 * 1024,
   collectionItems: 1_000_000,
   textCodeUnits: 256 * 1024,
+  textTotalCodeUnits: 8 * 1024 * 1024,
 } as const
 
 export function normalizeAuditRepoPath(value: string): string
-export function resolveSafeAuditFile(root: string, repoPath: string, options?: {
-  mustExist?: boolean
-  regularFile?: boolean
-}): string
 export function readBoundedAuditJson(root: string, repoPath: string, maxBytes?: number): unknown
 export function canonicalJson(value: unknown): string
 export function stableAuditId(
@@ -135,6 +132,21 @@ their thenable settles. Directory fsync suppresses only known unsupported
 platform errors; real I/O failures propagate. The generic NUL-domain helper
 does not claim the direct `atf_ = sha256(fingerprint)` formula—Task 2 supplies
 formula-specific helpers and golden vectors.
+
+Safe file operations and the Git-admin lock retain verified root/parent
+descriptors for their whole transaction; no exported API returns a bare
+pathname described as safe for later I/O. Reader and lock cleanup use the same
+aggregate-error discipline as atomic writes. The supported security backend is
+Linux `/proc/self/fd`; missing capability fails before any mutation. Tests cover
+root replacement, Git-lock parent replacement, linked-worktree isolation,
+bounded nonblocking lock reads, post-create `fstat` failure, cleanup/release
+errors, and ignored-versus-real directory-fsync failures.
+
+The threat contract does not claim confinement if a malicious
+same-credential process relocates the already-open parent inode outside the
+repository during the final rename. That relocation is detected and reported,
+but may move the atomically replaced owned inode; replacement symlinks or
+different outside inodes must remain untouched.
 
 - [ ] **Step 4: Verify GREEN and package reproducibility**
 
@@ -449,7 +461,8 @@ git commit -m "feat(audit): add strict V3 observations and history"
 Cover implicit open state, remediated, accepted-risk, separate-design, false-positive, superseded, reopened, deleted, moved, staged deletion, uncommitted-snapshot-absent, and reconciliation. The reducer assertion is:
 
 ```js
-const state = reduceAuditDecisionState(observation, events, policy, now)
+const index = buildAuditDecisionIndex(histories, decisionLedgers)
+const state = reduceAuditDecisionState(index, policy, now)
 assert.deepEqual(state.findings.get(findingId), {
   disposition: 'accepted-risk',
   blocking: false,
@@ -458,7 +471,29 @@ assert.deepEqual(state.findings.get(findingId), {
 })
 ```
 
-Add independent failure fixtures for unknown findings, mismatched evidence blobs, duplicate event IDs, non-monotonic append order, invalid supersession chains/cycles, acceptance without two distinct reviewers, expired acceptance, reopened findings, stale guardrail evidence, and moved paths whose destination bytes do not match.
+Add table-driven RED fixtures for:
+
+- exact closed unions for every finding action, retirement reason, temporal
+  reconciliation, identity-alias reconciliation, proof, review, regression,
+  and action-evidence variant;
+- independent literal `eventId` and `entryDigest` golden vectors;
+- tampered, forked, reordered, duplicate, and colliding chains, while a
+  deterministic migration chain with nonmonotonic `createdAt` remains valid;
+- a global history index containing historical-only findings/occurrences,
+  stable single-ledger ownership, and unknown/mismatched path/blob/ruleset
+  references;
+- implicit open plus every action, automatic reopen/carry rules, earlier-only
+  compatible supersession, and same-ID deterministic append idempotence;
+- exact expiry/warning/30-day/90-day boundaries relative to event `createdAt`,
+  two distinct evidence-bearing approve reviews independent from actor/owner,
+  and reject/duplicate reviewers that do not count;
+- revision/blob-bound passing remediation regressions, source evidence,
+  replacement/deletion/no-replacement proof, and stale guardrail evidence;
+- every retirement branch, staged-to-deleted supersession, moved successor
+  blob equality, and date-only precision preservation; and
+- one-to-many/many-to-one high-equivalent temporal reconciliation, correction,
+  conflict/cycle/many-to-many rejection, plus legacy alias mapping that never
+  drives lifecycle by itself.
 
 - [ ] **Step 2: Run and verify RED**
 
@@ -491,36 +526,38 @@ export type AuditRetirementReason =
   | 'staged-deletion'
   | 'uncommitted-snapshot-absent'
 
-export interface AuditDecisionEventV3 {
-  eventId: string
-  type: 'finding-disposition'
-  findingId: string
-  occurrenceId: string
-  action: AuditFindingAction
-  owner: string
-  reason: string
-  createdAt: string
-  createdAtBasis: 'recorded' | 'source' | 'source-revision-upper-bound'
-  expiresAt?: string
-  sourceBlob?: string
-  reviewedBlob?: string
-  fixBlob?: string
-  evidenceRefs: string[]
-  proofs: AuditDecisionProofV3[]
-  regression?: AuditRegressionProofV3
-  reviews: AuditIndependentReviewV3[]
-  supersedesEventId?: string
-}
+export type AuditFindingDispositionEventV3 =
+  | AuditOpenDecisionEventV3
+  | AuditReopenedDecisionEventV3
+  | AuditAcceptedRiskDecisionEventV3
+  | AuditSeparateDesignDecisionEventV3
+  | AuditFalsePositiveDecisionEventV3
+  | AuditRemediatedDecisionEventV3
+  | AuditSupersededDecisionEventV3
+
+export type AuditDecisionEventV3 =
+  | AuditFindingDispositionEventV3
+  | AuditScopeRetirementEventV3
+  | AuditFindingReconciliationEventV3
+  | AuditIdentityAliasReconciliationEventV3
 ```
 
 Implement strict hash-chain JSON reading, duplicate/collision detection, atomic
 append-and-replace while locked, effective-state reduction, decision-policy
-validation, expiry warning at 14 days, maximums at 30/90 days, immediate
-blocking on reopen/regression, and a stable `decisionLedger` home unit.
+validation, expiry warning at 14 days, event-relative maximums at 30/90 days,
+immediate blocking on reopen/regression, and a stable `decisionLedger` home
+unit. The schema-owned global index covers every V3 history, not only current
+observations. Entry reduction uses chain order and never timestamp sorting.
 
 - [ ] **Step 4: Implement retirement and reconciliation**
 
-Retirement/reconciliation events are separate discriminants with self-contained before/after paths, blobs, reason, actor/reviewer evidence, and source IDs. Reconciliation maps legacy identity to canonical finding/occurrence identity without mutating observations.
+Retirement events are reason-discriminated and carry self-contained
+history/absence/deletion/successor proof plus timestamp precision. Temporal
+finding reconciliation and legacy identity-alias reconciliation are separate
+event types. Temporal events use explicit comparison IDs, deterministic global
+home ledgers, earlier-event corrections, and validated split/merge groups;
+alias events map producer identities to canonical finding/occurrence IDs
+without mutating observations or manufacturing lifecycle equivalence.
 
 - [ ] **Step 5: Verify and commit**
 
