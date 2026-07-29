@@ -166,9 +166,11 @@ git commit -m "feat(audit): add safe deterministic storage primitives"
 
 - [ ] **Step 1: Write failing V3 contract and compatibility tests**
 
-Create a one-file Git fixture, derive all IDs and digests with the production
-helpers, and build a valid V3 **current ledger wrapper** whose `current` member
-is an `AtlasSecurityObservation`. Use this exact structural split:
+Create a one-file Git fixture and build a valid V3 **current ledger wrapper**
+whose `current` member is an `AtlasSecurityObservation`. Production helpers
+may assemble the fixture, but independent literal golden vectors must lock
+every normative identity formula so a uniformly wrong helper cannot make the
+test pass. Use this exact structural split:
 
 ```js
 const repositoryId = 'repo_fixture'
@@ -178,10 +180,10 @@ const observationId = atlasObservationId({
   slug: 'security-runtime',
   adapter: 'repo-atlas/migration-v1',
   runId: 'fixture-run',
+  producerIdentityDigest: rulesetDigest,
   targetId: 'fixture-target',
-  snapshotDigest,
-  scopeHash,
-  rulesetDigest,
+  targetIdentityDigest: snapshotDigest,
+  scopeIdentityDigest,
 })
 const occurrenceId = atlasOccurrenceId(observationId, atlasFingerprint)
 const current = {
@@ -195,6 +197,8 @@ const current = {
     adapter: 'repo-atlas/migration-v1',
     adapterVersion: '0.1.0',
     runId: 'fixture-run',
+    identityDigest: rulesetDigest,
+    identityBasis: 'ruleset',
     ruleset: { id: 'relayos-security-v1', digest: rulesetDigest },
     effectiveConfigDigest,
     environmentPolicyDigest,
@@ -203,11 +207,16 @@ const current = {
     kind: 'git-worktree',
     repositoryId,
     targetId: 'fixture-target',
+    identityDigest: snapshotDigest,
+    identityBasis: 'snapshot',
+    revision,
     snapshotDigest,
     dirty: false,
   },
   scope: {
     mode: 'unit',
+    identityDigest: scopeIdentityDigest,
+    identityBasis: 'exact-inventory',
     includePaths: ['src/**'],
     excludePaths: [],
     scopeHash,
@@ -229,7 +238,12 @@ const current = {
     artifactsReviewed: [],
     limitations: [],
   },
-  exactCoverage: { completeness: 'complete', reviewedFileCount: 1, unreviewed: [] },
+  exactCoverage: {
+    completeness: 'complete',
+    basis: 'full-read-receipts',
+    reviewedFileCount: 1,
+    unreviewed: [],
+  },
   semanticCoverage: {
     mode: 'unit',
     completeness: 'unknown',
@@ -261,7 +275,33 @@ const ledger = {
 }
 ```
 
-Assert strict unknown-field rejection at every envelope, path/hash/timestamp validation, duplicate IDs/paths rejection, occurrence-to-finding/file consistency, bounded nonempty text, line bounds, snippet size, producer receipt digest, and semantic coverage shape. Add V1/V2 fixtures and assert they still project to the existing `SecurityAuditUnit`/`TestAuditUnit`.
+Assert strict unknown-field rejection at every nested envelope,
+path/hash/timestamp validation, duplicate IDs/paths rejection,
+occurrence-to-finding/file consistency, bounded nonempty text, line bounds,
+snippet size, producer receipt digest, and semantic coverage shape. Add V1/V2
+fixtures and assert they still project to the existing
+`SecurityAuditUnit`/`TestAuditUnit`.
+
+The RED matrix must additionally cover:
+
+- the complete producer/target/scope/exact-coverage/artifact-integrity
+  discriminated unions, including every required/forbidden member pair;
+- fixed golden vectors for exact and semantic identities, fingerprint, finding,
+  occurrence, observation, inventory, scope, current, and history digests;
+- the cycle-breaking invariant: changing exact result receipts changes result
+  digests but not scope identity or observation ID; semantic result surfaces
+  likewise do not change semantic declaration identity;
+- repository identity, filename/slug/history path, timestamp/precision,
+  Codex timestamp equality, clean-worktree revision, and source-kind
+  coordinate validation;
+- duplicate and unknown references across files, findings, fingerprints,
+  snippets, semantic surfaces, artifacts, and extensions;
+- extension JSON-pointer/namespace/digest/size/depth/member limits and recursive
+  data-only JSON values rather than `unknown`;
+- complete/partial exact-coverage arithmetic and semantic closure;
+- code-evidence blob/line/content and per-snippet/aggregate bounds; and
+- independently resealed wrong identities so surrounding digest failures do
+  not mask the identity check.
 
 - [ ] **Step 2: Run the focused test and verify RED**
 
@@ -273,7 +313,9 @@ Expected: FAIL because the V3 modules do not exist.
 
 - [ ] **Step 3: Implement strict types and parser**
 
-Define the discriminated public contracts from the normative design, including:
+Define the discriminated public contracts from the normative design, including
+recursive `AuditJsonValue` and required/forbidden-member unions rather than
+interfaces with freely optional fields:
 
 ```ts
 export type AuditReviewStatus = 'reviewed' | 'not-reviewed'
@@ -344,6 +386,12 @@ excludes status/outcome/receipt/occurrence results. `inventoryDigest` and
 `scopeHash` continue to seal the full result receipts. This prevents the
 observation-ID → occurrence-ID → result-scope-digest cycle.
 
+Semantic-declaration scope omits `scopeHash`, `inventoryDigest`, `fileCount`,
+and `files`; its identity uses only the documented source declaration inputs.
+Codex targets retain canonical Atlas `kind` plus exact `sourceKind`, and
+revision-coordinate identity hashes the source spelling. Snapshot-basis target
+identity requires and equals `snapshotDigest`.
+
 - [ ] **Step 4: Publish observations without losing history**
 
 Implement:
@@ -363,11 +411,21 @@ hash-chain history entry first, rejects conflicting history IDs/digests, then
 atomically switches the current wrapper while holding the lock. The current
 observation/digest must equal the latest history entry exactly.
 
+Tests inject a pre-held lock, traversal and symlink targets, history-write and
+current-switch failures, same-ID/different-digest conflicts, forked/reordered
+chains, entry/embedded-observation mismatches, and unknown history members.
+Every rejected publication preserves prior bytes; an interrupted current
+switch leaves only the documented resumable history-ahead state and no owned
+temporary files.
+
 - [ ] **Step 5: Project V3 into existing portfolios**
 
 Extend `src/audits.ts` so V3 security observations load alongside V1/V2
 security/test/design ledgers. Projection keeps rich finding IDs, confidence,
 implicit-open disposition, exact files/hashes, evidence refs, and stale status.
+Absent Codex ruleset and exact scope project as `null`/empty rather than an
+invented label or freshness claim. Mutated exact source bytes become stale,
+and V3-looking polyglots or malformed wrappers cannot downgrade to V1/V2.
 Existing V1/V2 tests must remain unchanged and pass.
 
 - [ ] **Step 6: Verify and commit**
@@ -479,6 +537,8 @@ git commit -m "feat(audit): add append-only finding lifecycle"
 - Create: `src/audit-policy.ts`
 - Create: `src/audit-coverage-generator.ts`
 - Create: `test/audit-policy-generator.test.mjs`
+- Modify: `src/audits.ts`
+- Modify: `src/audit-v3.ts`
 - Modify: `src/review-coverage.ts`
 - Modify: `src/types.ts`
 
@@ -496,6 +556,24 @@ Port the proven RelayOS fixture matrix into temporary Git repositories. Assert:
 - semantic claims are independently reported as covered/unknown/gap;
 - canonical output is byte-stable and contains no generation timestamp;
 - `--allow-incomplete` writes honest incomplete state but policy/ledger invalidity still exits nonzero.
+
+Also port the proven hostile RelayOS fixture semantics without copying its
+module layout:
+
+- canonical policy hashing is insensitive to whitespace/key order;
+- inventory uses sanitized Git environment and fatal UTF-8, rejects Windows
+  drive aliases, case collisions, symlinks, gitlinks, unresolved stages, and
+  unsafe modes, and records current/index blobs plus explicit deletions;
+- classification preserves every rule ID, rejects unmatched units, and never
+  treats unit context as ownership;
+- exact evidence must match the assigned same-domain unit; eligible V1/V2/V3
+  receipts join, while rejected rulesets, stale/mismatched bytes, missing
+  full-read proof, semantic completion, or decision state cannot;
+- update writes compact canonical bytes plus one newline, while check requires
+  those exact bytes and the hostile reader continues to accept structurally
+  valid legacy pretty reports; and
+- `allowIncomplete` changes success only for honest missing/stale evidence,
+  never policy, conflict, invalid-ledger, self-proof, or byte-drift failures.
 
 The generic policy header and embedded decision policy are:
 
@@ -534,6 +612,14 @@ export function classifyAuditInventory(
 
 Use NUL-safe `git ls-files --stage -z`, hash working-tree bytes, reject stage conflicts and non-regular modes, compile picomatch with `{ dot: true }`, and preserve all matching rule IDs.
 
+Do not copy RelayOS's repository-specific broad-glob probes. Reject universal
+swallowing patterns syntactically and evaluate other broad exclusions against
+the actual inventory. Add one schema-owned normalized exact-evidence export
+from `audits.ts`/`audit-v3.ts` containing version, domain, slug, nullable
+ruleset, stale state, exact path/blob/full-read receipts, and invalid claimed
+paths. The generator and hostile report reader consume this seam; neither
+re-parses audit ledgers.
+
 - [ ] **Step 4: Generate and enforce canonical coverage**
 
 Export:
@@ -543,6 +629,13 @@ export function buildAuditCoverageReport(input: AuditCoverageInput): ReviewCover
 export function updateAuditCoverage(root: string, options?: { allowIncomplete?: boolean }): AuditCoverageResult
 export function checkAuditCoverage(root: string, options?: { allowIncomplete?: boolean }): AuditCoverageResult
 ```
+
+`AuditCoverageResult` distinguishes `ok`, committed-byte `current`, `wrote`,
+canonical bytes, diagnostics, and runtime-only semantic/ruleset/lifecycle
+assurance. Those runtime projections never become invented
+`atlas-review-coverage-v1` fields. `update` always writes an honest valid
+complete or incomplete report; `allowIncomplete` changes return/exit success,
+not the bytes or policy validity.
 
 Continue emitting and validating `atlas-review-coverage-v1`; changing ownership
 does not bump the wire format. Exact V3 receipt eligibility is expressed by the

@@ -193,6 +193,14 @@ V3 initially supports `domain: "security"`. Test and design V2 ledgers remain
 valid. Extending V3 to another domain requires a domain-specific finding schema
 and viewer, not a loose `unknown` payload.
 
+Compatibility projection must remain lossless about absence. In particular,
+the shared portfolio `ruleset` field is nullable: a Codex-contract observation
+that supplied no ruleset projects `null`, never an invented
+`"unknown"`, `"codex-security-1.0"`, or adapter label. Exact scope, hashes, and
+freshness likewise project only from exact-inventory receipts. A wrapper that
+claims V3 is dispatched only to the strict V3 parser and can never downgrade
+into a permissive V1/V2 interpretation.
+
 ## V3 current ledger
 
 The checked-in current projection is self-contained for readers and is bound to
@@ -312,6 +320,23 @@ Optional members are omitted, never `null`. `transcriptDigest` proves which
 clone-local transcript was validated without committing it. It is not a claim
 that the transcript can be recovered from Git.
 
+The public contract is a strict discriminated union, not one interface with
+independently optional members:
+
+- `grok-cli`, `migration`, and `manual` use `identityBasis: "ruleset"`, require
+  `ruleset`, require `identityDigest === ruleset.digest`, and reject
+  `sourceContract`;
+- `codex-security` uses `identityBasis: "codex-contract"`, requires the Codex
+  `sourceContract`, rejects ruleset/prompt/config/environment/transcript claims
+  unavailable from that contract, and recomputes the canonical contract
+  identity; and
+- prompt extension path/digest members are either both present or both absent.
+
+The same required/forbidden-member rule applies to target, scope, exact
+coverage, and artifact-integrity variants. TypeScript declarations use
+discriminated unions with `never` exclusions, and runtime parsing enforces the
+same matrix after reading untrusted JSON.
+
 The ruleset digest includes the built-in prompt version, prompt text,
 repository extension bytes, domain policy, unit scope, threat model input,
 model identifier, adapter version, and validation rubric. A changed prompt or
@@ -349,6 +374,7 @@ byte-for-byte equal to `completedAt`.
 ```json
 {
   "kind": "git-revision | git-worktree | git-diff | directory-snapshot",
+  "sourceKind": "git_revision",
   "repositoryId": "repo_<stable lowercase identifier>",
   "targetId": "<stable producer-neutral target id>",
   "identityDigest": "sha256:<hex>",
@@ -364,9 +390,12 @@ byte-for-byte equal to `completedAt`.
 
 The first-party Grok producer audits a snapshot of current tracked worktree
 bytes and records `kind: "git-worktree"`. A clean worktree also records the
-full HEAD revision. An imported Codex target retains its original target kind
-and identifiers. Target kinds that cannot be joined to current exact blobs may
-still carry semantic evidence, but exact coverage remains `unknown`.
+full HEAD revision. `kind` is Atlas's canonical producer-neutral spelling.
+An imported Codex target additionally records its exact source spelling
+(`git_revision`, `git_worktree`, `git_diff`, or `directory_snapshot`) in
+`sourceKind`; first-party targets omit `sourceKind`. Target kinds that cannot
+be joined to current exact blobs may still carry semantic evidence, but exact
+coverage remains `unknown`.
 
 `repositoryId` is the committed, producer-neutral identity initialized in
 `.atlas/config.json`. It survives revision, worktree, unit, and provider
@@ -376,11 +405,28 @@ change it. `targetId` identifies this particular producer target and may change
 between observations.
 
 `target.identityDigest` is the snapshot digest for first-party exact snapshots.
-When an imported Codex `git_revision` target lacks `snapshotDigest`, the
-importer hashes a canonical domain-separated receipt containing source target
-kind, target ID, revision/base/head members, and the optional source snapshot
-digest. It labels the result `revision-coordinate`; it never serializes or
-describes that coordinate digest as a content snapshot.
+`identityBasis: "snapshot"` requires `snapshotDigest` and exact equality
+between those two digests. When an imported Codex target cannot prove a
+snapshot, the importer hashes this canonical receipt:
+
+```json
+{
+  "namespace": "repo-atlas/revision-coordinate/v1",
+  "sourceKind": "git_revision",
+  "targetId": "<exact source target id>",
+  "revision": "<exact source value or omitted>",
+  "baseRevision": "<exact source value or omitted>",
+  "headRevision": "<exact source value or omitted>",
+  "sourceSnapshotDigest": "<exact source value or omitted>"
+}
+```
+
+Only members present in the source are included. It labels the result
+`revision-coordinate`; it never serializes or describes that coordinate digest
+as a content snapshot. A canonical `git-revision` target requires `revision`;
+a clean `git-worktree` requires the full `revision`; and a `git-diff` requires
+its applicable base/head coordinates. The strict target union rejects
+half-present or cross-variant members.
 
 Remote URLs are optional metadata and never identity material. An importer
 rejects a remote containing userinfo, query, fragment, backslash ambiguity,
@@ -388,6 +434,9 @@ control characters, or an opaque or relative form. It never strips unsafe
 parts and continues. A safe canonical absolute URL is preserved exactly.
 
 ### Scope and per-file receipts
+
+The following is the `exact-inventory` variant. `scopeHash`,
+`inventoryDigest`, `fileCount`, and `files` belong only to this variant:
 
 ```json
 {
@@ -470,11 +519,27 @@ provenance. This is a deterministic encoding, not invented timestamp
 precision.
 
 A semantic-only Codex import has no exact inventory. It sets
-`identityBasis: "semantic-declaration"` and hashes the canonical source
-coverage mode, inventory strategy, include/exclude patterns, and explicit
-exclusions with namespace `repo-atlas/codex-semantic-scope/v1`. It omits
-`inventoryDigest`, `fileCount`, and `files`; those members are required for
-`exact-inventory`. Semantic paths, finding locations, code snippets, target
+`identityBasis: "semantic-declaration"` and hashes:
+
+```json
+{
+  "namespace": "repo-atlas/codex-semantic-scope/v1",
+  "mode": "<source coverage mode>",
+  "inventoryStrategy": "<source inventory strategy>",
+  "includePaths": [],
+  "excludePaths": [],
+  "explicitExclusions": [
+    { "pattern": "<exact source pattern>", "reason": "<exact source reason>" }
+  ]
+}
+```
+
+Paths and exclusions use their validated deterministic order. Surfaces,
+dispositions, receipt references, deferred work, open questions, findings, and
+all result metadata are deliberately excluded. The semantic variant omits
+`scopeHash`, `inventoryDigest`, `fileCount`, and `files`; those members belong
+only to `exact-inventory`. `currentDigest` and history still seal the complete
+semantic result. Semantic paths, finding locations, code snippets, target
 revisions, and aggregate snapshot digests are never promoted into per-file
 blob receipts.
 
@@ -912,6 +977,15 @@ or `extensions`, or the import fails with their JSON pointers. There is no
 Each extension value is limited to 64 KiB, nesting depth 16, 1,000 members, and
 the ledger-wide size limit. Keys containing control characters, prototype
 names, or unsafe paths are rejected.
+
+Parsed public values use a recursive JSON-value type (`null`, boolean, finite
+number, string, array, or data-only string-keyed object), never TypeScript
+`unknown`. Stable fields with documented structure are modeled before this
+fallback is used. Functions, symbols, `undefined`, accessors, class instances,
+non-finite numbers, sparse arrays, prototype-control keys, and cyclic values
+are invalid. Extension `(namespace, path)` pairs are unique, paths are strict
+JSON Pointers, namespaces are bounded lowercase contract identifiers, and each
+stored digest must equal the canonical extension value.
 
 ## Observation history
 
