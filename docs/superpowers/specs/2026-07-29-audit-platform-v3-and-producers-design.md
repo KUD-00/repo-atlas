@@ -803,8 +803,12 @@ current bytes.
 
 ### Structured code evidence
 
+Code evidence is a strict discriminated union. Exact evidence is joined to
+repository bytes:
+
 ```json
 {
+  "evidenceBasis": "exact-blob",
   "id": "admin-revoke",
   "label": "Admin path skips ownership",
   "path": "apps/daemon/src/service.ts",
@@ -818,9 +822,43 @@ current bytes.
 }
 ```
 
-This is canonical Codex Security meaning and is first-class in V3. Atlas adds
-the exact source blob. Import is rejected when a snippet does not match the
-claimed lines and blob where those bytes are available.
+When the producer supplied a sealed snippet but Atlas cannot independently
+join it to exact repository bytes, the evidence remains first-class without
+inventing a blob:
+
+```json
+{
+  "evidenceBasis": "sealed-producer-snippet",
+  "id": "admin-revoke",
+  "label": "Admin path skips ownership",
+  "path": "apps/daemon/src/service.ts",
+  "startLine": 237,
+  "endLine": 247,
+  "language": "typescript",
+  "role": "root_control",
+  "code": "<small producer snippet>",
+  "explanation": "<connective security reasoning>",
+  "sourceSeal": {
+    "artifactPath": "findings.json",
+    "artifactSha256": "<64 lowercase hex>",
+    "jsonPointer": "/findings/0/codeEvidence/0"
+  }
+}
+```
+
+The two variants have the same bounded common fields. `exact-blob` requires
+`blob` and forbids `sourceSeal`. `sealed-producer-snippet` requires
+`sourceSeal` and forbids `blob`. Its artifact path and digest must resolve to
+exactly one `sourceArtifacts` entry with
+`integrityKind: "producer-manifest"`, and the JSON pointer must be a strict
+pointer into that sealed artifact. A sealed producer snippet is not an exact
+file-read or blob receipt and never contributes exact coverage.
+
+This preserves canonical Codex Security code-evidence meaning as a
+first-class V3 fact. Atlas adds an exact source blob only when it independently
+possesses and validates those bytes. Import is rejected when an
+`exact-blob` snippet does not match its claimed lines/blob, or when a
+`sealed-producer-snippet` cannot be traced to its sealed source artifact.
 
 Bounds prevent V3 from becoming a source archive: at most 32 snippets per
 finding, 16 KiB per snippet, 128 KiB total snippet bytes per finding, and 1 MiB
@@ -1739,7 +1777,7 @@ semantic evidence remains useful and is labeled honestly.
 | confidence level/rationale | first-class |
 | category/CWE | first-class taxonomy |
 | locations and roles | first-class structured locations |
-| code evidence | first-class bounded exact snippets |
+| code evidence | first-class bounded snippets; exact-blob only when independently joined, otherwise sealed-producer-snippet |
 | root cause | first-class normalized structure |
 | remediation | first-class |
 | validation | documented fields first-class; bounded unknowns preserved |

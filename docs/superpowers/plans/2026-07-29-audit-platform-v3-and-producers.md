@@ -308,6 +308,10 @@ The RED matrix must additionally cover:
   coordinate validation;
 - duplicate and unknown references across files, findings, fingerprints,
   snippets, semantic surfaces, artifacts, and extensions;
+- the exact-blob versus sealed-producer-snippet code-evidence union, including
+  required/forbidden blob/source-seal members, sealed artifact and JSON-pointer
+  cross-references, and proof that producer snippets never create exact
+  coverage;
 - extension JSON-pointer/namespace/digest/size/depth/member limits and recursive
   data-only JSON values rather than `unknown`;
 - complete/partial exact-coverage arithmetic and semantic closure;
@@ -701,7 +705,23 @@ git commit -m "feat(audit): own closed-world coverage generation"
 
 - [ ] **Step 1: Write failing adapter fixtures**
 
-Tests construct a sealed manifest containing source snapshot entries, analysis metadata, findings, and SHA-256 digests. Assert clean per-file receipts, rich finding fields, normalized locations/evidence, imported source IDs in provenance/extensions, and semantic ruleset `codex-security-1.0`. Reject network URLs, missing bundle members, digest mismatch, unsafe paths, duplicate findings, unsupported manifest versions, missing full-read proof, out-of-scope code evidence, and contradictory clean/finding outcomes.
+Construct the real three-document Codex Security 1.0 directory bundle:
+`scan-manifest.json`, `findings.json`, and `coverage.json`, plus only the
+artifacts referenced by the manifest. Assert rich finding fields, normalized
+locations, sealed-producer code evidence, exact source IDs in
+provenance/extensions, canonical Atlas target/source-kind coordinates,
+semantic-declaration scope, semantic coverage, and
+`exactCoverage: { completeness: "unknown", basis: "unavailable", ... }`.
+Codex 1.0 supplies no ruleset and no exact per-file/full-read receipts, so the
+adapter must not invent either.
+
+Reject URL-like bundle inputs, non-local or symlinked bundle members, missing
+canonical documents, scan-ID/reference/timestamp mismatch, digest mismatch,
+unsafe or duplicate artifact paths, duplicate/colliding findings, unsupported
+document types/versions, invalid Codex identity formulas, out-of-scope
+locations/evidence, broken sealed-snippet source pointers, and unknown fields
+that cannot be preserved within V3 bounds. Missing full-read proof is an
+honest semantic import, not an import failure.
 
 - [ ] **Step 2: Run and verify RED**
 
@@ -718,7 +738,6 @@ export interface CodexSecurityImportOptions {
   bundlePath: string
   unitSlug: string
   unitTitle: string
-  ruleset?: string
   publish?: boolean
 }
 
@@ -728,7 +747,14 @@ export function importCodexSecurityBundle(
 ): { observation: AuditObservationV3; receiptPath: string }
 ```
 
-Read only local regular files under the supplied bundle root; never invoke Codex or fetch a URL. Verify every manifest digest before mapping. Preserve unmapped source fields under bounded `extensions.codexSecurity`.
+Read only local regular files under the supplied bundle root; never invoke
+Codex or fetch a URL. Use bounded duplicate-key-aware JSON reads, verify the
+manifest's actual seal relationships before mapping, and describe the
+unsealed manifest itself as `adapter-bundle`, never producer-manifest. Preserve
+every schema-permitted unmapped source field as a bounded namespaced extension
+at its exact JSON pointer or reject the import. Import code evidence as
+`sealed-producer-snippet` unless Atlas independently proves the referenced
+source blob and lines; neither variant manufactures full-read coverage.
 
 - [ ] **Step 4: Verify and commit**
 
