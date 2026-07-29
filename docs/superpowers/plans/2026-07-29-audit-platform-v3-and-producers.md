@@ -91,12 +91,25 @@ export function resolveSafeAuditFile(root: string, repoPath: string, options?: {
 }): string
 export function readBoundedAuditJson(root: string, repoPath: string, maxBytes?: number): unknown
 export function canonicalJson(value: unknown): string
-export function stableAuditId(prefix: 'arepo' | 'aobs' | 'afnd' | 'aocc' | 'adec' | 'aret' | 'arec' | 'amig', parts: readonly string[]): string
+export function stableAuditId(
+  prefix: 'aobs' | 'atf' | 'atocc' | 'adev' | 'amig',
+  domainTag: string,
+  parts: readonly string[],
+): string
 export function atomicWriteAuditFile(root: string, repoPath: string, contents: string): void
 export function withAuditLock<T>(root: string, operation: () => T): T
 ```
 
-`stableAuditId` is `${prefix}_${sha256(canonicalJson(parts)).slice(0, 24)}`. Canonical JSON recursively sorts object keys, preserves array order, rejects non-finite numbers/undefined/cycles, and ends with one newline. The lock lives at `.atlas/.audit.lock`, contains PID/operation/start time, uses `wx`, and is always released in `finally`; a stale lock is never silently stolen.
+`stableAuditId` is
+`${prefix}_${first24(sha256(domainTag + NUL + parts.join(NUL)))}`. Callers use
+the exact domain tags and ordered identity members in the normative spec;
+repository IDs are committed producer-neutral `repo_...` values rather than
+being synthesized by this helper. Canonical JSON recursively sorts object
+keys, preserves array order, rejects non-finite numbers/undefined/cycles, and
+ends with one newline for storage (digest helpers hash the RFC 8785 value
+without the presentation newline). The lock lives at `.atlas/.audit.lock`,
+contains PID/operation/start time, uses `wx`, and is always released in
+`finally`; a stale lock is never silently stolen.
 
 - [ ] **Step 4: Verify GREEN and package reproducibility**
 
@@ -129,55 +142,97 @@ git commit -m "feat(audit): add safe deterministic storage primitives"
 - [ ] **Step 1: Write failing V3 contract and compatibility tests**
 
 Create a one-file Git fixture, derive all IDs and digests with the production
-helpers, and build a valid V3 observation with:
+helpers, and build a valid V3 **current ledger wrapper** whose `current` member
+is an `AtlasSecurityObservation`. Use this exact structural split:
 
 ```js
-const repositoryId = stableAuditId('arepo', ['fixture-repository'])
-const observationId = stableAuditId('aobs', [repositoryId, 'security-runtime', gitBlob(root, 'src/a.ts')])
-const findingId = stableAuditId('afnd', [repositoryId, 'legacy-1'])
-const occurrenceId = stableAuditId('aocc', [observationId, findingId, 'src/a.ts', '1'])
-const migrationId = stableAuditId('amig', ['fixture-migration'])
-const migrationPath = `.atlas/migrations/${migrationId}.json`
-const migrationSha256 = sha256File(root, migrationPath)
-{
-  formatVersion: 3,
-  format: 'atlas-audit-v3',
+const repositoryId = 'repo_fixture'
+const blob = `git-sha1:${gitBlob(root, 'src/a.ts')}`
+const findingId = atlasFindingId(repositoryId, 'security', ruleId, anchor, instance)
+const observationId = atlasObservationId({
+  slug: 'security-runtime',
+  adapter: 'repo-atlas/migration-v1',
+  runId: 'fixture-run',
+  targetId: 'fixture-target',
+  snapshotDigest,
+  scopeHash,
+  rulesetDigest,
+})
+const occurrenceId = atlasOccurrenceId(observationId, atlasFingerprint)
+const current = {
   observationId,
-  repositoryId,
-  domain: 'security',
-  unit: { slug: 'security-runtime', title: 'Runtime', ruleset: 'relayos-security-v3' },
   observedAt: '2026-07-29T12:34:56.000Z',
-  scope: {
-    scopeHash: scopeHash(root, ['src/a.ts']),
-    files: [{
-      path: 'src/a.ts',
-      blob: gitBlob(root, 'src/a.ts'),
-      review: { state: 'reviewed', outcome: 'findings', reviewedAt: '2026-07-29T12:34:56.000Z' },
-      findingOccurrenceIds: [occurrenceId],
-    }],
-  },
+  reviewState: 'complete',
   producer: {
     kind: 'migration',
-    name: 'relayos-legacy',
+    name: 'relayos-security-scan',
     version: '1',
-    invocationId: migrationId,
-    receipt: { path: migrationPath, sha256: migrationSha256 },
+    adapter: 'repo-atlas/migration-v1',
+    adapterVersion: '0.1.0',
+    runId: 'fixture-run',
+    ruleset: { id: 'relayos-security-v1', digest: rulesetDigest },
+    effectiveConfigDigest,
+    environmentPolicyDigest,
   },
-  semanticCoverage: { rulesets: ['atlas-security-v2', 'relayos-security-legacy'], claims: [] },
-  findings: [{
-    findingId,
-    occurrenceId,
-    severity: 'high',
-    category: 'authorization',
-    title: 'Tenant boundary missing',
-    locations: [{ path: 'src/a.ts', startLine: 1, endLine: 1 }],
-    codeEvidence: [{ path: 'src/a.ts', startLine: 1, endLine: 1, snippet: 'export const a = 1' }],
-    rootCause: 'An actor-controlled tenant is trusted.',
-    attackPath: ['attacker chooses tenant', 'handler reads victim data'],
-    validation: ['use a second tenant fixture'],
-    remediation: 'derive tenant from the authenticated grant',
-    provenance: { source: 'migration', sourceFindingId: 'legacy-1' },
-  }],
+  target: {
+    kind: 'git-worktree',
+    repositoryId,
+    targetId: 'fixture-target',
+    snapshotDigest,
+    dirty: false,
+  },
+  scope: {
+    mode: 'unit',
+    includePaths: ['src/**'],
+    excludePaths: [],
+    scopeHash,
+    inventoryDigest,
+    fileCount: 1,
+    files: [{
+      path: 'src/a.ts',
+      blob,
+      lines: 1,
+      status: 'reviewed',
+      outcome: 'findings',
+      reviewedAt: '2026-07-29T12:34:56.000Z',
+      reviewedAtPrecision: 'timestamp',
+      reviewedBy: 'fixture migrator',
+      ruleset: 'relayos-security-v1',
+      findingOccurrenceIds: [occurrenceId],
+      receiptRefs: ['migration:fixture'],
+    }],
+    artifactsReviewed: [],
+    limitations: [],
+  },
+  exactCoverage: { completeness: 'complete', reviewedFileCount: 1, unreviewed: [] },
+  semanticCoverage: {
+    mode: 'unit',
+    completeness: 'unknown',
+    inventoryStrategy: 'unit',
+    surfaces: [],
+    explicitExclusions: [],
+    deferred: [],
+    openQuestions: [],
+  },
+  findings: [validRichFinding({ findingId, occurrenceId, blob })],
+  evidenceRefs: [],
+  sourceArtifacts: [],
+  producerExtensions: [],
+}
+const history = historyEnvelopeWith(current)
+const ledger = {
+  formatVersion: 3,
+  format: 'atlas-audit-v3',
+  domain: 'security',
+  slug: 'security-runtime',
+  title: 'Runtime',
+  current,
+  currentDigest: canonicalSha256(current),
+  history: {
+    path: '.atlas/audit-history/security-runtime.json',
+    observationId,
+    entryDigest: history.entries.at(-1).entryDigest,
+  },
 }
 ```
 
@@ -196,35 +251,59 @@ Expected: FAIL because the V3 modules do not exist.
 Define the discriminated public contracts from the normative design, including:
 
 ```ts
-export type AuditReviewState = 'reviewed' | 'not-reviewed'
+export type AuditReviewStatus = 'reviewed' | 'not-reviewed'
 export type AuditReviewOutcome = 'clean' | 'findings' | 'unknown'
-export type AuditProducerKind = 'grok-cli' | 'codex-security-import' | 'migration'
+export type AuditProducerKind = 'grok-cli' | 'codex-security' | 'migration' | 'manual'
 export type AuditConfidence = 'low' | 'medium' | 'high'
 
 export interface AuditFileReceiptV3 {
   path: string
-  blob: string
-  review: { state: AuditReviewState; outcome: AuditReviewOutcome; reviewedAt?: string }
+  blob: `git-sha1:${string}` | `git-sha256:${string}`
+  lines: number
+  status: AuditReviewStatus
+  outcome: AuditReviewOutcome
+  reviewedAt?: string
+  reviewedAtPrecision?: 'timestamp' | 'date'
+  reviewedBy?: string
+  ruleset?: string
   findingOccurrenceIds: string[]
+  receiptRefs: string[]
 }
 
-export interface AuditObservationV3 {
+export interface AtlasSecurityCurrentLedgerV3 {
   formatVersion: 3
   format: 'atlas-audit-v3'
+  domain: 'security'
+  slug: string
+  title: string
+  conceptSlug?: string
+  current: AtlasSecurityObservationV3
+  currentDigest: `sha256:${string}`
+  history: { path: string; observationId: string; entryDigest: `sha256:${string}` }
+}
+
+export interface AtlasSecurityObservationV3 {
   observationId: string
-  repositoryId: string
-  domain: 'security' | 'test' | 'design'
-  unit: { slug: string; title: string; ruleset: string }
   observedAt: string
-  scope: { scopeHash: string; files: AuditFileReceiptV3[] }
+  reviewState: 'complete'
   producer: AuditProducerReceiptV3
+  target: AuditTargetReceiptV3
+  scope: AuditScopeV3
+  exactCoverage: AuditExactCoverageV3
   semanticCoverage: AuditSemanticCoverageV3
-  findings: AuditFindingV3[]
-  extensions?: Record<string, unknown>
+  threatModel?: AuditThreatModelV3
+  findings: AtlasSecurityFindingV3[]
+  evidenceRefs: string[]
+  sourceArtifacts: AuditSourceArtifactV3[]
+  producerExtensions: AuditExtensionV3[]
 }
 ```
 
-Every parser returns `{ ok: true, value } | { ok: false, diagnostics }`; it never drops malformed entries. V3 current files remain `.atlas/audits/<slug>.json`, history files are `.atlas/audit-history/<observationId>.json`, and `repositoryId` is read from `.atlas/repository-id.json`.
+Every parser returns `{ ok: true, value } | { ok: false, diagnostics }`; it
+never drops malformed entries. V3 current files remain
+`.atlas/audits/<slug>.json`; the hash-chain envelope is
+`.atlas/audit-history/<slug>.json`; and the stable producer-neutral
+`repositoryId` comes from committed Atlas config/identity state.
 
 - [ ] **Step 4: Publish observations without losing history**
 
@@ -232,18 +311,25 @@ Implement:
 
 ```ts
 export function loadAuditObservations(root: string): AuditObservationLoadResult
-export function loadAuditObservationHistory(root: string): AuditObservationLoadResult
-export function publishAuditObservation(root: string, observation: AuditObservationV3): {
+export function loadAuditObservationHistory(root: string): AuditObservationHistoryLoadResult
+export function publishAuditObservation(root: string, ledger: AtlasSecurityCurrentLedgerV3): {
   currentPath: string
-  archivedObservationId: string | null
+  historyPath: string
+  appendedObservationId: string
 }
 ```
 
-Publication validates the whole observation and current repository bytes, archives the previous valid current observation under its immutable ID, rejects conflicting existing history bytes, then atomically replaces current while holding the lock.
+Publication validates the observation and repository bytes, appends a new
+hash-chain history entry first, rejects conflicting history IDs/digests, then
+atomically switches the current wrapper while holding the lock. The current
+observation/digest must equal the latest history entry exactly.
 
 - [ ] **Step 5: Project V3 into existing portfolios**
 
-Extend `src/audits.ts` so V3 security/test observations load alongside V1/V2. Projection keeps rich finding IDs, confidence, disposition derived later as open, exact files/hashes, evidence refs, and stale status. Existing V1/V2 tests must remain unchanged and pass.
+Extend `src/audits.ts` so V3 security observations load alongside V1/V2
+security/test/design ledgers. Projection keeps rich finding IDs, confidence,
+implicit-open disposition, exact files/hashes, evidence refs, and stale status.
+Existing V1/V2 tests must remain unchanged and pass.
 
 - [ ] **Step 6: Verify and commit**
 
@@ -285,10 +371,15 @@ pnpm build:cli && node --test test/audit-decisions.test.mjs
 
 - [ ] **Step 3: Implement append-only event contracts**
 
-Store one stable decision-ledger unit at `.atlas/audit-decisions/<unit>.jsonl`. Each line is canonical JSON and one of:
+Store one stable decision-ledger unit at
+`.atlas/audit-decisions/<decisionLedger>.json`. It is the
+`atlas-audit-decisions-v1` append-only hash-chain envelope from the normative
+spec; each entry binds `previousEntryDigest`, repeats `eventId`, contains one
+event discriminant, and has an `entryDigest`.
 
 ```ts
-export type AuditFindingDecision =
+export type AuditFindingAction =
+  | 'open'
   | 'remediated'
   | 'accepted-risk'
   | 'separate-design'
@@ -304,24 +395,31 @@ export type AuditRetirementReason =
   | 'uncommitted-snapshot-absent'
 
 export interface AuditDecisionEventV3 {
-  formatVersion: 3
-  format: 'atlas-audit-decision-v3'
   eventId: string
-  repositoryId: string
+  type: 'finding-disposition'
   findingId: string
   occurrenceId: string
-  decision: AuditFindingDecision
-  decidedAt: string
-  rationale: string
-  reviewers: Array<{ id: string; role: string }>
-  evidence: Array<{ path: string; blob: string; kind: string }>
+  action: AuditFindingAction
+  owner: string
+  reason: string
+  createdAt: string
+  createdAtBasis: 'recorded' | 'source' | 'source-revision-upper-bound'
   expiresAt?: string
-  supersedesFindingId?: string
-  guardrail?: { command: string; evidencePath: string; evidenceBlob: string }
+  sourceBlob?: string
+  reviewedBlob?: string
+  fixBlob?: string
+  evidenceRefs: string[]
+  proofs: AuditDecisionProofV3[]
+  regression?: AuditRegressionProofV3
+  reviews: AuditIndependentReviewV3[]
+  supersedesEventId?: string
 }
 ```
 
-Implement strict JSONL reading, duplicate/collision detection, append with fsync while locked, effective-state reduction, decision-policy validation, expiry warning at 14 days, default maximums at 30/90 days, immediate blocking on reopen/regression, and a `decisionLedger` home unit.
+Implement strict hash-chain JSON reading, duplicate/collision detection, atomic
+append-and-replace while locked, effective-state reduction, decision-policy
+validation, expiry warning at 14 days, maximums at 30/90 days, immediate
+blocking on reopen/regression, and a stable `decisionLedger` home unit.
 
 - [ ] **Step 4: Implement retirement and reconciliation**
 
@@ -360,18 +458,19 @@ Port the proven RelayOS fixture matrix into temporary Git repositories. Assert:
 - canonical output is byte-stable and contains no generation timestamp;
 - `--allow-incomplete` writes honest incomplete state but policy/ledger invalidity still exits nonzero.
 
-The generic policy header is:
+The generic policy header and embedded decision policy are:
 
 ```json
 {
-  "formatVersion": 2,
-  "format": "atlas-review-policy-v2",
-  "acceptedRulesets": {
-    "security": ["relayos-security-v3", "codex-security-1.0"],
-    "test": ["relayos-test-v2"]
-  },
+  "formatVersion": 1,
+  "format": "atlas-review-policy-v1",
   "rules": [],
-  "units": []
+  "units": [],
+  "securityDecisions": {
+    "requireDisposition": true,
+    "blockingActions": ["open", "reopened"],
+    "acceptedRulesets": ["relayos-security-v3", "codex-security-1.0"]
+  }
 }
 ```
 
@@ -390,7 +489,7 @@ export function loadAuditReviewPolicy(root: string): AuditReviewPolicyResult
 export function readAuditTrackedInventory(root: string): AuditInventoryResult
 export function classifyAuditInventory(
   inventory: readonly AuditTrackedFile[],
-  policy: AuditReviewPolicyV2,
+  policy: AuditReviewPolicyV1,
 ): AuditClassificationResult
 ```
 
@@ -406,7 +505,12 @@ export function updateAuditCoverage(root: string, options?: { allowIncomplete?: 
 export function checkAuditCoverage(root: string, options?: { allowIncomplete?: boolean }): AuditCoverageResult
 ```
 
-Keep `atlas-review-coverage-v1` readable, add V2 fields for exact versus semantic coverage, accepted ruleset, lifecycle blocking, policy diagnostics, and current observation IDs. The self-entry still uses `GENERATED-PROOF`. Update `src/review-coverage.ts` to validate either supported report version fail-closed.
+Continue emitting and validating `atlas-review-coverage-v1`; changing ownership
+does not bump the wire format. Exact V3 receipt eligibility is expressed by the
+existing per-domain fresh/missing/stale/invalid evidence plus unit references.
+Semantic coverage, accepted-ruleset status, and lifecycle blocking are separate
+runtime assurance projections, not invented V2 coverage fields. The self-entry
+still uses `GENERATED-PROOF`.
 
 - [ ] **Step 5: Verify and commit**
 
