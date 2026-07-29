@@ -544,6 +544,185 @@ export function readBoundedAuditJson(
   return readBoundedAuditJsonDocument(root, repoPath, maxBytes).value
 }
 
+export function listBoundedAuditDirectory(
+  root: string,
+  repoDirectory: string,
+  maxEntries = 100_000,
+): string[] {
+  if (!Number.isSafeInteger(maxEntries) || maxEntries < 0) {
+    throw new Error('audit directory entry limit must be a nonnegative safe integer')
+  }
+  const normalized = normalizeAuditRepoPath(repoDirectory)
+  const repository = safeRoot(root)
+  const owned: AnchoredDirectory[] = []
+  let listing: fs.Dir | null = null
+  let result: string[] = []
+  let primaryFailed = false
+  let primaryFailure: unknown
+  const cleanupFailures: unknown[] = []
+  try {
+    const rootDirectory = openVerifiedRepositoryRoot(
+      repository,
+      `audit directory listing ${normalized}`,
+    )
+    owned.push(rootDirectory)
+    let current = rootDirectory
+    let namedPath = repository.real
+    let missing: { parent: AnchoredDirectory; segment: string } | null = null
+    for (const segment of normalized.split('/')) {
+      const childPath = path.join(current.procPath, segment)
+      const child = fs.lstatSync(childPath, { throwIfNoEntry: false })
+      if (!child) {
+        missing = { parent: current, segment }
+        break
+      }
+      if (child.isSymbolicLink() || !child.isDirectory()) {
+        throw new Error(`audit directory is symlinked or not safe: ${normalized}`)
+      }
+      const childFd = fs.openSync(childPath, directoryOpenFlags())
+      let adopted = false
+      try {
+        const opened = fs.fstatSync(childFd)
+        namedPath = path.join(namedPath, segment)
+        const next: AnchoredDirectory = {
+          fd: childFd,
+          namedPath,
+          procPath: procFdPath(childFd),
+          repository,
+          device: opened.dev,
+          inode: opened.ino,
+        }
+        owned.push(next)
+        adopted = true
+        if (
+          !opened.isDirectory() ||
+          child.dev !== opened.dev ||
+          child.ino !== opened.ino
+        ) {
+          throw new Error(`audit directory changed while opening: ${normalized}`)
+        }
+        verifyAnchoredDirectory(next, normalized)
+        current = next
+      } catch (error) {
+        if (!adopted) {
+          try {
+            closeDescriptorReliably(childFd)
+          } catch (cleanupError) {
+            throw new AggregateError(
+              [error, cleanupError],
+              'audit directory open failed and descriptor cleanup also failed',
+            )
+          }
+        }
+        throw error
+      }
+    }
+    if (missing === null) {
+      for (const directory of owned) {
+        verifyAnchoredDirectory(directory, normalized)
+      }
+      listing = fs.opendirSync(
+        owned.at(-1)!.procPath,
+        {
+          encoding: 'buffer' as BufferEncoding,
+          bufferSize: 1,
+        },
+      )
+      const entryLimit = Math.min(maxEntries, AUDIT_LIMITS.collectionItems)
+      const entries: string[] = []
+      let nameBytes = 0
+      let nameCodeUnits = 0
+      while (true) {
+        const directoryEntry = listing.readSync()
+        if (directoryEntry === null) break
+        if (entries.length >= entryLimit) {
+          throw new Error(
+            `audit directory exceeds the ${entryLimit}-entry limit: ${normalized}`,
+          )
+        }
+        const rawEntry: unknown = directoryEntry.name
+        if (!Buffer.isBuffer(rawEntry)) {
+          throw new Error(`audit directory did not return raw entry-name bytes: ${normalized}`)
+        }
+        nameBytes += rawEntry.byteLength
+        if (nameBytes > AUDIT_LIMITS.jsonBytes) {
+          throw new Error(
+            `audit directory exceeds the aggregate entry-name byte limit of ${AUDIT_LIMITS.jsonBytes}: ${normalized}`,
+          )
+        }
+        let entry: string
+        try {
+          entry = UTF8.decode(rawEntry)
+        } catch {
+          throw new Error(`audit directory contains a non-UTF-8 entry name: ${normalized}`)
+        }
+        if (
+          entry.length === 0 ||
+          entry.length > AUDIT_LIMITS.textCodeUnits ||
+          entry.includes('\0') ||
+          entry.includes('/') ||
+          entry.includes('\\') ||
+          hasLoneSurrogate(entry)
+        ) {
+          throw new Error(`audit directory contains an unsafe entry name: ${normalized}`)
+        }
+        nameCodeUnits += entry.length
+        if (nameCodeUnits > AUDIT_LIMITS.textTotalCodeUnits) {
+          throw new Error(
+            `audit directory exceeds the aggregate entry-name text limit of ${AUDIT_LIMITS.textTotalCodeUnits}: ${normalized}`,
+          )
+        }
+        entries.push(entry)
+      }
+      for (const directory of owned) {
+        verifyAnchoredDirectory(directory, normalized)
+      }
+      result = entries.sort((left, right) =>
+        left < right ? -1 : left > right ? 1 : 0
+      )
+    } else {
+      for (const directory of owned) {
+        verifyAnchoredDirectory(directory, normalized)
+      }
+      const appeared = fs.lstatSync(
+        path.join(missing.parent.procPath, missing.segment),
+        { throwIfNoEntry: false },
+      )
+      for (const directory of owned) {
+        verifyAnchoredDirectory(directory, normalized)
+      }
+      if (appeared) {
+        throw new Error(`audit directory appeared while being listed: ${normalized}`)
+      }
+      result = []
+    }
+  } catch (error) {
+    primaryFailed = true
+    primaryFailure = error
+  }
+  if (listing !== null) {
+    try {
+      listing.closeSync()
+    } catch (error) {
+      cleanupFailures.push(error)
+    }
+  }
+  for (const directory of owned.reverse()) {
+    try {
+      closeDescriptorReliably(directory.fd)
+    } catch (error) {
+      cleanupFailures.push(error)
+    }
+  }
+  throwCombinedFailures(
+    primaryFailed,
+    primaryFailure,
+    cleanupFailures,
+    'audit directory listing failed and descriptor cleanup also failed',
+  )
+  return result
+}
+
 type CanonicalValue =
   | null
   | boolean
@@ -1462,6 +1641,210 @@ function gitAdminDirectory(
   }
 }
 
+interface AnchoredGitContext {
+  root: AnchoredDirectory
+  gitAdmin: AnchoredGitAdmin
+}
+
+function openAnchoredGitContext(
+  rootPath: string,
+  context: string,
+): AnchoredGitContext {
+  const repository = safeRoot(rootPath)
+  const root = openVerifiedRepositoryRoot(repository, context)
+  let gitAdmin: AnchoredGitAdmin | null = null
+  try {
+    gitAdmin = gitAdminDirectory(repository, root)
+    verifyAnchoredDirectory(root, context)
+    verifyAnchoredGitAdmin(gitAdmin)
+    return { root, gitAdmin }
+  } catch (error) {
+    const cleanupFailures: unknown[] = []
+    if (gitAdmin !== null) {
+      try {
+        closeDescriptorReliably(gitAdmin.fd)
+      } catch (cleanupError) {
+        cleanupFailures.push(cleanupError)
+      }
+    }
+    try {
+      closeDescriptorReliably(root.fd)
+    } catch (cleanupError) {
+      cleanupFailures.push(cleanupError)
+    }
+    throwCombinedFailures(
+      true,
+      error,
+      cleanupFailures,
+      'audit Git capability discovery failed and descriptor cleanup also failed',
+    )
+    throw new Error('unreachable audit Git capability discovery')
+  }
+}
+
+function closeAnchoredGitContext(
+  context: AnchoredGitContext,
+  cleanupFailures: unknown[],
+): void {
+  try {
+    closeDescriptorReliably(context.gitAdmin.fd)
+  } catch (error) {
+    cleanupFailures.push(error)
+  }
+  try {
+    closeDescriptorReliably(context.root.fd)
+  } catch (error) {
+    cleanupFailures.push(error)
+  }
+}
+
+function gitAdminBytes(
+  root: AnchoredDirectory,
+  gitAdmin: AnchoredGitAdmin,
+  arguments_: readonly string[],
+  maxBytes: number,
+): { ok: boolean; output: Buffer } {
+  verifyAnchoredDirectory(root, 'audit anchored Git byte subprocess')
+  verifyAnchoredGitAdmin(gitAdmin)
+  let ok = true
+  let output = Buffer.alloc(0)
+  try {
+    output = execFileSync(
+      'git',
+      [
+        `--git-dir=/proc/${process.pid}/fd/${gitAdmin.fd}`,
+        `--work-tree=/proc/${process.pid}/fd/${root.fd}`,
+        ...arguments_,
+      ],
+      {
+        env: sanitizedGitEnvironment(),
+        maxBuffer: maxBytes + 1,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    )
+  } catch {
+    ok = false
+    output = Buffer.alloc(0)
+  }
+  verifyAnchoredDirectory(root, 'audit anchored Git byte subprocess')
+  verifyAnchoredGitAdmin(gitAdmin)
+  return { ok, output }
+}
+
+export function readBoundedAuditGitBlob(
+  rootPath: string,
+  blob: string,
+  maxBytes = AUDIT_LIMITS.jsonBytes,
+): Uint8Array {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+    throw new Error('audit Git blob byte limit must be a nonnegative safe integer')
+  }
+  const match = /^git-(sha1|sha256):([0-9a-f]+)$/.exec(blob)
+  if (
+    !match ||
+    (match[1] === 'sha1' && match[2].length !== 40) ||
+    (match[1] === 'sha256' && match[2].length !== 64)
+  ) {
+    throw new Error(
+      'audit Git blob must be strictly prefixed git-sha1:<40 lowercase hex> or git-sha256:<64 lowercase hex>',
+    )
+  }
+  const algorithm = match[1] as 'sha1' | 'sha256'
+  const objectId = match[2]
+  const byteLimit = Math.min(maxBytes, AUDIT_LIMITS.jsonBytes)
+  const context = openAnchoredGitContext(rootPath, 'audit Git blob read')
+  let result!: Uint8Array
+  let primaryFailed = false
+  let primaryFailure: unknown
+  const cleanupFailures: unknown[] = []
+  try {
+    const objectFormat = gitAdminOutput(
+      context.root,
+      context.gitAdmin,
+      ['rev-parse', '--show-object-format=storage'],
+    )
+    if (
+      !objectFormat.ok ||
+      (
+        objectFormat.output !== 'sha1\n' &&
+        objectFormat.output !== 'sha1\r\n' &&
+        objectFormat.output !== 'sha256\n' &&
+        objectFormat.output !== 'sha256\r\n'
+      )
+    ) {
+      throw new Error('audit Git repository object format is unavailable or invalid')
+    }
+    const repositoryAlgorithm = objectFormat.output.replace(/\r?\n$/, '')
+    if (repositoryAlgorithm !== algorithm) {
+      throw new Error(
+        `audit Git blob algorithm ${algorithm} does not match repository object format ${repositoryAlgorithm}`,
+      )
+    }
+
+    const type = gitAdminOutput(
+      context.root,
+      context.gitAdmin,
+      ['cat-file', '-t', objectId],
+    )
+    if (!type.ok) {
+      throw new Error('audit Git blob object is missing or unavailable')
+    }
+    if (type.output !== 'blob\n' && type.output !== 'blob\r\n') {
+      throw new Error('audit Git object type is not blob')
+    }
+
+    const size = gitAdminOutput(
+      context.root,
+      context.gitAdmin,
+      ['cat-file', '-s', objectId],
+    )
+    if (!size.ok || !/^(0|[1-9][0-9]*)\r?\n$/.test(size.output)) {
+      throw new Error('audit Git blob size is unavailable or invalid')
+    }
+    const expectedSize = Number(size.output.trimEnd())
+    if (!Number.isSafeInteger(expectedSize)) {
+      throw new Error('audit Git blob size exceeds the safe integer range')
+    }
+    if (expectedSize > byteLimit) {
+      throw new Error(`audit Git blob exceeds the ${byteLimit}-byte limit`)
+    }
+
+    const bytes = gitAdminBytes(
+      context.root,
+      context.gitAdmin,
+      ['cat-file', 'blob', objectId],
+      byteLimit,
+    )
+    if (!bytes.ok) {
+      throw new Error('audit Git blob bytes are unavailable')
+    }
+    if (bytes.output.length !== expectedSize) {
+      throw new Error('audit Git blob byte length does not match its object size')
+    }
+    const header = Buffer.from(`blob ${bytes.output.length}\0`, 'utf8')
+    const verifiedObjectId = createHash(algorithm)
+      .update(header)
+      .update(bytes.output)
+      .digest('hex')
+    if (verifiedObjectId !== objectId) {
+      throw new Error('audit Git blob bytes do not match the claimed object identity')
+    }
+    result = new Uint8Array(bytes.output)
+  } catch (error) {
+    primaryFailed = true
+    primaryFailure = error
+  }
+
+  closeAnchoredGitContext(context, cleanupFailures)
+  throwCombinedFailures(
+    primaryFailed,
+    primaryFailure,
+    cleanupFailures,
+    'audit Git blob read failed and descriptor cleanup also failed',
+  )
+  return result
+}
+
 interface AnchoredLockParent {
   fd: number
   namedPath: string
@@ -1560,17 +1943,14 @@ function openAuditLockContext(rootPath: string): {
   gitAdmin: AnchoredGitAdmin
   parent: AnchoredLockParent
 } {
-  const repository = safeRoot(rootPath)
-  const root = openVerifiedRepositoryRoot(repository, 'audit lock capability check')
-  let gitAdmin: AnchoredGitAdmin | null = null
+  const context = openAnchoredGitContext(rootPath, 'audit lock capability check')
   let parent: AnchoredLockParent | null = null
   try {
-    gitAdmin = gitAdminDirectory(repository, root)
-    parent = openAuditLockParent(gitAdmin)
-    verifyAnchoredDirectory(root, 'audit lock context')
-    verifyAnchoredGitAdmin(gitAdmin)
+    parent = openAuditLockParent(context.gitAdmin)
+    verifyAnchoredDirectory(context.root, 'audit lock context')
+    verifyAnchoredGitAdmin(context.gitAdmin)
     verifyAnchoredLockParent(parent)
-    return { root, gitAdmin, parent }
+    return { root: context.root, gitAdmin: context.gitAdmin, parent }
   } catch (error) {
     const cleanupFailures: unknown[] = []
     if (parent !== null) {
@@ -1580,18 +1960,7 @@ function openAuditLockContext(rootPath: string): {
         cleanupFailures.push(cleanupError)
       }
     }
-    if (gitAdmin !== null) {
-      try {
-        closeDescriptorReliably(gitAdmin.fd)
-      } catch (cleanupError) {
-        cleanupFailures.push(cleanupError)
-      }
-    }
-    try {
-      closeDescriptorReliably(root.fd)
-    } catch (cleanupError) {
-      cleanupFailures.push(cleanupError)
-    }
+    closeAnchoredGitContext(context, cleanupFailures)
     throwCombinedFailures(
       true,
       error,

@@ -395,11 +395,11 @@ export interface DesignAuditFinding {
 }
 
 export interface BaseAuditUnit {
-  formatVersion: 1 | 2
+  formatVersion: 1 | 2 | 3
   domain: AuditDomain
   slug: string
   title: string
-  ruleset: string
+  ruleset: string | null
   scannedAt: string
   scopeHash: string
   fileCount: number

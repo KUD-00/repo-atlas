@@ -111,14 +111,14 @@ export function auditUnitsForRoute<T extends { slug: string }>(
 
 /**
  * Concept pages embed security units only.
- * v2: explicit `conceptSlug`. v1: legacy slug equality. Test units never match.
+ * v2/v3: explicit `conceptSlug`. v1: legacy slug equality. Test units never match.
  */
 export function securityUnitForConcept<
-  T extends { formatVersion: 1 | 2; domain: string; slug: string; conceptSlug?: string },
+  T extends { formatVersion: 1 | 2 | 3; domain: string; slug: string; conceptSlug?: string },
 >(conceptSlug: string, units: ReadonlyArray<T>): T | undefined {
   const security = units.filter((u) => u.domain === 'security')
   const byConcept = security.find(
-    (u) => u.formatVersion === 2 && u.conceptSlug === conceptSlug,
+    (u) => u.formatVersion !== 1 && u.conceptSlug === conceptSlug,
   )
   if (byConcept) return byConcept
   return security.find((u) => u.formatVersion === 1 && u.slug === conceptSlug)

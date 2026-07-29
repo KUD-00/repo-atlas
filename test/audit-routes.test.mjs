@@ -134,7 +134,7 @@ test('audit route unit selection focuses one unit or returns the full portfolio'
   assert.deepEqual(auditUnitsForRoute([], null), [])
 })
 
-test('audit route concept association uses conceptSlug for v2 and slug only for v1', () => {
+test('audit route concept association uses conceptSlug for v2/v3 and slug only for v1', () => {
   const units = [
     { formatVersion: 1, domain: 'security', slug: 'auth', title: 'v1', findings: [] },
     {
@@ -159,6 +159,14 @@ test('audit route concept association uses conceptSlug for v2 and slug only for 
       title: 'v2-same-slug-no-concept',
       findings: [],
     },
+    {
+      formatVersion: 3,
+      domain: 'security',
+      slug: 'security-v3-auth',
+      conceptSlug: 'v3-auth',
+      title: 'v3-linked',
+      findings: [],
+    },
   ]
   // v2 with explicit conceptSlug wins association for "auth"
   assert.equal(securityUnitForConcept('auth', units)?.title, 'v2-linked')
@@ -174,6 +182,10 @@ test('audit route concept association uses conceptSlug for v2 and slug only for 
       units.filter((u) => u.slug === 'auth' && u.formatVersion === 2),
     ),
     undefined,
+  )
+  assert.equal(
+    securityUnitForConcept('v3-auth', units)?.title,
+    'v3-linked',
   )
   // test-shaped records must never be considered (caller passes security portfolio only;
   // helper still ignores domain !== security if mixed by mistake)

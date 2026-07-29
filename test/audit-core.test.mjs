@@ -54,6 +54,20 @@ function commitFixture(root, message = 'fixture') {
   )
 }
 
+function gitObjectReceipt(root, revision) {
+  const algorithm = execFileSync(
+    'git',
+    ['-C', root, 'rev-parse', '--show-object-format'],
+    { encoding: 'utf8' },
+  ).trim()
+  const objectId = execFileSync(
+    'git',
+    ['-C', root, 'rev-parse', revision],
+    { encoding: 'utf8' },
+  ).trim()
+  return `git-${algorithm}:${objectId}`
+}
+
 function auditLockPath(root) {
   const gitDir = execFileSync(
     'git',
@@ -2196,5 +2210,707 @@ process.exit(result.status === null ? 1 : result.status)
     cleanup(parked)
     cleanup(replacement)
     cleanup(tooling)
+  }
+})
+
+test('bounded Git blob reads return exact bytes in normal and linked worktrees', () => {
+  const root = makeRoot()
+  const linked = makeRoot()
+  fs.rmdirSync(linked)
+  const bytes = Buffer.from([0x00, 0x41, 0xff, 0x0a])
+  try {
+    initGit(root)
+    write(root, 'artifact.bin', bytes)
+    commitFixture(root, 'blob fixture')
+    const blob = gitObjectReceipt(root, 'HEAD:artifact.bin')
+
+    assert.deepEqual(
+      Buffer.from(auditCore.readBoundedAuditGitBlob(root, blob, bytes.length)),
+      bytes,
+    )
+    execFileSync(
+      'git',
+      ['-C', root, 'worktree', 'add', '-q', '-b', 'audit-blob-linked', linked, 'HEAD'],
+    )
+    assert.deepEqual(
+      Buffer.from(auditCore.readBoundedAuditGitBlob(linked, blob, bytes.length)),
+      bytes,
+    )
+  } finally {
+    cleanup(linked)
+    cleanup(root)
+  }
+})
+
+test('bounded Git blob reads reject malformed, wrong-algorithm, non-blob, missing, and oversized claims', () => {
+  const root = makeRoot()
+  const bytes = Buffer.from('bounded Git bytes\n')
+  try {
+    initGit(root)
+    write(root, 'artifact.txt', bytes)
+    commitFixture(root, 'blob validation fixture')
+    const blob = gitObjectReceipt(root, 'HEAD:artifact.txt')
+    const tree = gitObjectReceipt(root, 'HEAD^{tree}')
+    const algorithm = blob.startsWith('git-sha1:') ? 'sha1' : 'sha256'
+    const wrongAlgorithm = algorithm === 'sha1' ? 'sha256' : 'sha1'
+    const wrongLength = wrongAlgorithm === 'sha1' ? 40 : 64
+    const missingLength = algorithm === 'sha1' ? 40 : 64
+
+    assert.throws(
+      () => auditCore.readBoundedAuditGitBlob(root, blob.slice(blob.indexOf(':') + 1)),
+      /prefixed|Git blob|sha1|sha256/i,
+    )
+    assert.throws(
+      () => auditCore.readBoundedAuditGitBlob(
+        root,
+        `git-${wrongAlgorithm}:${'a'.repeat(wrongLength)}`,
+      ),
+      /algorithm|object format/i,
+    )
+    assert.throws(
+      () => auditCore.readBoundedAuditGitBlob(root, tree),
+      /blob|object type/i,
+    )
+    assert.throws(
+      () => auditCore.readBoundedAuditGitBlob(
+        root,
+        `git-${algorithm}:${'f'.repeat(missingLength)}`,
+      ),
+      /missing|unavailable|object/i,
+    )
+    assert.throws(
+      () => auditCore.readBoundedAuditGitBlob(root, blob, bytes.length - 1),
+      /limit|exceeds|size/i,
+    )
+    assert.throws(
+      () => auditCore.readBoundedAuditGitBlob(root, blob, -1),
+      /nonnegative|limit|safe integer/i,
+    )
+    assert.deepEqual(
+      Buffer.from(auditCore.readBoundedAuditGitBlob(root, blob, bytes.length)),
+      bytes,
+    )
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('bounded Git blob reads ignore hostile Git environment redirects', () => {
+  const root = makeRoot()
+  const hostile = makeRoot()
+  const previousGitEnvironment = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => key.startsWith('GIT_')),
+  )
+  try {
+    initGit(root)
+    write(root, 'artifact.txt', 'trusted\n')
+    commitFixture(root, 'trusted fixture')
+    initGit(hostile)
+    write(hostile, 'artifact.txt', 'hostile\n')
+    commitFixture(hostile, 'hostile fixture')
+    const blob = gitObjectReceipt(root, 'HEAD:artifact.txt')
+
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('GIT_')) delete process.env[key]
+    }
+    process.env.GIT_DIR = path.join(hostile, '.git')
+    process.env.GIT_WORK_TREE = hostile
+    process.env.GIT_CONFIG_COUNT = '1'
+    process.env.GIT_CONFIG_KEY_0 = 'core.bare'
+    process.env.GIT_CONFIG_VALUE_0 = 'true'
+
+    assert.equal(
+      Buffer.from(auditCore.readBoundedAuditGitBlob(root, blob)).toString('utf8'),
+      'trusted\n',
+    )
+  } finally {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('GIT_')) delete process.env[key]
+    }
+    Object.assign(process.env, previousGitEnvironment)
+    cleanup(root)
+    cleanup(hostile)
+  }
+})
+
+test('bounded Git blob reads retain root and Git-admin capabilities across transient replacements', () => {
+  for (const mode of ['root', 'git-admin']) {
+    const root = makeRoot()
+    const replacement = makeRoot()
+    const tooling = makeRoot()
+    const parkedRoot = `${root}-parked`
+    const parkedGit = path.join(root, '.git-parked')
+    const originalPath = process.env.PATH
+    try {
+      initGit(root)
+      write(root, 'artifact.txt', 'trusted\n')
+      commitFixture(root, 'trusted fixture')
+      initGit(replacement)
+      write(replacement, 'artifact.txt', 'hostile\n')
+      commitFixture(replacement, 'hostile fixture')
+      const blob = gitObjectReceipt(root, 'HEAD:artifact.txt')
+      const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim()
+      const wrapper = path.join(tooling, 'git')
+      fs.writeFileSync(
+        wrapper,
+        `#!/usr/bin/env node
+const fs = require('node:fs')
+const { spawnSync } = require('node:child_process')
+const arguments_ = process.argv.slice(2)
+const shouldSwap = arguments_.includes('cat-file')
+if (shouldSwap && process.env.AUDIT_SWAP_MODE === 'root') {
+  fs.renameSync(process.env.AUDIT_SWAP_ROOT, process.env.AUDIT_SWAP_PARKED_ROOT)
+  fs.renameSync(process.env.AUDIT_SWAP_REPLACEMENT, process.env.AUDIT_SWAP_ROOT)
+}
+if (shouldSwap && process.env.AUDIT_SWAP_MODE === 'git-admin') {
+  fs.renameSync(process.env.AUDIT_ROOT_GIT, process.env.AUDIT_PARKED_GIT)
+  fs.renameSync(process.env.AUDIT_REPLACEMENT_GIT, process.env.AUDIT_ROOT_GIT)
+}
+let result
+try {
+  result = spawnSync(process.env.AUDIT_REAL_GIT, arguments_)
+} finally {
+  if (shouldSwap && process.env.AUDIT_SWAP_MODE === 'root') {
+    fs.renameSync(process.env.AUDIT_SWAP_ROOT, process.env.AUDIT_SWAP_REPLACEMENT)
+    fs.renameSync(process.env.AUDIT_SWAP_PARKED_ROOT, process.env.AUDIT_SWAP_ROOT)
+  }
+  if (shouldSwap && process.env.AUDIT_SWAP_MODE === 'git-admin') {
+    fs.renameSync(process.env.AUDIT_ROOT_GIT, process.env.AUDIT_REPLACEMENT_GIT)
+    fs.renameSync(process.env.AUDIT_PARKED_GIT, process.env.AUDIT_ROOT_GIT)
+  }
+}
+if (result.stdout) process.stdout.write(result.stdout)
+if (result.stderr) process.stderr.write(result.stderr)
+process.exit(result.status === null ? 1 : result.status)
+`,
+        { mode: 0o700 },
+      )
+      process.env.PATH = `${tooling}${path.delimiter}${originalPath ?? ''}`
+      process.env.AUDIT_REAL_GIT = realGit
+      process.env.AUDIT_SWAP_MODE = mode
+      process.env.AUDIT_SWAP_ROOT = root
+      process.env.AUDIT_SWAP_PARKED_ROOT = parkedRoot
+      process.env.AUDIT_SWAP_REPLACEMENT = replacement
+      process.env.AUDIT_ROOT_GIT = path.join(root, '.git')
+      process.env.AUDIT_PARKED_GIT = parkedGit
+      process.env.AUDIT_REPLACEMENT_GIT = path.join(replacement, '.git')
+
+      assert.equal(
+        Buffer.from(auditCore.readBoundedAuditGitBlob(root, blob)).toString('utf8'),
+        'trusted\n',
+        mode,
+      )
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+      for (const key of [
+        'AUDIT_REAL_GIT',
+        'AUDIT_SWAP_MODE',
+        'AUDIT_SWAP_ROOT',
+        'AUDIT_SWAP_PARKED_ROOT',
+        'AUDIT_SWAP_REPLACEMENT',
+        'AUDIT_ROOT_GIT',
+        'AUDIT_PARKED_GIT',
+        'AUDIT_REPLACEMENT_GIT',
+      ]) {
+        delete process.env[key]
+      }
+      cleanup(root)
+      cleanup(parkedRoot)
+      cleanup(replacement)
+      cleanup(tooling)
+    }
+  }
+})
+
+test('bounded Git blob reads verify the final byte length and Git object identity', () => {
+  const root = makeRoot()
+  const tooling = makeRoot()
+  const originalPath = process.env.PATH
+  try {
+    initGit(root)
+    write(root, 'artifact.txt', 'original\n')
+    commitFixture(root, 'identity fixture')
+    const blob = gitObjectReceipt(root, 'HEAD:artifact.txt')
+    const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim()
+    const wrapper = path.join(tooling, 'git')
+    fs.writeFileSync(
+      wrapper,
+      `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process')
+const arguments_ = process.argv.slice(2)
+const result = spawnSync(process.env.AUDIT_REAL_GIT, arguments_)
+if (arguments_.includes('cat-file') && arguments_.includes('blob') && result.status === 0) {
+  process.stdout.write('hostile!\\n')
+} else if (result.stdout) {
+  process.stdout.write(result.stdout)
+}
+if (result.stderr) process.stderr.write(result.stderr)
+process.exit(result.status === null ? 1 : result.status)
+`,
+      { mode: 0o700 },
+    )
+    process.env.PATH = `${tooling}${path.delimiter}${originalPath ?? ''}`
+    process.env.AUDIT_REAL_GIT = realGit
+
+    assert.throws(
+      () => auditCore.readBoundedAuditGitBlob(root, blob),
+      /identity|digest|object/i,
+    )
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH
+    else process.env.PATH = originalPath
+    delete process.env.AUDIT_REAL_GIT
+    cleanup(root)
+    cleanup(tooling)
+  }
+})
+
+test('bounded Git blob reads aggregate primary and descriptor cleanup failures', () => {
+  const root = makeRoot()
+  const originalOpen = fs.openSync
+  const originalClose = fs.closeSync
+  const trackedFds = new Map()
+  try {
+    initGit(root)
+    write(root, 'artifact.txt', 'cleanup\n')
+    commitFixture(root, 'cleanup fixture')
+    const algorithm = execFileSync(
+      'git',
+      ['-C', root, 'rev-parse', '--show-object-format'],
+      { encoding: 'utf8' },
+    ).trim()
+    const missing = `git-${algorithm}:${'f'.repeat(algorithm === 'sha1' ? 40 : 64)}`
+
+    fs.openSync = function trackingGitCapabilityOpen(file, flags, ...rest) {
+      const fd = originalOpen.call(fs, file, flags, ...rest)
+      let real = ''
+      try {
+        real = fs.realpathSync(`/proc/self/fd/${fd}`)
+      } catch {
+        // Non-directory descriptors are irrelevant.
+      }
+      if (real === root || real === path.join(root, '.git')) {
+        trackedFds.set(fd, real === root ? 'root' : 'git-admin')
+      }
+      return fd
+    }
+    fs.closeSync = function failingGitCapabilityClose(fd) {
+      const kind = trackedFds.get(fd)
+      const result = originalClose.call(fs, fd)
+      if (kind) throw new Error(`injected Git ${kind} close failure`)
+      return result
+    }
+
+    let failure
+    try {
+      auditCore.readBoundedAuditGitBlob(root, missing)
+    } catch (error) {
+      failure = error
+    }
+    assert.ok(failure instanceof AggregateError)
+    const messages = flattenedErrorMessages(failure)
+    assert.ok(messages.some((message) => /missing|unavailable|object/i.test(message)))
+    assert.ok(messages.includes('injected Git root close failure'))
+    assert.ok(messages.includes('injected Git git-admin close failure'))
+    assert.equal(trackedFds.size, 2)
+    for (const fd of trackedFds.keys()) {
+      assert.throws(
+        () => fs.fstatSync(fd),
+        (error) => error?.code === 'EBADF',
+        'Git capability descriptor leaked after cleanup failure',
+      )
+    }
+  } finally {
+    fs.openSync = originalOpen
+    fs.closeSync = originalClose
+    for (const fd of trackedFds.keys()) {
+      try {
+        originalClose.call(fs, fd)
+      } catch {
+        // Assertions above require every tracked descriptor to be closed.
+      }
+    }
+    cleanup(root)
+  }
+})
+
+test('bounded audit directory listing is descriptor-anchored, sorted, complete, and bounded', () => {
+  const root = makeRoot()
+  const outside = makeRoot()
+  try {
+    assert.deepEqual(
+      auditCore.listBoundedAuditDirectory(root, '.atlas/audits'),
+      [],
+    )
+    write(root, '.atlas/audits/z.json', '{}\n')
+    write(root, '.atlas/audits/a.txt', 'malformed\n')
+    write(root, '.atlas/audits/-option', 'option-like\n')
+    write(root, '.atlas/audits/line\nbreak', 'newline\n')
+    write(root, '.atlas/audits/ä.json', '{}\n')
+    fs.symlinkSync(
+      path.join(outside, 'missing.json'),
+      path.join(root, '.atlas/audits/link.json'),
+    )
+    assert.deepEqual(
+      auditCore.listBoundedAuditDirectory(root, '.atlas/audits'),
+      ['-option', 'a.txt', 'line\nbreak', 'link.json', 'z.json', 'ä.json'],
+    )
+    assert.throws(
+      () => auditCore.listBoundedAuditDirectory(root, '.atlas/audits', 2),
+      /directory|entry|limit|2/i,
+    )
+    assert.throws(
+      () => auditCore.listBoundedAuditDirectory(root, '../outside'),
+      /normalized|relative|path/i,
+    )
+    for (const invalid of [-1, Number.MAX_SAFE_INTEGER + 1, 1.5]) {
+      assert.throws(
+        () => auditCore.listBoundedAuditDirectory(root, '.atlas/audits', invalid),
+        /nonnegative|safe integer|limit/i,
+      )
+    }
+
+    const rawName = Buffer.concat([
+      Buffer.from(`${path.join(root, '.atlas/audits')}${path.sep}`),
+      Buffer.from([0xff]),
+    ])
+    fs.writeFileSync(rawName, 'non-UTF8\n')
+    assert.throws(
+      () => auditCore.listBoundedAuditDirectory(root, '.atlas/audits'),
+      /UTF-8|filename|entry name/i,
+    )
+  } finally {
+    cleanup(root)
+    cleanup(outside)
+  }
+})
+
+test('bounded audit directory listing aggregates primary and descriptor cleanup failures', () => {
+  const root = makeRoot()
+  const originalOpen = fs.openSync
+  const originalClose = fs.closeSync
+  const originalOpendir = fs.opendirSync
+  const trackedFds = new Map()
+  try {
+    write(root, '.atlas/audits/a.json', '{}\n')
+    fs.openSync = function trackingListedDirectoryOpen(file, flags, ...rest) {
+      const fd = originalOpen.call(fs, file, flags, ...rest)
+      let real = ''
+      try {
+        real = fs.realpathSync(`/proc/self/fd/${fd}`)
+      } catch {
+        // Non-directory descriptors are irrelevant.
+      }
+      if (
+        real === root ||
+        real === path.join(root, '.atlas') ||
+        real === path.join(root, '.atlas/audits')
+      ) {
+        trackedFds.set(fd, real === root ? 'root' : path.basename(real))
+      }
+      return fd
+    }
+    fs.opendirSync = function failingAnchoredDirectoryRead(file, ...rest) {
+      const directory = originalOpendir.call(fs, file, ...rest)
+      if (
+        String(file).startsWith('/proc/self/fd/') &&
+        fs.realpathSync(String(file)) === path.join(root, '.atlas/audits')
+      ) {
+        directory.readSync = function failingDirectoryRead() {
+          throw new Error('injected audit directory listing failure')
+        }
+        const close = directory.closeSync.bind(directory)
+        directory.closeSync = function failingDirectoryIteratorClose() {
+          close()
+          throw new Error('injected audit directory iterator close failure')
+        }
+      }
+      return directory
+    }
+    fs.closeSync = function failingListedDirectoryClose(fd) {
+      const label = trackedFds.get(fd)
+      const result = originalClose.call(fs, fd)
+      if (label) throw new Error(`injected ${label} directory close failure`)
+      return result
+    }
+
+    let failure
+    try {
+      auditCore.listBoundedAuditDirectory(root, '.atlas/audits')
+    } catch (error) {
+      failure = error
+    }
+    assert.ok(failure instanceof AggregateError)
+    const messages = flattenedErrorMessages(failure)
+    assert.ok(messages.includes('injected audit directory listing failure'))
+    assert.ok(messages.includes('injected audit directory iterator close failure'))
+    assert.ok(messages.some((message) => /audits directory close failure/.test(message)))
+    assert.ok(messages.some((message) => /\.atlas directory close failure/.test(message)))
+    assert.ok(messages.some((message) => /root directory close failure/.test(message)))
+    assert.equal(trackedFds.size, 3)
+    for (const fd of trackedFds.keys()) {
+      assert.throws(
+        () => fs.fstatSync(fd),
+        (error) => error?.code === 'EBADF',
+        'audit directory descriptor leaked after cleanup failure',
+      )
+    }
+  } finally {
+    fs.openSync = originalOpen
+    fs.closeSync = originalClose
+    fs.opendirSync = originalOpendir
+    for (const fd of trackedFds.keys()) {
+      try {
+        originalClose.call(fs, fd)
+      } catch {
+        // Assertions above require all descriptors to be closed.
+      }
+    }
+    cleanup(root)
+  }
+})
+
+test('bounded audit directory listing rejects symlink and replacement races', () => {
+  const root = makeRoot()
+  const outside = makeRoot()
+  const originalOpendir = fs.opendirSync
+  const directory = path.join(root, '.atlas/audits')
+  const parked = path.join(root, '.atlas/audits-parked')
+  try {
+    fs.mkdirSync(path.join(root, '.atlas'), { recursive: true })
+    fs.symlinkSync(outside, directory)
+    assert.throws(
+      () => auditCore.listBoundedAuditDirectory(root, '.atlas/audits'),
+      /symlink|safe|directory/i,
+    )
+    fs.unlinkSync(directory)
+    write(root, '.atlas/audits/original.json', '{}\n')
+    let swapped = false
+    fs.opendirSync = function swappingListedDirectory(file, ...rest) {
+      if (
+        !swapped &&
+        String(file).startsWith('/proc/self/fd/') &&
+        (() => {
+          try {
+            return fs.realpathSync(String(file)) === directory
+          } catch {
+            return false
+          }
+        })()
+      ) {
+        swapped = true
+        fs.renameSync(directory, parked)
+        fs.mkdirSync(directory)
+        fs.writeFileSync(path.join(directory, 'hostile.json'), '{}\n')
+      }
+      return originalOpendir.call(fs, file, ...rest)
+    }
+    assert.throws(
+      () => auditCore.listBoundedAuditDirectory(root, '.atlas/audits'),
+      /directory|parent|changed|identity/i,
+    )
+    assert.equal(swapped, true)
+    assert.deepEqual(fs.readdirSync(directory), ['hostile.json'])
+    assert.deepEqual(fs.readdirSync(parked), ['original.json'])
+  } finally {
+    fs.opendirSync = originalOpendir
+    cleanup(root)
+    cleanup(outside)
+  }
+})
+
+test('bounded audit directory listing reads incrementally and stops at hard bounds', () => {
+  const root = makeRoot()
+  const originalOpendir = fs.opendirSync
+  const originalReaddir = fs.readdirSync
+  let opendirCalls = 0
+  let readCalls = 0
+  try {
+    write(root, '.atlas/audits/a.json', '{}\n')
+    write(root, '.atlas/audits/b.json', '{}\n')
+    write(root, '.atlas/audits/c.json', '{}\n')
+    fs.readdirSync = function rejectingFullDirectoryAllocation(file, ...rest) {
+      if (
+        String(file).startsWith('/proc/self/fd/') &&
+        fs.realpathSync(String(file)) === path.join(root, '.atlas/audits')
+      ) {
+        throw new Error('full audit directory allocation is forbidden')
+      }
+      return originalReaddir.call(fs, file, ...rest)
+    }
+    fs.opendirSync = function trackingIncrementalDirectoryRead(file, ...rest) {
+      const directory = originalOpendir.call(fs, file, ...rest)
+      if (
+        String(file).startsWith('/proc/self/fd/') &&
+        fs.realpathSync(String(file)) === path.join(root, '.atlas/audits')
+      ) {
+        opendirCalls += 1
+        const read = directory.readSync.bind(directory)
+        directory.readSync = function countedDirectoryRead() {
+          readCalls += 1
+          return read()
+        }
+      }
+      return directory
+    }
+    assert.throws(
+      () => auditCore.listBoundedAuditDirectory(root, '.atlas/audits', 2),
+      /directory|entry|limit|2/i,
+    )
+    assert.equal(opendirCalls, 1)
+    assert.equal(readCalls, 3, 'listing must stop immediately at entryLimit + 1')
+  } finally {
+    fs.opendirSync = originalOpendir
+    fs.readdirSync = originalReaddir
+    cleanup(root)
+  }
+})
+
+test('bounded audit directory listing enforces aggregate name bounds while streaming', () => {
+  const root = makeRoot()
+  const originalOpendir = fs.opendirSync
+  let readCalls = 0
+  try {
+    write(root, '.atlas/audits/seed', 'seed\n')
+    fs.opendirSync = function syntheticLargeDirectoryRead(file, ...rest) {
+      const directory = originalOpendir.call(fs, file, ...rest)
+      if (
+        String(file).startsWith('/proc/self/fd/') &&
+        fs.realpathSync(String(file)) === path.join(root, '.atlas/audits')
+      ) {
+        directory.readSync = function largeSyntheticDirectoryRead() {
+          readCalls += 1
+          return {
+            name: Buffer.alloc(auditCore.AUDIT_LIMITS.textCodeUnits, 0x61),
+          }
+        }
+      }
+      return directory
+    }
+    assert.throws(
+      () => auditCore.listBoundedAuditDirectory(root, '.atlas/audits'),
+      /aggregate|string|text|name|byte|limit/i,
+    )
+    assert.ok(readCalls > 1)
+    assert.ok(readCalls < 100, 'aggregate bound must fail before unbounded allocation')
+  } finally {
+    fs.opendirSync = originalOpendir
+    cleanup(root)
+  }
+})
+
+test('bounded audit directory listing closes a child opened before verification failure', () => {
+  const root = makeRoot()
+  const originalOpen = fs.openSync
+  const originalClose = fs.closeSync
+  const originalRealpath = fs.realpathSync
+  const trackedFds = new Map()
+  const auditsPath = path.join(root, '.atlas/audits')
+  let injected = false
+  try {
+    write(root, '.atlas/audits/a.json', '{}\n')
+    fs.openSync = function trackingDirectoryOpen(file, flags, ...rest) {
+      const fd = originalOpen.call(fs, file, flags, ...rest)
+      let real = ''
+      try {
+        real = originalRealpath.call(fs, `/proc/self/fd/${fd}`)
+      } catch {
+        // Non-directory descriptors are irrelevant.
+      }
+      if (
+        real === root ||
+        real === path.join(root, '.atlas') ||
+        real === auditsPath
+      ) {
+        trackedFds.set(fd, real)
+      }
+      return fd
+    }
+    fs.realpathSync = function failingPostOpenDirectoryVerification(file, ...rest) {
+      if (!injected && file === auditsPath) {
+        const auditsWasOpened = [...trackedFds.values()].includes(auditsPath)
+        if (auditsWasOpened) {
+          injected = true
+          throw new Error('injected post-open audit directory verification failure')
+        }
+      }
+      return originalRealpath.call(fs, file, ...rest)
+    }
+    fs.closeSync = function failingOpenedChildClose(fd) {
+      const real = trackedFds.get(fd)
+      const result = originalClose.call(fs, fd)
+      if (real === auditsPath) {
+        throw new Error('injected opened child directory close failure')
+      }
+      return result
+    }
+
+    let failure
+    try {
+      auditCore.listBoundedAuditDirectory(root, '.atlas/audits')
+    } catch (error) {
+      failure = error
+    }
+    assert.equal(injected, true)
+    assert.ok(failure instanceof AggregateError)
+    const messages = flattenedErrorMessages(failure)
+    assert.ok(
+      messages.some((message) =>
+        /post-open audit directory verification failure|changed or is no longer safe/.test(message)
+      ),
+    )
+    assert.ok(messages.includes('injected opened child directory close failure'))
+    assert.equal(trackedFds.size, 3)
+    for (const fd of trackedFds.keys()) {
+      assert.throws(
+        () => fs.fstatSync(fd),
+        (error) => error?.code === 'EBADF',
+        'opened-but-unadopted directory descriptor leaked',
+      )
+    }
+  } finally {
+    fs.openSync = originalOpen
+    fs.closeSync = originalClose
+    fs.realpathSync = originalRealpath
+    for (const fd of trackedFds.keys()) {
+      try {
+        originalClose.call(fs, fd)
+      } catch {
+        // Assertions above require all descriptors to be closed.
+      }
+    }
+    cleanup(root)
+  }
+})
+
+test('bounded audit directory listing rejects a missing directory created before linearization', () => {
+  const root = makeRoot()
+  const originalLstat = fs.lstatSync
+  try {
+    fs.mkdirSync(path.join(root, '.atlas'))
+    let injected = false
+    fs.lstatSync = function creatingMissingAuditDirectory(file, options, ...rest) {
+      const result = originalLstat.call(fs, file, options, ...rest)
+      if (
+        !injected &&
+        result === undefined &&
+        String(file).startsWith('/proc/self/fd/') &&
+        String(file).endsWith('/audits')
+      ) {
+        injected = true
+        fs.mkdirSync(path.join(root, '.atlas/audits'))
+        fs.writeFileSync(path.join(root, '.atlas/audits/appeared.json'), '{}\n')
+      }
+      return result
+    }
+    assert.throws(
+      () => auditCore.listBoundedAuditDirectory(root, '.atlas/audits'),
+      /appeared|changed|race|directory/i,
+    )
+    assert.equal(injected, true)
+  } finally {
+    fs.lstatSync = originalLstat
+    cleanup(root)
   }
 })

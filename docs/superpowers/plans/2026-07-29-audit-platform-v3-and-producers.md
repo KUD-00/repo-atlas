@@ -46,7 +46,7 @@
 - Create: `test/audit-core.test.mjs`
 - Modify: `package.json`
 
-- [ ] **Step 1: Write the failing safety/identity tests**
+- [x] **Step 1: Write the failing safety/identity tests**
 
 Add tests for normalized repository paths, bounded UTF-8 JSON, canonical key
 ordering, deterministic IDs, safe directory creation, atomic replacement, and
@@ -75,7 +75,7 @@ the second acquisition reports the live lock rather than overwriting it. Assert
 the lock is in worktree-specific Git administrative state outside tracked
 `.atlas` and that no `.atlas/.audit.lock` is created.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 ```bash
 pnpm build:cli && node --test test/audit-core.test.mjs
@@ -83,7 +83,7 @@ pnpm build:cli && node --test test/audit-core.test.mjs
 
 Expected: FAIL with `ERR_MODULE_NOT_FOUND` for `dist/audit-core.js`.
 
-- [ ] **Step 3: Implement the primitives**
+- [x] **Step 3: Implement the primitives**
 
 Export this public surface:
 
@@ -166,7 +166,7 @@ repository during the final rename. That relocation is detected and reported,
 but may move the atomically replaced owned inode; replacement symlinks or
 different outside inodes must remain untouched.
 
-- [ ] **Step 4: Verify GREEN and package reproducibility**
+- [x] **Step 4: Verify GREEN and package reproducibility**
 
 Add `"prepack": "pnpm build"` so a Git dependency pinned by full commit builds `dist` before packing.
 
@@ -178,7 +178,7 @@ pnpm pack --pack-destination "$(mktemp -d)"
 
 Expected: all tests PASS and the tarball contains `dist/cli.js`.
 
-- [ ] **Step 5: Commit Task 1**
+- [x] **Step 5: Commit Task 1**
 
 ```bash
 git add package.json src/audit-core.ts test/audit-core.test.mjs
@@ -191,10 +191,12 @@ git commit -m "feat(audit): add safe deterministic storage primitives"
 - Create: `src/audit-v3-types.ts`
 - Create: `src/audit-v3.ts`
 - Create: `test/audit-v3.test.mjs`
+- Modify: `src/audit-core.ts`
 - Modify: `src/types.ts`
 - Modify: `src/audits.ts`
+- Modify: `test/audit-core.test.mjs`
 
-- [ ] **Step 1: Write failing V3 contract and compatibility tests**
+- [x] **Step 1: Write failing V3 contract and compatibility tests**
 
 Create a one-file Git fixture and build a valid V3 **current ledger wrapper**
 whose `current` member is an `AtlasSecurityObservation`. Production helpers
@@ -315,7 +317,9 @@ fixtures and assert they still project to the existing
 The RED matrix must additionally cover:
 
 - the complete producer/target/scope/exact-coverage/artifact-integrity
-  discriminated unions, including every required/forbidden member pair;
+  discriminated unions, including every required/forbidden member pair and
+  preservation of Codex-optional scope, threat-model, and open-question
+  members without invented empty arrays;
 - fixed golden vectors for exact and semantic identities, fingerprint, finding,
   occurrence, observation, inventory, scope, current, and history digests;
 - the cycle-breaking invariant: changing exact result receipts changes result
@@ -323,8 +327,9 @@ The RED matrix must additionally cover:
   likewise do not change semantic declaration identity;
 - repository identity, filename/slug/history path, timestamp/precision,
   Codex timestamp equality, first-party clean-worktree revision, and the Codex
-  source-kind/source-coordinate matrix without an invented dirty or verified
-  revision claim;
+  source-kind/source-coordinate required-minimum matrix without an invented
+  dirty or verified revision claim, including independently optional Codex
+  diff coordinates and mandatory snapshots for completed non-revision targets;
 - upstream-optional versus V3-required member boundaries: severity requires
   only level; locations require path/startLine; code evidence requires its
   common core but not endLine/language/role; root-cause references and
@@ -338,11 +343,16 @@ The RED matrix must additionally cover:
 - extension JSON-pointer/namespace/digest/size/depth/member limits and recursive
   data-only JSON values rather than `unknown`;
 - complete/partial exact-coverage arithmetic and semantic closure;
+- separate exact-glob and semantic-selector validation, including Codex's
+  literal `src/` and `.` selectors without loosening exact inventory paths;
+- one descriptor-verified Git read per unique blob across a load, plus a pure
+  budget seam proving the 256 MiB aggregate unique exact-source cap without
+  allocating the cap in tests;
 - code-evidence blob/line/content and per-snippet/aggregate bounds; and
 - independently resealed wrong identities so surrounding digest failures do
   not mask the identity check.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 ```bash
 pnpm build:cli && node --test test/audit-v3.test.mjs
@@ -350,7 +360,7 @@ pnpm build:cli && node --test test/audit-v3.test.mjs
 
 Expected: FAIL because the V3 modules do not exist.
 
-- [ ] **Step 3: Implement strict types and parser**
+- [x] **Step 3: Implement strict types and parser**
 
 Define the discriminated public contracts from the normative design, including
 recursive `AuditJsonValue` and required/forbidden-member unions rather than
@@ -411,6 +421,13 @@ never drops malformed entries. V3 current files remain
 `.atlas/audit-history/<slug>.json`; and the stable producer-neutral
 `repositoryId` comes from committed Atlas config/identity state.
 
+Task 2 extends the core only through two narrow descriptor-anchored seams:
+bounded Git blob-object reads for exact historical receipts and bounded
+incremental audit-directory listing for portfolio discovery. Their focused
+tests cover linked worktrees, hostile Git redirects, object/type/size/digest
+validation, non-UTF-8 names, replacement races, early allocation bounds, and
+primary-plus-cleanup failure aggregation.
+
 The discriminated receipt types also include the verified Codex 1.0
 amendments in the normative spec: producer/target/scope
 `identityDigest`+`identityBasis`, optional producer `sourceContract`,
@@ -431,7 +448,7 @@ Codex targets retain canonical Atlas `kind` plus exact `sourceKind`, and
 revision-coordinate identity hashes the source spelling. Snapshot-basis target
 identity requires and equals `snapshotDigest`.
 
-- [ ] **Step 4: Publish observations without losing history**
+- [x] **Step 4: Publish observations without losing history**
 
 Implement:
 
@@ -452,6 +469,7 @@ export function publishAuditObservation(root: string, ledger: AtlasSecurityCurre
   currentPath: string
   historyPath: string
   appendedObservationId: string
+  status: 'appended' | 'resumed' | 'already-current'
 }
 ```
 
@@ -460,8 +478,10 @@ validates the existing chain, selects the next history head, and derives
 canonical history/current bytes without mutation. Every producer uses this
 single seam. Publication revalidates that prepared state under the lock,
 appends a new hash-chain history entry first, rejects conflicting history
-IDs/digests, then atomically switches the current wrapper. The current
-observation/digest must equal the latest history entry exactly.
+IDs/digests, then atomically switches the current wrapper. Normally current
+equals the latest history entry. A retry instead resumes the exact one-entry
+history-ahead state without appending a duplicate; a fully current identical
+publication is an explicit no-op.
 
 Tests inject a pre-held lock, traversal and symlink targets, history-write and
 current-switch failures, same-ID/different-digest conflicts, forked/reordered
@@ -470,7 +490,7 @@ Every rejected publication preserves prior bytes; an interrupted current
 switch leaves only the documented resumable history-ahead state and no owned
 temporary files.
 
-- [ ] **Step 5: Project V3 into existing portfolios**
+- [x] **Step 5: Project V3 into existing portfolios**
 
 Extend `src/audits.ts` so V3 security observations load alongside V1/V2
 security/test/design ledgers. Projection keeps rich finding IDs, confidence,
@@ -480,12 +500,12 @@ invented label or freshness claim. Mutated exact source bytes become stale,
 and V3-looking polyglots or malformed wrappers cannot downgrade to V1/V2.
 Existing V1/V2 tests must remain unchanged and pass.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
 ```bash
 pnpm build:cli
 node --test test/audit-v3.test.mjs test/audits.test.mjs test/review-coverage.test.mjs
-git add src/audit-v3-types.ts src/audit-v3.ts src/types.ts src/audits.ts test/audit-v3.test.mjs
+git add src/audit-core.ts src/audit-v3-types.ts src/audit-v3.ts src/types.ts src/audits.ts test/audit-core.test.mjs test/audit-v3.test.mjs
 git commit -m "feat(audit): add strict V3 observations and history"
 ```
 
@@ -494,20 +514,28 @@ git commit -m "feat(audit): add strict V3 observations and history"
 **Files:**
 - Create: `src/audit-decisions.ts`
 - Create: `test/audit-decisions.test.mjs`
+- Modify: `src/audit-core.ts`
 - Modify: `src/audit-v3-types.ts`
+- Modify: `test/audit-core.test.mjs`
 
 - [ ] **Step 1: Write failing lifecycle tests**
 
 Cover implicit open state, remediated, accepted-risk, separate-design, false-positive, superseded, reopened, deleted, moved, staged deletion, uncommitted-snapshot-absent, and reconciliation. The reducer assertion is:
 
 ```js
-const index = buildAuditDecisionIndex(histories, decisionLedgers)
+const index = buildAuditDecisionIndex(currentLedgers, histories, decisionLedgers)
 const state = reduceAuditDecisionState(index, policy, now)
 assert.deepEqual(state.findings.get(findingId), {
   disposition: 'accepted-risk',
   blocking: false,
+  derivation: 'explicit-event',
+  lifecycle: 'persisting',
+  currentOccurrenceIds: [occurrenceId],
   eventId: accepted.eventId,
+  basisEventIds: [],
   expiresAt: '2026-08-28T00:00:00.000Z',
+  expiryState: 'active',
+  reopenAcknowledged: false,
 })
 ```
 
@@ -517,11 +545,19 @@ Add table-driven RED fixtures for:
   reconciliation, identity-alias reconciliation, proof, review, regression,
   and action-evidence variant;
 - independent literal `eventId` and `entryDigest` golden vectors;
+- the literal `comparisonId` golden
+  `acmp_49e952b6b12da976599461aa`, plus direction, empty, overlap, and
+  observation-resolution failures;
 - tampered, forked, reordered, duplicate, and colliding chains, while a
   deterministic migration chain with nonmonotonic `createdAt` remains valid;
+- pure duplicate/collision registry tests without an injectable production
+  hasher;
 - a global history index containing historical-only findings/occurrences,
   stable single-ledger ownership, and unknown/mismatched path/blob/ruleset
   references;
+- current wrappers as the authoritative state, including one valid
+  history-ahead decision reference that remains non-effective until the
+  current pointer switches;
 - implicit open plus every action, automatic reopen/carry rules, earlier-only
   compatible supersession, and same-ID deterministic append idempotence;
 - exact expiry/warning/30-day/90-day boundaries relative to event `createdAt`,
@@ -530,10 +566,15 @@ Add table-driven RED fixtures for:
 - revision/blob-bound passing remediation regressions, source evidence,
   replacement/deletion/no-replacement proof, and stale guardrail evidence;
 - every retirement branch, staged-to-deleted supersession, moved successor
-  blob equality, and date-only precision preservation; and
+  blob equality, unique history-owned home ledger, date-only precision
+  preservation, and exact required/forbidden member matrices; and
 - one-to-many/many-to-one high-equivalent temporal reconciliation, correction,
-  conflict/cycle/many-to-many rejection, plus legacy alias mapping that never
-  drives lifecycle by itself.
+  split partition/merge union, conflict/cycle/many-to-many rejection, full
+  derived-state provenance with unique UTF-16-sorted occurrence/basis IDs,
+  plus legacy alias mapping that never drives lifecycle by itself.
+
+Migrated proofs must fail without their sealed source artifact; exact native
+Atlas proofs may omit one.
 
 - [ ] **Step 2: Run and verify RED**
 
@@ -580,6 +621,21 @@ export type AuditDecisionEventV3 =
   | AuditScopeRetirementEventV3
   | AuditFindingReconciliationEventV3
   | AuditIdentityAliasReconciliationEventV3
+
+export function loadAuditDecisionLedgers(
+  root: string,
+): AuditDecisionLedgerPortfolioResult
+export function prepareAuditDecisionAppend(
+  ledger: AuditDecisionLedgerV1 | null,
+  domain: 'security',
+  slug: string,
+  event: AuditDecisionEventInputV3,
+): AuditDecisionAppendPlan
+export function appendAuditDecision(
+  root: string,
+  slug: string,
+  event: AuditDecisionEventInputV3,
+): AuditDecisionAppendResult
 ```
 
 Implement strict hash-chain JSON reading, duplicate/collision detection, atomic
@@ -588,6 +644,13 @@ validation, expiry warning at 14 days, event-relative maximums at 30/90 days,
 immediate blocking on reopen/regression, and a stable `decisionLedger` home
 unit. The schema-owned global index covers every V3 history, not only current
 observations. Entry reduction uses chain order and never timestamp sorting.
+Add `acmp` to the core stable-ID prefix allowlist and implement the normative
+comparison helper with `stableAuditId`; production hashing remains
+non-injectable.
+Preparation is pure. Append acquires the audit lock, re-reads and revalidates
+the current bytes, returns explicit `appended | already-present`, and uses
+atomic replacement. An identical deterministic event is the only idempotent
+no-op; same ID with different canonical content is a collision.
 
 - [ ] **Step 4: Implement retirement and reconciliation**
 
@@ -604,7 +667,7 @@ without mutating observations or manufacturing lifecycle equivalence.
 ```bash
 pnpm build:cli
 node --test test/audit-decisions.test.mjs test/audit-v3.test.mjs
-git add src/audit-decisions.ts src/audit-v3-types.ts test/audit-decisions.test.mjs
+git add src/audit-core.ts src/audit-decisions.ts src/audit-v3-types.ts test/audit-core.test.mjs test/audit-decisions.test.mjs
 git commit -m "feat(audit): add append-only finding lifecycle"
 ```
 
@@ -646,6 +709,14 @@ module layout:
 - exact evidence must match the assigned same-domain unit; eligible V1/V2/V3
   receipts join, while rejected rulesets, stale/mismatched bytes, missing
   full-read proof, semantic completion, or decision state cannot;
+- V2 requires `reviewState: "complete"` and a complete exact hashes map for its
+  schema-owned full-read attestation; V1 never becomes fresh directly from
+  hashes alone;
+- SHA-256 Git repositories fail coverage update/check with
+  `unsupported-object-format` before a V1 report write;
+- migration-only `historicalUnitAssignments` use the sealed RelayOS
+  `sourceKind` shape and expand the literal retired fixture 3/30/25 with no
+  current path or active receipt matches;
 - update writes compact canonical bytes plus one newline, while check requires
   those exact bytes and the hostile reader continues to accept structurally
   valid legacy pretty reports; and
@@ -663,10 +734,16 @@ The generic policy header and embedded decision policy are:
   "securityDecisions": {
     "requireDisposition": true,
     "blockingActions": ["open", "reopened"],
-    "acceptedRulesets": ["relayos-security-v3", "codex-security-1.0"]
+    "acceptedRulesets": ["atlas-security-v3", "relayos-security-v1"]
   }
 }
 ```
+
+`acceptedRulesets` matches only a real `producer.ruleset.id` whose digest is
+bound by the decision review context. Codex Security's
+`identityBasis: "codex-contract"` is not a ruleset and must never be relabeled
+as one. A semantic Codex finding therefore needs a later exact Atlas validation
+observation before closure or lifecycle carry.
 
 - [ ] **Step 2: Run and verify RED**
 
@@ -688,6 +765,10 @@ export function classifyAuditInventory(
 ```
 
 Use NUL-safe `git ls-files --stage -z`, hash working-tree bytes, reject stage conflicts and non-regular modes, compile picomatch with `{ dot: true }`, and preserve all matching rule IDs.
+Require stored inventory paths to be NFC and reject collisions under the
+locale-independent `path.normalize("NFC").toLowerCase()` key. Reject
+index/worktree executable-bit drift instead of classifying against a stale
+index mode.
 
 Do not copy RelayOS's repository-specific broad-glob probes. Reject universal
 swallowing patterns syntactically and evaluate other broad exclusions against
@@ -710,16 +791,21 @@ export function checkAuditCoverage(root: string, options?: { allowIncomplete?: b
 `AuditCoverageResult` distinguishes `ok`, committed-byte `current`, `wrote`,
 canonical bytes, diagnostics, and runtime-only semantic/ruleset/lifecycle
 assurance. Those runtime projections never become invented
-`atlas-review-coverage-v1` fields. `update` always writes an honest valid
-complete or incomplete report; `allowIncomplete` changes return/exit success,
-not the bytes or policy validity.
+`atlas-review-coverage-v1` fields. `update` always writes an honest,
+structurally valid deterministic report, including `verdict: "invalid"` when
+classification or evidence cannot be trusted, and returns failure for that
+verdict. `allowIncomplete` changes return/exit success only for honest
+missing/stale evidence, never bytes, policy validity, invalid joins, or an
+invalid verdict.
 
 Continue emitting and validating `atlas-review-coverage-v1`; changing ownership
 does not bump the wire format. Exact V3 receipt eligibility is expressed by the
 existing per-domain fresh/missing/stale/invalid evidence plus unit references.
 Semantic coverage, accepted-ruleset status, and lifecycle blocking are separate
 runtime assurance projections, not invented V2 coverage fields. The self-entry
-still uses `GENERATED-PROOF`.
+still uses `GENERATED-PROOF`; an untracked first-generation report is outside
+inventory, and the next update after it is tracked adds the reserved self
+entry.
 
 - [ ] **Step 5: Verify and commit**
 

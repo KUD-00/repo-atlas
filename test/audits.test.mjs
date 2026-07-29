@@ -1,11 +1,29 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { auditStatusEntries, loadAuditPortfolios, loadAudits, stampAudits } from '../dist/audits.js'
+import {
+  auditStatusEntries,
+  loadAuditPortfolios,
+  loadAudits,
+  projectAuditV3SecurityUnit,
+  stampAudits,
+} from '../dist/audits.js'
+import {
+  computeAuditInventoryDigest,
+  computeAuditScopeHash,
+  computeAtlasFindingId,
+  computeAtlasFingerprint,
+  computeAtlasObservationId,
+  computeAtlasOccurrenceId,
+  computeExactScopeIdentityDigest,
+  loadAuditObservations,
+  prepareAuditObservationPublication,
+  publishAuditObservation,
+} from '../dist/audit-v3.js'
 import { scan } from '../dist/scan.js'
 import { cleanup, commitAll, gitBlob, makeRepo, scopeHash, write } from './helpers.mjs'
 
@@ -77,6 +95,337 @@ function v2Envelope(root, domain, slug, files, findings, extra = {}) {
 
 /** Alias used by coverage-aware Task 1 fixtures. */
 const writeV2 = v2Envelope
+
+function makeSha256Repo() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-atlas-sha256-'))
+  execFileSync('git', ['init', '-q', '--object-format=sha256'], { cwd: root })
+  execFileSync('git', ['config', 'user.email', 'repo-atlas-test@example.invalid'], {
+    cwd: root,
+  })
+  execFileSync('git', ['config', 'user.name', 'repo-atlas test'], { cwd: root })
+  fs.mkdirSync(path.join(root, '.atlas', 'audits'), { recursive: true })
+  write(
+    root,
+    '.atlas/config.json',
+    JSON.stringify({ formatVersion: 1, exclude: [] }) + '\n',
+  )
+  return root
+}
+
+function publishExactV3(root, slug = 'security-v3-runtime') {
+  const repositoryId = 'repo_audits_fixture'
+  write(
+    root,
+    '.atlas/config.json',
+    JSON.stringify({ formatVersion: 1, exclude: [], repositoryId }) + '\n',
+  )
+  const rawBlob = gitBlob(root, 'src/a.ts')
+  const blob = `git-sha${rawBlob.length === 40 ? '1' : '256'}:${rawBlob}`
+  const rulesetDigest = `sha256:${'1'.repeat(64)}`
+  const targetDigest = `sha256:${'2'.repeat(64)}`
+  const scopeIdentityDigest = computeExactScopeIdentityDigest({
+    mode: 'unit',
+    includePaths: ['src/**'],
+    excludePaths: [],
+    files: [{ path: 'src/a.ts', blob }],
+  })
+  const fingerprint = computeAtlasFingerprint({
+    repositoryId,
+    domain: 'security',
+    ruleId: 'authorization/audits-fixture',
+    anchor: 'audits/fixture',
+    instance: 'a',
+  })
+  const findingId = computeAtlasFindingId(fingerprint)
+  const observationId = computeAtlasObservationId({
+    slug,
+    adapter: 'repo-atlas/manual-v1',
+    runId: 'audits-fixture-run',
+    producerIdentityDigest: rulesetDigest,
+    targetId: 'audits-fixture-target',
+    targetIdentityDigest: targetDigest,
+    scopeIdentityDigest,
+  })
+  const occurrenceId = computeAtlasOccurrenceId(observationId, fingerprint)
+  const files = [{
+    path: 'src/a.ts',
+    blob,
+    lines: 1,
+    status: 'reviewed',
+    outcome: 'findings',
+    reviewedAt: '2026-07-29T12:34:56.000Z',
+    reviewedAtPrecision: 'timestamp',
+    reviewedBy: 'fixture',
+    ruleset: 'fixture-security-v3',
+    findingOccurrenceIds: [occurrenceId],
+    receiptRefs: ['fixture:full-read'],
+  }]
+  const inventoryDigest = computeAuditInventoryDigest(files)
+  const observation = {
+    observationId,
+    observedAt: '2026-07-29T12:34:56.000Z',
+    reviewState: 'complete',
+    producer: {
+      kind: 'manual',
+      name: 'fixture',
+      version: '1',
+      adapter: 'repo-atlas/manual-v1',
+      adapterVersion: '0.1.0',
+      runId: 'audits-fixture-run',
+      identityDigest: rulesetDigest,
+      identityBasis: 'ruleset',
+      ruleset: {
+        id: 'fixture-security-v3',
+        digest: rulesetDigest,
+      },
+    },
+    target: {
+      kind: 'directory-snapshot',
+      repositoryId,
+      targetId: 'audits-fixture-target',
+      identityDigest: targetDigest,
+      identityBasis: 'snapshot',
+      snapshotDigest: targetDigest,
+    },
+    scope: {
+      mode: 'unit',
+      identityDigest: scopeIdentityDigest,
+      identityBasis: 'exact-inventory',
+      includePaths: ['src/**'],
+      excludePaths: [],
+      scopeHash: computeAuditScopeHash({
+        mode: 'unit',
+        includePaths: ['src/**'],
+        excludePaths: [],
+        inventoryDigest,
+      }),
+      inventoryDigest,
+      fileCount: 1,
+      files,
+      artifactsReviewed: [],
+      limitations: [],
+    },
+    exactCoverage: {
+      completeness: 'complete',
+      basis: 'full-read-receipts',
+      reviewedFileCount: 1,
+      unreviewed: [],
+    },
+    semanticCoverage: {
+      mode: 'unit',
+      completeness: 'unknown',
+      inventoryStrategy: 'unit',
+      surfaces: [],
+      explicitExclusions: [],
+      deferred: [],
+      openQuestions: [],
+    },
+    findings: [{
+      findingId,
+      occurrenceId,
+      decisionLedger: slug,
+      ruleId: 'authorization/audits-fixture',
+      identity: {
+        anchor: 'audits/fixture',
+        instance: 'a',
+      },
+      fingerprints: [{
+        scheme: 'atlas/v1',
+        value: fingerprint,
+        role: 'canonical',
+      }],
+      title: 'V3 fixture finding',
+      summary: 'The fixture has a boundary issue.',
+      severity: { level: 'medium' },
+      confidence: {
+        level: 'high',
+        rationale: 'The source receipt is exact.',
+      },
+      taxonomy: { category: 'authorization' },
+      locations: [{ path: 'src/a.ts', startLine: 1 }],
+      remediation: 'Add the missing gate.',
+      provenance: { source: 'manual' },
+    }],
+    evidenceRefs: ['evidence/v3.json'],
+    sourceArtifacts: [],
+    producerExtensions: [],
+  }
+  const prepared = prepareAuditObservationPublication(
+    root,
+    observation,
+    { slug, title: 'V3 Runtime', conceptSlug: 'runtime' },
+  )
+  publishAuditObservation(root, prepared.ledger)
+  return { prepared, rawBlob, blob, findingId }
+}
+
+test('verified exact V3 observations project raw Git hashes and descriptor-checked freshness', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const a = 1\n')
+    commitAll(root)
+    const fixture = publishExactV3(root)
+
+    const unit = loadAuditPortfolios(root).security[0]
+    assert.equal(unit.formatVersion, 3)
+    assert.equal(unit.ruleset, 'fixture-security-v3')
+    assert.deepEqual(unit.files, ['src/a.ts'])
+    assert.deepEqual(unit.hashes, { 'src/a.ts': fixture.rawBlob })
+    assert.equal(unit.scopeHash, fixture.prepared.ledger.current.scope.scopeHash)
+    assert.equal(unit.stale, false)
+    assert.deepEqual(unit.evidenceRefs, ['evidence/v3.json'])
+    assert.equal(unit.findings[0].id, fixture.findingId)
+    assert.equal(unit.findings[0].confidence, 'high')
+    assert.equal(unit.findings[0].disposition, 'open')
+    assert.equal(unit.findings[0].dataflow, '')
+    assert.equal(Object.hasOwn(unit, 'fullRead'), false)
+
+    const direct = loadAuditObservations(root)
+    assert.deepEqual(direct.diagnostics, [])
+    assert.equal(
+      direct.observations[0].current.scope.files[0].blob,
+      fixture.blob,
+      'the rich V3 ledger retains its canonical prefixed Git identity',
+    )
+    let status = auditStatusEntries(root, scan(root, { exclude: [] }))[0]
+    assert.equal(status.status, 'fresh')
+    assert.deepEqual(status.changedFiles, [])
+
+    write(root, 'src/a.ts', 'export const a = 2\n')
+    const drifted = loadAuditPortfolios(root).security[0]
+    assert.equal(drifted.stale, true)
+    status = auditStatusEntries(root, scan(root, { exclude: [] }))[0]
+    assert.equal(status.status, 'stale')
+    assert.deepEqual(status.changedFiles, ['src/a.ts'])
+    assert.deepEqual(status.missingFiles, [])
+
+    fs.unlinkSync(path.join(root, 'src/a.ts'))
+    status = auditStatusEntries(root, scan(root, { exclude: [] }))[0]
+    assert.equal(status.status, 'stale')
+    assert.deepEqual(status.missingFiles, ['src/a.ts'])
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('exact V3 freshness hashes current bytes with the receipt Git object algorithm', () => {
+  const root = makeSha256Repo()
+  try {
+    write(root, 'src/a.ts', 'export const a = 1\n')
+    commitAll(root)
+    const fixture = publishExactV3(root, 'security-v3-sha256')
+    assert.equal(fixture.rawBlob.length, 64)
+    assert.match(fixture.blob, /^git-sha256:/)
+    assert.equal(loadAuditPortfolios(root).security[0].stale, false)
+
+    write(root, 'src/a.ts', 'export const a = 2\n')
+    assert.equal(loadAuditPortfolios(root).security[0].stale, true)
+    assert.deepEqual(
+      auditStatusEntries(root, scan(root, { exclude: [] }))[0].changedFiles,
+      ['src/a.ts'],
+    )
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('semantic Codex compatibility projection preserves absence without a freshness claim', () => {
+  const root = makeRepo()
+  try {
+    const unit = projectAuditV3SecurityUnit(
+      root,
+      {
+        formatVersion: 3,
+        format: 'atlas-audit-v3',
+        domain: 'security',
+        slug: 'security-codex',
+        title: 'Codex',
+        current: {
+          observedAt: '2026-07-29T12:34:56.000Z',
+          producer: { kind: 'codex-security' },
+          scope: {
+            identityBasis: 'semantic-declaration',
+          },
+          findings: [{
+            findingId: 'atf_000000000000000000000000',
+            severity: { level: 'informational' },
+            confidence: { level: 'medium' },
+            taxonomy: { category: 'authorization' },
+            title: 'Semantic finding',
+            locations: [{ path: 'src/a.ts', startLine: 4 }],
+            remediation: 'Review the gate.',
+          }],
+          evidenceRefs: [],
+        },
+      },
+      { status: 'fresh' },
+    )
+    assert.equal(unit.formatVersion, 3)
+    assert.equal(unit.ruleset, null)
+    assert.equal(unit.scannedAt, '2026-07-29T12:34:56.000Z')
+    assert.deepEqual(unit.files, [])
+    assert.equal(unit.fileCount, 0)
+    assert.equal(unit.hashes, null)
+    assert.equal(unit.scopeHash, '')
+    assert.equal(unit.stale, true)
+    assert.equal(unit.findings[0].severity, 'info')
+    assert.equal(unit.findings[0].dataflow, '')
+    assert.equal(Object.hasOwn(unit, 'fullRead'), false)
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('portfolio discovery is bounded and V3-looking polyglots never downgrade to V1', () => {
+  const root = makeRepo()
+  const originalReaddir = fs.readdirSync
+  try {
+    write(root, 'src/a.ts', 'export const a = 1\n')
+    commitAll(root)
+    v2Envelope(
+      root,
+      'security',
+      'security-v2',
+      ['src/a.ts'],
+      [finding('src/a.ts')],
+    )
+    write(root, '.atlas/audits/security-polyglot.json', JSON.stringify({
+      formatVersion: 3,
+      format: 'atlas-audit-v3',
+      domain: 'security',
+      slug: 'security-polyglot',
+      title: 'Polyglot',
+      ruleset: 'must-not-downgrade',
+      scanned_at: '2026-07-29',
+      scope_hash: scopeHash(root, ['src/a.ts']),
+      files: ['src/a.ts'],
+      findings: [finding('src/a.ts')],
+      finalPass: true,
+    }) + '\n')
+    fs.readdirSync = function rejectBareAuditEnumeration(file, ...args) {
+      if (String(file) === path.join(root, '.atlas/audits')) {
+        throw new Error('bare audit enumeration is forbidden')
+      }
+      return originalReaddir.call(fs, file, ...args)
+    }
+
+    assert.deepEqual(
+      loadAuditPortfolios(root).security.map((unit) => unit.slug),
+      ['security-v2'],
+    )
+    const statuses = auditStatusEntries(root, scan(root, { exclude: [] }))
+    const byName = Object.fromEntries(statuses.map((entry) => [entry.name, entry]))
+    assert.equal(byName['security-v2'].status, 'fresh')
+    assert.equal(byName['security-polyglot'].status, 'stale')
+    assert.match(
+      byName['security-polyglot'].invalidReason,
+      /V3|current|history|missing|member|strict/i,
+    )
+  } finally {
+    fs.readdirSync = originalReaddir
+    cleanup(root)
+  }
+})
 
 test('v2 security units expose exact scope, evidence refs, and normalized dispositions', () => {
   const root = makeRepo()

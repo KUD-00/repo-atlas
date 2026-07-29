@@ -183,11 +183,12 @@ open and read.
 | `atlas-audit-v2` | stable portfolio compatibility for security/test/design | compatibility maintenance only | typed domains, exact scope, findings, viewer/localization |
 | `atlas-audit-v3` | current security model | yes | rich observations, exact + semantic coverage, identities, code evidence, lifecycle references, provenance |
 
-V1 and V2 continue to load, render, localize, stamp where previously supported,
-and contribute to `atlas-review-coverage-v1`. Existing commands remain as
-deprecated aliases during one minor release. Only an explicitly requested
-legacy import or maintenance command writes V1/V2; new first-party producers
-and migrations emit only V3.
+V1 and V2 continue to load, render, localize, and stamp where previously
+supported. V2 retains its existing exact-hash coverage contribution; V1
+remains recorded compatibility evidence but does not directly establish fresh
+closed-world coverage. Existing commands remain as deprecated aliases during
+one minor release. Only an explicitly requested legacy import or maintenance
+command writes V1/V2; new first-party producers and migrations emit only V3.
 
 V3 initially supports `domain: "security"`. Test and design V2 ledgers remain
 valid. Extending V3 to another domain requires a domain-specific finding schema
@@ -332,6 +333,13 @@ independently optional members:
   identity; and
 - prompt extension path/digest members are either both present or both absent.
 
+For `codex-security/1.0`, the three document names are literal contract
+members: `scan-manifest.json`, `findings.json`, and `coverage.json`. Their
+`sourceArtifacts` rows use `mediaType: "application/json"`. The manifest is an
+`adapter-bundle` because it cannot self-seal; findings and coverage are
+`producer-manifest` artifacts whose `integrityIndex` is exactly
+`scan-manifest.json`.
+
 The same required/forbidden-member rule applies to target, scope, exact
 coverage, and artifact-integrity variants. TypeScript declarations use
 discriminated unions with `never` exclusions, and runtime parsing enforces the
@@ -393,16 +401,25 @@ bytes and records `kind: "git-worktree"`. A clean worktree also records the
 full HEAD revision. `kind` is Atlas's canonical producer-neutral spelling.
 An imported Codex target is a separate strict union branch. It records the
 canonical `kind`, exact source spelling (`git_revision`, `git_worktree`,
-`git_diff`, or `directory_snapshot`) in `sourceKind`, and exact producer
-coordinates in `sourceRevision`, `sourceBaseRevision`,
-`sourceHeadRevision`, and `sourceSnapshotDigest` when present. It forbids
-`dirty` because Codex Security 1.0 does not supply that fact, and forbids the
-verified Atlas `revision`/`baseRevision`/`headRevision` members. The upstream
-contract permits opaque coordinates such as the official fixture's
-`deadbeef`; those are preserved but never promoted into a verified full Git
-object ID. First-party targets omit all `source*` members. Target kinds that
-cannot be joined to current exact blobs may still carry semantic evidence, but
-exact coverage remains `unknown`.
+`git_diff`, or `directory_snapshot`) in `sourceKind`, and every source
+coordinate actually present in `sourceRevision`, `sourceBaseRevision`,
+`sourceHeadRevision`, and `sourceSnapshotDigest`. It forbids `dirty` because
+Codex Security 1.0 does not supply that fact, and forbids the verified Atlas
+`revision`/`baseRevision`/`headRevision` members. The upstream contract permits
+opaque coordinates such as the official fixture's `deadbeef`; those are
+preserved but never promoted into a verified full Git object ID. First-party
+targets omit all `source*` members. Target kinds that cannot be joined to
+current exact blobs may still carry semantic evidence, but exact coverage
+remains `unknown`.
+
+The pinned Codex Security 1.0 schema requires `revision` for `git_revision`
+and `snapshotDigest` for `git_worktree`, `git_diff`, and
+`directory_snapshot`. It permits `baseRevision` and `headRevision`
+independently rather than requiring either pair, so Atlas must not invent a
+missing diff coordinate. The adapter preserves any additional schema-permitted
+coordinate but applies identity as follows: every valid source snapshot uses
+the snapshot branch; only a `git_revision` without a source snapshot uses the
+revision-coordinate branch.
 
 `repositoryId` is the committed, producer-neutral identity initialized in
 `.atlas/config.json`. It survives revision, worktree, unit, and provider
@@ -434,12 +451,13 @@ as a content snapshot. A first-party canonical `git-revision` target requires
 verified `revision`; a first-party clean `git-worktree` requires the full
 `revision`; and a first-party `git-diff` requires applicable verified
 base/head coordinates. The Codex branch instead enforces the upstream
-source-kind coordinate matrix on `source*` members. A valid Codex
+required-minimum matrix while preserving every optional source coordinate. A valid Codex
 `codex-security-snapshot/v1:sha256:<hex>` is preserved verbatim as
 `sourceSnapshotDigest`, normalized to `snapshotDigest: "sha256:<hex>"`, and
-may back `identityBasis: "snapshot"`; this identity still does not imply
+requires `identityBasis: "snapshot"`; this identity still does not imply
 per-file receipts or exact coverage. The strict target union rejects
-half-present or cross-variant members.
+invented verified Atlas members and a revision-coordinate claim when the
+source supplied a snapshot.
 
 Remote URLs are optional metadata and never identity material. An importer
 rejects a remote containing userinfo, query, fragment, backslash ambiguity,
@@ -520,11 +538,24 @@ a cryptographic cycle. `inventoryDigest` and `scopeHash` still seal all result
 receipts and are themselves protected by `currentDigest` and the history
 chain.
 
+`artifactsReviewed` and `limitations` are independently optional storage
+members. First-party ruleset producers emit them explicitly, including honest
+empty arrays. Codex imports preserve their source absence because the pinned
+1.0 manifest schema requires only `includePaths` and `excludePaths`; an
+adapter must not turn “not recorded” into “recorded none.”
+
 `outcome: "clean"` means this observation associated no reportable occurrence
 with that exact file/blob; it is not a safety guarantee. `findings` requires at
 least one listed occurrence bound to the file/blob. `unknown` is used only when
 a legacy or imported producer cannot make the distinction. Drift policy may
 treat a formerly finding-bearing blob more strictly than a clean receipt.
+
+For a ruleset-basis producer, every `status: "reviewed"` receipt requires
+`ruleset` equal to `producer.ruleset.id`. A `not-reviewed` context receipt may
+omit it, but if present it also equals that ID. A file receipt cannot introduce
+an unrelated accepted-ruleset label that is not bound by the producer digest.
+Relay migration uses the canonical `relayos-security-v1` receipt ID and keeps
+the older source spelling only in provenance.
 
 Date-only legacy facts normalize to midnight UTC with
 `reviewedAtPrecision: "date"` and retain the original calendar date in
@@ -555,6 +586,13 @@ only to `exact-inventory`. `currentDigest` and history still seal the complete
 semantic result. Semantic paths, finding locations, code snippets, target
 revisions, and aggregate snapshot digests are never promoted into per-file
 blob receipts.
+
+Semantic selectors preserve Codex Security 1.0's safe source spelling,
+including the official fixture's `src/` directory selector and the repository
+selector `.`. They may contain globs and one trailing slash, but never an
+absolute path, backslash, NUL, `..`, an unsafe empty/interior-dot segment, or
+a lone surrogate. This validator is deliberately separate from the stricter
+exact-inventory/policy glob validator.
 
 ### Exact coverage
 
@@ -632,7 +670,9 @@ where its own policy supplies the inventory. Semantic `complete` requires no
 deferred rows and no `needs_follow_up` surface, matching Codex's closure
 semantics, but still says nothing about exact file reads.
 
-`openQuestions[].question` is required and `followUpPrompt` is optional.
+The top-level `openQuestions` array is optional because Codex Security 1.0
+allows it to be absent. When present, `openQuestions[].question` is required
+and `followUpPrompt` is optional.
 `deferred[].paths` and `surfaceIds` are independently optional in imported
 semantic evidence; absent source members remain absent rather than becoming
 invented empty arrays.
@@ -651,6 +691,9 @@ invented empty arrays.
 ```
 
 An absent threat model is omitted. An empty invented object is invalid.
+`summary` is required when the object exists; `assets`, `trustBoundaries`,
+`attackerCapabilities`, `securityObjectives`, and `assumptions` are
+independently optional exactly as in the pinned Codex Security 1.0 schema.
 
 `sourceArtifacts` is a bounded inventory of producer artifacts:
 
@@ -878,6 +921,10 @@ artifact path and digest must resolve to exactly one `sourceArtifacts` entry wit
 `integrityKind: "producer-manifest"`, and the JSON pointer must be a strict
 pointer into that sealed artifact. A sealed producer snippet is not an exact
 file-read or blob receipt and never contributes exact coverage.
+For a `codex-security/1.0` producer, that artifact is literally
+`findings.json`, and the pointer must name the matching
+`/findings/<index>/codeEvidence/<index>` slot; a consistently resealed
+reference to `coverage.json` is invalid.
 
 This preserves canonical Codex Security code-evidence meaning as a
 first-class V3 fact. Atlas adds an exact source blob only when it independently
@@ -1088,7 +1135,10 @@ stored digest must equal the canonical extension value.
 `entryDigest` hashes every member except itself. Later entries bind the previous
 entry digest. Normal writers append only. `audit check` verifies the chain,
 unique observation and occurrence IDs, and exact equality between the latest
-entry and the current ledger.
+entry referenced by the current ledger and the embedded current observation.
+That referenced entry is normally the latest. It may be the penultimate entry
+only in the valid one-entry history-ahead interruption state, or absent only
+during the valid one-entry genesis history-ahead state.
 
 Git history remains the authority for proving that an old prefix was not
 rewritten. The hash chain makes accidental rewriting or partial merge damage
@@ -1098,6 +1148,12 @@ A V3 update commits the new observation to history before switching the
 current projection. If interrupted between those steps, validation reports an
 unreferenced latest history entry and exact coverage remains at the older
 state; it never overstates freshness.
+
+Publication compares descriptor-verified raw document bytes with the canonical
+compact bytes plus one trailing newline. If a logically identical current or
+history document has only whitespace/key-order byte drift, publication rewrites
+it canonically under the lock without appending a duplicate history entry or
+changing the logical `already-current` result.
 
 ## Decisions, retirement, and reconciliation
 
@@ -1147,6 +1203,50 @@ previous entry digest. Array/chain order is authoritative. Timestamps need not
 be monotonic, especially for deterministic migrations, and are never used to
 sort or repair a chain.
 
+Production hashing is not injectable. Duplicate and collision handling is
+factored after independent recomputation into the pure registry seam:
+
+```ts
+interface AuditIdentityRecord {
+  namespace: 'decision-event' | 'decision-entry' | 'comparison'
+  id: string
+  digest: `sha256:${string}`
+  location: string
+}
+
+validateUniqueAuditIdentityRecords(
+  records: readonly AuditIdentityRecord[],
+): AuditDiagnostic[]
+```
+
+The same ID/digest twice is a duplicate, the same ID with a different digest
+is a collision, and a prohibited digest under different IDs is a digest alias.
+Tests exercise these states directly rather than weakening production hashing
+or attempting an infeasible truncated-SHA collision fixture.
+
+The storage API is:
+
+```ts
+loadAuditDecisionLedgers(root): AuditDecisionLedgerPortfolioResult
+prepareAuditDecisionAppend(
+  ledger,
+  domain,
+  slug,
+  eventWithoutEventId,
+): AuditDecisionAppendPlan
+appendAuditDecision(
+  root,
+  slug,
+  eventWithoutEventId,
+): AuditDecisionAppendResult
+```
+
+Preparation is pure and returns canonical bytes plus either `append` or
+`already-present`. Mutation takes the worktree audit lock, safely re-reads and
+revalidates the current chain, recomputes the plan, and atomically replaces the
+one ledger. The exact same deterministic event is the only idempotent no-op;
+the same ID with different canonical event or digest is a collision.
+
 Manual events use their actual recording time. Migrated events use a sealed
 source timestamp when one exists; otherwise they use the phase-zero source
 revision's committer time plus
@@ -1184,21 +1284,8 @@ did not record them.
   "evidenceRefs": [],
   "proofs": [
     {
-      "kind": "post-fix | current-review | supersession",
-      "observationId": "aobs_<optional>",
-      "findingAlias": "SEC-<optional legacy id>",
-      "outcome": "<validated outcome>",
-      "path": "apps/daemon/src/service.ts",
-      "sourceBlob": "git-sha1:<optional>",
-      "reviewedBlob": "git-sha1:<optional>",
-      "fixBlob": "git-sha1:<optional>",
-      "summary": "<self-contained bounded conclusion>",
-      "sourceArtifact": {
-        "path": "audits/security-scan/rescan/final/post-fix/example.json",
-        "repositoryRevision": "<full commit>",
-        "gitBlob": "<hex>",
-        "sha256": "<hex>"
-      }
+      "kind": "current-review | post-fix | source-evidence | replacement | deletion | no-replacement",
+      "...": "<strict kind-specific members>"
     }
   ],
   "regression": {
@@ -1256,6 +1343,12 @@ finding location for that occurrence, so one unqualified blob can never stand
 for a multi-file finding. Its ruleset and policy digests describe the exact
 context in which Atlas validated the decision, including a deterministic
 migration validation context when the historical source predates Atlas.
+Every explicit finding-disposition event, including `open`, `remediated`, and
+`superseded`, requires this context. Implicit open has no event and therefore
+needs none. A semantic-only Codex occurrence cannot receive a closing decision
+or explicit acknowledgment until a later exact Atlas validation observation
+provides a real ruleset and exact bindings; the importer never invents a Codex
+ruleset.
 
 Proofs are themselves closed unions (`current-review`, `post-fix`,
 `source-evidence`, `replacement`, `deletion`, and `no-replacement`) with
@@ -1265,6 +1358,154 @@ self-contained bounded conclusion; a path alone is invalid. Regression proof
 always binds its command/result to a full repository revision and exact file
 blobs. `observedAt` is optional because a migrated source may not have recorded
 it.
+
+The shared decision records are:
+
+```ts
+type AuditNonEmptyArray<T> = [T, ...T[]]
+
+interface AuditBlobBindingV3 {
+  path: string
+  blob: `git-sha1:${string}` | `git-sha256:${string}`
+}
+
+interface AuditDecisionSourceArtifactV3 {
+  path: string
+  repositoryRevision: string
+  gitBlob: `git-sha1:${string}` | `git-sha256:${string}`
+  sha256: `sha256:${string}`
+}
+
+interface AuditRevisionBindingV3 {
+  repositoryRevision: string
+  observationId?: string
+  files: AuditNonEmptyArray<AuditBlobBindingV3>
+}
+```
+
+Every repository revision is a full commit ID in the repository's object
+format. Binding arrays are nonempty, unique, and sorted by `(path, blob)`.
+Every observation, finding, occurrence, path, and blob reference resolves
+through the verified global history index.
+
+The exact proof variants are:
+
+```ts
+type AuditDecisionProofV3 =
+  | {
+      kind: 'current-review'
+      observationId: string
+      reviewedBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      outcome: 'finding-present'
+      summary: string
+      sourceArtifact?: AuditDecisionSourceArtifactV3
+    }
+  | {
+      kind: 'post-fix'
+      beforeObservationId: string
+      afterObservationId: string
+      beforeBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      afterBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      fixRevision: string
+      outcome: 'finding-absent-after-fix'
+      summary: string
+      sourceArtifact?: AuditDecisionSourceArtifactV3
+    }
+  | {
+      kind: 'source-evidence'
+      observationId: string
+      reviewedBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      outcome: 'not-reportable'
+      summary: string
+      sourceArtifact?: AuditDecisionSourceArtifactV3
+    }
+  | {
+      kind: 'replacement'
+      observationId: string
+      replacementFindingId: string
+      replacementOccurrenceId: string
+      replacementBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      outcome: 'replacement-tracks-root-cause'
+      summary: string
+      sourceArtifact?: AuditDecisionSourceArtifactV3
+    }
+  | {
+      kind: 'deletion'
+      deletionCommit: string
+      parentRevision: string
+      deletedBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      outcome: 'exact-source-deleted'
+      summary: string
+      sourceArtifact?: AuditDecisionSourceArtifactV3
+    }
+  | {
+      kind: 'no-replacement'
+      observationId: string
+      searchRevision: string
+      reviewedBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      outcome: 'no-reportable-replacement'
+      summary: string
+      sourceArtifact?: AuditDecisionSourceArtifactV3
+    }
+```
+
+Migrated proofs require the sealed `sourceArtifact`; native Atlas proofs may
+omit it. Current-review bindings equal the event review context. Post-fix
+before bindings equal the reviewed occurrence; its after bindings and
+`fixRevision` equal both remediation evidence and the passing regression.
+Replacement occurrences belong to the named replacement finding. A deletion
+parent contains every deleted binding and the deletion commit contains none of
+those paths. A no-replacement observation targets `searchRevision` and covers
+every reviewed binding.
+
+The exact action-evidence variants are:
+
+```ts
+type AuditActionEvidenceV3 =
+  | {
+      kind: 'source-evidence'
+      reviewedBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      conclusion: 'not-reportable'
+      rationale: string
+    }
+  | {
+      kind: 'remediation'
+      beforeBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      afterBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      fixRevision: string
+    }
+  | {
+      kind: 'replacement'
+      replacementFindingId: string
+      replacementOccurrenceId: string
+    }
+  | {
+      kind: 'deletion'
+      deletionCommit: string
+      deletedBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+      noReplacementEvidence: {
+        observationId: string
+        searchRevision: string
+        reviewedBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+        summary: string
+      }
+    }
+```
+
+The closed member/proof matrix is:
+
+| Action | Expiry | Regression | Proofs | Action evidence | Supersedes |
+| --- | --- | --- | --- | --- | --- |
+| `open` | forbidden | forbidden | zero or more `current-review` | forbidden | optional earlier same-finding closure |
+| `reopened` | forbidden | forbidden | one or more `current-review` | forbidden | required earlier same-finding closure |
+| `accepted-risk` | required non-null | forbidden | one or more `current-review` | forbidden | forbidden |
+| `separate-design` | required non-null | forbidden | one or more `current-review` | forbidden | forbidden |
+| `false-positive` | required `null` | forbidden | one or more `source-evidence` | `source-evidence` | forbidden |
+| `remediated` | forbidden | required passing | one or more `post-fix` | `remediation` | forbidden |
+| `superseded` replacement | forbidden | forbidden | one or more `replacement` | `replacement` | forbidden |
+| `superseded` deletion | forbidden | forbidden | at least one `deletion` and one `no-replacement` | `deletion` | forbidden |
+
+Proof kinds from another row are invalid rather than supplemental prose.
 
 `actor`, `owner`, and reviewer identities use lowercase NFC strings matching
 `^[a-z0-9][a-z0-9._:@/+-]{0,127}$`; noncanonical input is rejected rather
@@ -1294,6 +1535,24 @@ without copying them into a current observation. Unknown references, identity
 collisions, or the same finding owned by two decision ledgers invalidate the
 decision portfolio; malformed events are never skipped.
 
+The index API receives verified current wrappers as well as histories:
+
+```ts
+buildAuditDecisionIndex(currentLedgers, histories, decisionLedgers)
+```
+
+Every verified history entry remains reference-addressable, but the current
+wrapper's referenced observation is the sole authoritative current
+observation. Exactly one trailing history entry after that pointer is the
+resumable history-ahead state produced by an interrupted publication. A
+decision may already reference that trailing entry, but it does not drive
+implicit state, automatic reopen, severity, expiry, or current lifecycle until
+the current wrapper switches. On first publication, a slug with no current
+wrapper may have exactly one genesis history entry; this is also history-ahead
+and exposes no authoritative current observation. More than one trailing
+entry, a current pointer that is not a history prefix, or current bytes that
+differ from its referenced history entry invalidates the portfolio.
+
 `reopened` must supersede a closing event. `remediated` requires a fix blob and
 self-contained post-fix proof under policy. `false-positive` requires the exact
 reviewed blob and rationale. `accepted-risk` and `separate-design` require an
@@ -1315,6 +1574,52 @@ legacy source artifact is deleted. A source-artifact path by itself is never
 sufficient. Its Git blob and SHA-256 keep the raw bytes recoverable at the
 recorded revision without making normal validation depend on that path.
 
+Effective reduction returns an explicit provenance-bearing state:
+
+```ts
+interface AuditEffectiveFindingStateV3 {
+  disposition:
+    | 'open'
+    | 'remediated'
+    | 'accepted-risk'
+    | 'separate-design'
+    | 'false-positive'
+    | 'superseded'
+    | 'reopened'
+  blocking: boolean
+  derivation:
+    | 'implicit-open'
+    | 'explicit-event'
+    | 'carried'
+    | 'carry-invalidated'
+    | 'automatic-reopen'
+    | 'reconciliation-conflict'
+  lifecycle: 'new' | 'persisting' | 'resolved' | 'reopened' | 'unknown'
+  currentOccurrenceIds: string[]
+  eventId: string | null
+  basisEventIds: string[]
+  expiresAt: string | null
+  expiryState: 'not-applicable' | 'active' | 'warning' | 'expired'
+  reopenAcknowledged: boolean
+}
+```
+
+`currentOccurrenceIds` and `basisEventIds` are unique and sorted by UTF-16
+code units. Reducers and renderers must not leak discovery, filesystem, or
+insertion order through either array.
+
+`eventId` is non-null only when one explicit event directly governs a current
+occurrence. `basisEventIds` records earlier decisions used for carry,
+invalidation, merge, or automatic reopen. An automatic reopen without an
+event has `eventId: null`, the prior closure IDs in `basisEventIds`,
+`disposition: "reopened"`, `blocking: true`, and
+`reopenAcknowledged: false`. An explicit reopened event carries its own ID,
+retains the closure ID as a basis, and acknowledges the reopen. A carried
+acceptance has no new event ID and names the earlier acceptance as its basis.
+Malformed or policy-invalid events invalidate reduction; they are not silently
+converted into an open state. Expiry and later evidence drift are valid
+effective-state changes and use the explicit invalidation derivation.
+
 False-positive decisions for the same target may be rendered into a future
 producer input as untrusted reviewer feedback. The prompt labels the material
 as data, and the new validation phase must independently establish whether the
@@ -1326,6 +1631,7 @@ reason still applies.
 {
   "eventId": "adev_...",
   "type": "scope-retirement",
+  "decisionLedger": "security-runtime",
   "path": "apps/old.ts",
   "blob": "git-sha1:<hex>",
   "reason": "deleted | moved | superseded | staged-deletion | uncommitted-snapshot-absent",
@@ -1336,6 +1642,7 @@ reason still applies.
   "createdAt": "<RFC 3339>",
   "createdAtBasis": "recorded | source | source-revision-upper-bound",
   "historyProof": {
+    "slug": "security-runtime",
     "observationId": "aobs_...",
     "path": "apps/old.ts",
     "blob": "git-sha1:<hex>"
@@ -1372,6 +1679,71 @@ a validated successor or structured no-replacement proof.
 `uncommitted-snapshot-absent` requires the sealed migration source proof and
 forbids claims about a deletion commit. Every branch binds the retired
 `(path, blob)` to an observation-history proof.
+
+Every retirement event carries `decisionLedger`. The containing envelope slug,
+that member, and `historyProof.slug` are equal. The home is the unique history
+slug owning an exact reviewed `(path, blob)` receipt; it is not selected
+lexicographically. Context-only `not-reviewed` receipts do not establish
+ownership. Zero or multiple owning histories fail closed.
+
+The reason-specific proof records are:
+
+```ts
+interface AuditRetirementHistoryProofV3 {
+  slug: string
+  observationId: string
+  path: string
+  blob: `git-sha1:${string}` | `git-sha256:${string}`
+}
+
+interface AuditStagedDeletionAbsenceProofV3 {
+  kind: 'worktree-index-absence'
+  headRevision: string
+  headBinding: AuditBlobBindingV3
+  indexState: 'absent'
+  worktreeState: 'absent'
+}
+
+interface AuditDeletionCommitProofV3 {
+  kind: 'git-deletion'
+  parentRevision: string
+  parentBindings: AuditNonEmptyArray<AuditBlobBindingV3>
+  absentPaths: AuditNonEmptyArray<string>
+}
+
+interface AuditVerifiedTreeStateV3 {
+  kind: 'git-tree-state'
+  repositoryRevision: string
+  presentBindings: AuditBlobBindingV3[]
+  absentPaths: string[]
+}
+
+interface AuditMigrationSourceProofV3 {
+  kind: 'sealed-migration-source'
+  sourceArtifact: AuditDecisionSourceArtifactV3
+  jsonPointer: string
+  sourceReason: 'uncommitted_snapshot_absent'
+  summary: string
+}
+```
+
+The additional-member matrix is:
+
+| Reason | Required | Forbidden |
+| --- | --- | --- |
+| `staged-deletion` | `absenceProof` | deletion commit/proof, successor, revision proof, migration proof, supersession |
+| `deleted` | `deletionCommit`, `deletionProof`; `supersedesEventId` exactly when a matching active staged event exists | successor, revision proof, no-replacement proof, migration proof |
+| `moved` | `successor`, `revisionProof` | deletion commit/proof, no-replacement proof, migration proof, supersession |
+| `superseded` | exactly one successor branch or no-replacement branch, with `revisionProof` | deletion commit/proof, migration proof, supersession |
+| `uncommitted-snapshot-absent` | `migrationSourceProof` | deletion commit/proof, successor, revision proof, no-replacement proof, supersession |
+
+For staged deletion, `headBinding` equals the retired binding. A deleted
+parent contains the retired binding and its proof's `absentPaths` contains the
+retired path. A moved or successor proof contains the successor binding and
+the retired path as absent; moved bytes equal the retired blob exactly. The
+superseded no-replacement branch additionally carries a
+`no-replacement` decision proof. All path arrays are unique and sorted, and
+the present and absent sets are disjoint.
 
 Date-only legacy retirements normalize to midnight UTC, set
 `retiredAtPrecision: "date"`, and retain the exact source calendar date.
@@ -1420,6 +1792,58 @@ a prior closure only when every applicable prior effective decision is
 compatible and its review context remains valid; disagreement fails closed to
 `open`/`unknown`.
 
+Endpoint occurrence IDs resolve through the global index and define:
+
+```text
+boundary = {
+  beforeObservationIds: sorted unique observation IDs,
+  afterObservationIds: sorted unique observation IDs
+}
+
+comparisonId =
+  "acmp_" + first24(sha256(
+    "atlas-finding-comparison/v1" NUL
+    canonicalJson(boundary)
+  ))
+```
+
+Both arrays are nonempty and disjoint. Direction is identity-bearing. For the
+literal boundary
+
+```json
+{
+  "beforeObservationIds": ["aobs_111111111111111111111111"],
+  "afterObservationIds": ["aobs_222222222222222222222222"]
+}
+```
+
+the canonical boundary bytes are
+`{"afterObservationIds":["aobs_222222222222222222222222"],"beforeObservationIds":["aobs_111111111111111111111111"]}`,
+the full SHA-256 is
+`49e952b6b12da976599461aa0be7eb52ce0c9495e89b02bf5671f7d33425c0d4`,
+and the required ID is `acmp_49e952b6b12da976599461aa`.
+
+Temporal and alias reconciliation share one closed source union:
+
+```ts
+type AuditReconciliationSourceV3 =
+  | {
+      kind: 'grok-cli' | 'codex-security' | 'migration'
+      name: string
+      version: string
+      sourceArtifact?: AuditDecisionSourceArtifactV3
+    }
+  | {
+      kind: 'manual'
+      name: string
+      version?: never
+      sourceArtifact?: AuditDecisionSourceArtifactV3
+    }
+```
+
+For manual sources, `name` is the canonical actor identity. No other source
+members are accepted.
+
 Legacy/provider aliases are a different fact and use a separate event:
 
 ```json
@@ -1433,7 +1857,11 @@ Legacy/provider aliases are a different fact and use a separate event:
   "findingId": "atf_...",
   "occurrenceIds": ["atocc_..."],
   "relationship": "canonical | duplicate-of",
-  "source": {},
+  "source": {
+    "kind": "migration",
+    "name": "relayos-security-scan",
+    "version": "1"
+  },
   "createdAt": "<RFC 3339>",
   "createdAtBasis": "recorded | source | source-revision-upper-bound",
   "evidenceRefs": []
@@ -1444,6 +1872,26 @@ Alias events preserve legacy identity-to-canonical mappings but do not by
 themselves drive temporal lifecycle. Their home is the canonical finding's
 stable decision ledger. Alias pairs and canonical endpoints are unique; a
 single alias cannot name two canonical findings.
+
+For one-to-many reconciliation, each after occurrence's exact bindings form a
+nonempty partition of the prior reviewed bindings. For many-to-one, the union
+of prior reviewed bindings equals the after occurrence bindings. New or changed
+blobs prevent carry.
+
+| Prior effective states | Many-to-one result |
+| --- | --- |
+| all `open` or `reopened` | `open`, persisting, blocking |
+| all `accepted-risk` | carry only with the same owner, ruleset/policy digests, still-valid reviews, binding-union equality, and the earliest expiry |
+| all `separate-design` | the same carry rule as accepted risk |
+| all the same terminal closure (`remediated`, `false-positive`, or `superseded`) followed by a reportable occurrence | automatic `reopened`, blocking |
+| different retained actions, different terminal actions, retained mixed with terminal/open, implicit undecided mixed with closure, or invalid context | `open`, lifecycle `unknown`, derivation `reconciliation-conflict`, blocking |
+
+One-to-many applies the equivalent rule independently to every after
+occurrence. Lifecycle `resolved` means only a valid `remediated` event with
+post-fix proof and no later reportable confirmed equivalent. Mere absence never
+resolves. Historical `false-positive` and `superseded` dispositions retain
+their action but have temporal lifecycle `unknown`; a later reportable
+equivalent still reopens them.
 
 Derived labels are:
 
@@ -1552,6 +2000,14 @@ renames the owner-neutral format to `atlas-review-policy-v1`:
 }
 ```
 
+Accepted rulesets match only an exact `producer.ruleset.id` and its bound
+digest. A migrated RelayOS observation may use the canonical
+`relayos-security-v1` ID while preserving the source spelling
+`relayos-secscan-v1` in provenance. Codex Security's
+`identityBasis: "codex-contract"` is not a ruleset and is never relabeled as
+one; Codex semantic evidence needs a later exact Atlas validation observation
+before a disposition can close or carry it.
+
 Expiry maximums are validated once against the event, using
 `expiresAt - createdAt`, never against the moving check time. Otherwise an
 initially invalid overlong acceptance could become valid merely by aging.
@@ -1571,6 +2027,63 @@ Context files enter the producer snapshot and scope with
 reviews them. This preserves cross-file call/dataflow analysis without letting
 one unit discharge another unit's obligation.
 
+Policy may also carry the closed migration-only field
+`historicalUnitAssignments`. It is never consulted by current inventory
+classification or coverage:
+
+```ts
+interface AuditHistoricalUnitAssignmentV1 {
+  id: string
+  sourceKind: 'relayos-security-scan/v1'
+  domain: 'security'
+  unit: string
+  include: string[]
+}
+```
+
+The RelayOS migration uses exactly:
+
+```json
+[
+  {
+    "id": "relayos-retired-daemon-host",
+    "sourceKind": "relayos-security-scan/v1",
+    "domain": "security",
+    "unit": "security-apps-runtime",
+    "include": ["apps/cloud-daemon-host/**"]
+  },
+  {
+    "id": "relayos-retired-edge-apps",
+    "sourceKind": "relayos-security-scan/v1",
+    "domain": "security",
+    "unit": "security-apps-edge",
+    "include": [
+      "apps/cloudflare-marketplace-worker/**",
+      "apps/cloudflare-sandbox-worker/**",
+      "apps/daemon-edge/**",
+      "apps/telemetry-gateway-worker/**",
+      "apps/telemetry-tail-worker/**"
+    ]
+  },
+  {
+    "id": "relayos-retired-web",
+    "sourceKind": "relayos-security-scan/v1",
+    "domain": "security",
+    "unit": "security-apps-product",
+    "include": ["apps/web/**"]
+  }
+]
+```
+
+An assignment applies only to a sealed source row whose path is absent at the
+validation revision and has a valid retirement. Its unit exists in the same
+domain. Active rows and candidate records cannot use it, each assignment must
+match at least one sealed row, and each otherwise-unassigned historical path
+matches exactly one assignment. No pattern may match a current tracked path or
+active receipt. The migration receipt seals both the expanded exact path set
+and assignment digest. The Relay fixture is literal and must expand to
+runtime 3, edge 30, product 25, total 58 with zero unmapped.
+
 The implementation moves policy parsing, Git inventory, ledger joining,
 summary calculation, canonical serialization, and self-proof handling from
 RelayOS into Repo Atlas. It continues to emit
@@ -1589,6 +2102,20 @@ review attestation. It cannot discharge a different unit or turn 241 legacy
 receipts into repository-wide completeness. Codex semantic imports with no
 exact file receipts do not satisfy file coverage.
 
+For compatibility evidence, `atlas-audit-v2`'s strict
+`reviewState: "complete"` plus a complete exact `hashes` map is its schema-owned
+full-read attestation. V1 has no equivalent closed-world attestation and never
+contributes fresh coverage directly; a V1-derived source must first migrate to
+V3 with an independently validated explicit attestation. Hash presence alone
+is not promoted into `fullRead: true`.
+
+The unchanged `atlas-review-coverage-v1` wire records SHA-1 blobs. On a
+SHA-256-object-format repository, policy loading and V3 evidence remain
+readable but coverage update/check fail closed with
+`unsupported-object-format` before writing; supporting that repository in
+generated coverage requires a later coverage wire revision rather than
+silently widening V1.
+
 Coverage generation distinguishes:
 
 - missing/stale/invalid review evidence;
@@ -1604,7 +2131,15 @@ exact evidence status to hide a lifecycle problem.
 
 `review-coverage.json` is generated last. A crash therefore understates
 coverage. The self-referential coverage file uses the existing reserved
-generated-proof exclusion and exact canonical regeneration.
+generated-proof exclusion and exact canonical regeneration. An invalid
+classification or evidence join still serializes a structurally valid,
+deterministic `verdict: "invalid"` report for inspection, atomically replaces
+stale complete bytes, and returns failure; `allowIncomplete` never relaxes it.
+On first generation an untracked coverage path is outside the tracked
+inventory. Once tracked, the next generation includes the reserved self entry.
+Inventory rejects index/worktree executable-bit drift and uses the
+locale-independent collision key `NFC(path).toLowerCase()` after requiring the
+stored path itself to be NFC.
 
 ## First-party Grok producer
 
@@ -2192,10 +2727,15 @@ All loaders use shared limits before allocating deeply:
 
 - document size, array member count, object member count, nesting depth, and
   string length;
+- at most 256 MiB of unique exact Git-blob bytes per V3 state-load operation,
+  with one descriptor-verified read cached per canonical blob ID across current
+  wrappers and history entries;
 - unique normalized paths and IDs;
 - regular-file and file-descriptor identity checks;
 - bounded canonicalization;
-- finite numbers only;
+- finite numbers only, with every integer-valued durable JSON number inside
+  the safe-integer domain so programmatic publication and bounded disk parsing
+  accept the same values;
 - no prototype keys;
 - no remote credentials/query/fragments;
 - no source-root replacement or symlink traversal; and

@@ -2,6 +2,17 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { atlasDir, hashFilePaths, isSafeRepoFile, readRepoFile } from './scan.js'
+import {
+  listBoundedAuditDirectory,
+  readBoundedAuditBytes,
+  readBoundedAuditJsonDocument,
+} from './audit-core.js'
+import { loadAuditObservations } from './audit-v3.js'
+import type {
+  AtlasSecurityCurrentLedgerV3,
+  AtlasSecurityFindingV3,
+  AuditFileReceiptV3,
+} from './audit-v3-types.js'
 import type {
   AuditFinding,
   AuditUnit,
@@ -200,6 +211,17 @@ function isV2Candidate(j: Record<string, unknown>): boolean {
   return j.formatVersion === 2 || j.format === 'atlas-audit-v2'
 }
 
+/** V3 claims are one-way dispatch: malformed wrappers never enter legacy normalization. */
+function isV3Candidate(value: unknown): boolean {
+  return value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    (
+      (value as Record<string, unknown>).formatVersion === 3 ||
+      (value as Record<string, unknown>).format === 'atlas-audit-v3'
+    )
+}
+
 function normalizeLedger(value: unknown, file: string): RawLedger | null {
   if (!value || typeof value !== 'object') return null
   const j = value as Record<string, unknown>
@@ -212,13 +234,19 @@ function normalizeLedger(value: unknown, file: string): RawLedger | null {
 }
 
 function readAuditJson(root: string, file: string): { raw: unknown; text: string } {
-  const base = existingAuditsRoot(root)
-  if (!base || path.dirname(path.resolve(file)) !== path.resolve(base)) throw new Error('file is outside .atlas/audits')
   const rel = path.relative(root, file).replace(/\\/g, '/')
-  const opened = readRepoFile(root, rel)
-  if (!opened) throw new Error('file is not a safe regular in-repository file')
-  const text = opened.buffer.toString('utf8')
-  return { raw: JSON.parse(text), text }
+  if (
+    path.posix.dirname(rel) !== '.atlas/audits' ||
+    path.isAbsolute(rel) ||
+    rel.startsWith('../')
+  ) {
+    throw new Error('file is outside .atlas/audits')
+  }
+  const document = readBoundedAuditJsonDocument(root, rel)
+  return {
+    raw: document.value,
+    text: Buffer.from(document.bytes).toString('utf8'),
+  }
 }
 
 interface LedgerRead {
@@ -293,7 +321,16 @@ function readLedger(root: string, file: string): LedgerRead {
     const error = ledgerContractError(ledger)
     return { ledger: error ? null : ledger, raw, text, error }
   } catch (error) {
-    return { ledger: null, raw: null, text: null, error: error instanceof SyntaxError ? 'parse failed' : error instanceof Error ? error.message : String(error) }
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      ledger: null,
+      raw: null,
+      text: null,
+      error:
+        error instanceof SyntaxError || /not valid JSON/u.test(message)
+          ? 'parse failed'
+          : message,
+    }
   }
 }
 
@@ -619,6 +656,185 @@ function toTestUnit(root: string, j: RawLedger, file: string, statusByFile: Map<
   }
 }
 
+interface AuditV3Freshness {
+  stale: boolean
+  missingFiles: string[]
+  changedFiles: string[]
+  failedFiles: string[]
+}
+
+function rawGitObjectId(blob: string): string {
+  return blob.slice(blob.indexOf(':') + 1)
+}
+
+function currentGitBlobId(
+  receipt: AuditFileReceiptV3,
+  bytes: Uint8Array,
+): string {
+  const algorithm = receipt.blob.startsWith('git-sha256:')
+    ? 'sha256'
+    : 'sha1'
+  return createHash(algorithm)
+    .update(`blob ${bytes.byteLength}\0`, 'utf8')
+    .update(bytes)
+    .digest('hex')
+}
+
+function auditV3Freshness(
+  root: string,
+  ledger: AtlasSecurityCurrentLedgerV3,
+): AuditV3Freshness {
+  const scope = ledger.current.scope
+  if (scope.identityBasis !== 'exact-inventory') {
+    return {
+      stale: true,
+      missingFiles: [],
+      changedFiles: [],
+      failedFiles: [],
+    }
+  }
+  const missingFiles: string[] = []
+  const changedFiles: string[] = []
+  const failedFiles: string[] = []
+  for (const receipt of scope.files) {
+    try {
+      const bytes = readBoundedAuditBytes(root, receipt.path)
+      if (currentGitBlobId(receipt, bytes) !== rawGitObjectId(receipt.blob)) {
+        changedFiles.push(receipt.path)
+      }
+    } catch {
+      let visible: fs.Stats | undefined
+      try {
+        visible = fs.lstatSync(
+          path.join(root, ...receipt.path.split('/')),
+          { throwIfNoEntry: false },
+        )
+      } catch {
+        // A racy or unsafe topology is a read failure, never fresh evidence.
+      }
+      if (visible === undefined) missingFiles.push(receipt.path)
+      else failedFiles.push(receipt.path)
+    }
+  }
+  return {
+    stale:
+      missingFiles.length > 0 ||
+      changedFiles.length > 0 ||
+      failedFiles.length > 0,
+    missingFiles,
+    changedFiles,
+    failedFiles,
+  }
+}
+
+function projectAuditV3Finding(
+  finding: AtlasSecurityFindingV3,
+): AuditFinding {
+  return {
+    id: finding.findingId,
+    severity: finding.severity.level === 'informational'
+      ? 'info'
+      : finding.severity.level,
+    category: finding.taxonomy.category,
+    title: finding.title,
+    locations: finding.locations.map((location) =>
+      `${location.path}:${location.startLine}`
+    ),
+    dataflow: finding.attackPath?.dataflow?.summary ?? '',
+    fix: finding.remediation,
+    ...(finding.confidence === undefined
+      ? {}
+      : { confidence: finding.confidence.level }),
+    disposition: 'open',
+  }
+}
+
+/** Bounded compatibility projection from an already strictly verified V3 current ledger. */
+export function projectAuditV3SecurityUnit(
+  root: string,
+  ledger: AtlasSecurityCurrentLedgerV3,
+  knownStatus?: AuditStatusEntry,
+): SecurityAuditUnit {
+  const observation = ledger.current
+  const scope = observation.scope
+  const exact = scope.identityBasis === 'exact-inventory'
+  const files = exact ? scope.files.map((receipt) => receipt.path) : []
+  const hashes = exact
+    ? Object.fromEntries(
+        scope.files.map((receipt) => [
+          receipt.path,
+          rawGitObjectId(receipt.blob),
+        ]),
+      )
+    : null
+  const stale = !exact
+    ? true
+    : knownStatus === undefined
+      ? auditV3Freshness(root, ledger).stale
+      : knownStatus.status !== 'fresh'
+  const unit: SecurityAuditUnit = {
+    formatVersion: 3,
+    domain: 'security',
+    slug: ledger.slug,
+    title: ledger.title,
+    ruleset: observation.producer.kind === 'codex-security'
+      ? null
+      : observation.producer.ruleset.id,
+    scannedAt: observation.observedAt,
+    scopeHash: exact ? scope.scopeHash : '',
+    fileCount: exact ? scope.fileCount : 0,
+    files,
+    hashes,
+    evidenceRefs: [...observation.evidenceRefs],
+    findings: observation.findings.map(projectAuditV3Finding),
+    droppedCount: 0,
+    roundCount: 0,
+    stale,
+  }
+  if (ledger.conceptSlug !== undefined) unit.conceptSlug = ledger.conceptSlug
+  return unit
+}
+
+function auditV3Status(
+  root: string,
+  ledger: AtlasSecurityCurrentLedgerV3,
+  file: string,
+): AuditStatusEntry {
+  const observation = ledger.current
+  const freshness = auditV3Freshness(root, ledger)
+  const drifted = new Set([
+    ...freshness.missingFiles,
+    ...freshness.changedFiles,
+    ...freshness.failedFiles,
+  ])
+  const exact = observation.scope.identityBasis === 'exact-inventory'
+  const detailAvailable = exact && freshness.failedFiles.length === 0
+  return {
+    name: ledger.slug,
+    title: ledger.title,
+    ruleset: observation.producer.kind === 'codex-security'
+      ? null
+      : observation.producer.ruleset.id,
+    scannedAt: observation.observedAt,
+    fileCount: observation.scope.identityBasis === 'exact-inventory'
+      ? observation.scope.fileCount
+      : 0,
+    findingCount: observation.findings.length,
+    status: freshness.stale ? 'stale' : 'fresh',
+    missingFiles: freshness.missingFiles,
+    changedFiles: freshness.changedFiles,
+    failedFiles: freshness.failedFiles,
+    findingsWithDrift: detailAvailable
+      ? observation.findings.filter((finding) =>
+          finding.locations.some((location) => drifted.has(location.path))
+        ).length
+      : null,
+    detailAvailable,
+    invalidReason: null,
+    file,
+  }
+}
+
 function invalidStatus(file: string, reason: string): AuditStatusEntry {
   const name = path.basename(file, '.json')
   return {
@@ -639,17 +855,68 @@ function invalidStatus(file: string, reason: string): AuditStatusEntry {
   }
 }
 
+function auditDirectoryEntries(
+  root: string,
+): { entries: string[]; error: string | null } {
+  try {
+    return {
+      entries: listBoundedAuditDirectory(root, '.atlas/audits'),
+      error: null,
+    }
+  } catch (error) {
+    return {
+      entries: [],
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+function auditV3LoadReason(
+  diagnostics: ReturnType<typeof loadAuditObservations>['diagnostics'],
+): string {
+  if (diagnostics.length === 0) {
+    return 'V3 current ledger has no strictly verified current/history pair'
+  }
+  return diagnostics.map((entry) =>
+    `${entry.path || '/'} ${entry.message}`
+  ).join('; ')
+}
+
 /** Build/serve 契约：一次目录遍历加载 security + test 两个 portfolio。 */
 export function loadAuditPortfolios(root: string, statuses?: AuditStatusEntry[]): AuditPortfolios {
-  const base = existingAuditsRoot(root, true)
-  if (!base) return { security: [], tests: [] }
+  const directory = auditDirectoryEntries(root)
+  if (directory.error !== null) {
+    console.warn(`  ⚠ .atlas/audits: unsafe audit directory, skipped (${directory.error})`)
+    return { security: [], tests: [] }
+  }
   const security: SecurityAuditUnit[] = []
   const tests: TestAuditUnit[] = []
   const statusByFile = statuses ? new Map(statuses.map((status) => [path.resolve(status.file), status])) : null
-  for (const entry of fs.readdirSync(base).sort()) {
+  const v3Load = loadAuditObservations(root)
+  const v3Usable = v3Load.diagnostics.length === 0
+  const v3ByEntry = new Map(v3Load.observations.map((ledger) => [
+    `${ledger.slug}.json`,
+    ledger,
+  ]))
+  for (const entry of directory.entries) {
     if (!entry.endsWith('.json')) continue
-    const file = path.join(base, entry)
+    const file = path.join(auditsRoot(root), entry)
     const read = readLedger(root, file)
+    if (isV3Candidate(read.raw)) {
+      const ledger = v3Usable ? v3ByEntry.get(entry) : undefined
+      if (ledger === undefined) {
+        console.warn(
+          `  ⚠ .atlas/audits/${entry}: ${auditV3LoadReason(v3Load.diagnostics)}, skipped`,
+        )
+        continue
+      }
+      security.push(projectAuditV3SecurityUnit(
+        root,
+        ledger,
+        statusByFile?.get(path.resolve(file)),
+      ))
+      continue
+    }
     if (!read.ledger) {
       console.warn(`  ⚠ .atlas/audits/${entry}: ${read.error ?? 'malformed ledger'}, skipped`)
       continue
@@ -710,13 +977,33 @@ export function loadAudits(root: string, statuses?: AuditStatusEntry[]): AuditUn
 /** status 的细节层：fresh/stale + （stamp 后的）逐文件漂移。 */
 export function auditStatusEntries(root: string, scanResult: ScanResult): AuditStatusEntry[] {
   const expectedBase = auditsRoot(root)
-  const base = existingAuditsRoot(root, true)
-  if (!base) return fs.existsSync(expectedBase) ? [invalidStatus(expectedBase, 'unsafe audit directory')] : []
+  const directory = auditDirectoryEntries(root)
+  if (directory.error !== null) {
+    console.warn(`  ⚠ .atlas/audits: unsafe audit directory (${directory.error})`)
+    return [invalidStatus(expectedBase, `unsafe audit directory: ${directory.error}`)]
+  }
   const out: AuditStatusEntry[] = []
-  for (const entry of fs.readdirSync(base).sort()) {
+  const v3Load = loadAuditObservations(root)
+  const v3Usable = v3Load.diagnostics.length === 0
+  const v3ByEntry = new Map(v3Load.observations.map((ledger) => [
+    `${ledger.slug}.json`,
+    ledger,
+  ]))
+  for (const entry of directory.entries) {
     if (!entry.endsWith('.json')) continue
-    const file = path.join(base, entry)
+    const file = path.join(expectedBase, entry)
     const read = readLedger(root, file)
+    if (isV3Candidate(read.raw)) {
+      const ledger = v3Usable ? v3ByEntry.get(entry) : undefined
+      if (ledger === undefined) {
+        const reason = auditV3LoadReason(v3Load.diagnostics)
+        console.warn(`  ⚠ .atlas/audits/${entry}: ${reason}; reported stale/invalid`)
+        out.push(invalidStatus(file, reason))
+      } else {
+        out.push(auditV3Status(root, ledger, file))
+      }
+      continue
+    }
     if (!read.ledger) {
       const reason = read.error ?? 'malformed audit ledger'
       console.warn(`  ⚠ .atlas/audits/${entry}: ${reason}; reported stale/invalid`)
