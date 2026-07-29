@@ -63,7 +63,11 @@ assert.equal(
 )
 ```
 
-Use a symlinked `.atlas/audits` fixture and assert both reads and writes fail without touching the outside canary. Acquire the same lock twice and assert the second acquisition reports the live lock rather than overwriting it.
+Use a symlinked `.atlas/audits` fixture and assert both reads and writes fail
+without touching the outside canary. Acquire the same lock twice and assert
+the second acquisition reports the live lock rather than overwriting it. Assert
+the lock is in worktree-specific Git administrative state outside tracked
+`.atlas` and that no `.atlas/.audit.lock` is created.
 
 - [ ] **Step 2: Run the focused test and verify RED**
 
@@ -107,9 +111,13 @@ repository IDs are committed producer-neutral `repo_...` values rather than
 being synthesized by this helper. Canonical JSON recursively sorts object
 keys, preserves array order, rejects non-finite numbers/undefined/cycles, and
 ends with one newline for storage (digest helpers hash the RFC 8785 value
-without the presentation newline). The lock lives at `.atlas/.audit.lock`,
-contains PID/operation/start time, uses `wx`, and is always released in
-`finally`; a stale lock is never silently stolen.
+without the presentation newline). The lock lives outside tracked `.atlas` in
+worktree-specific Git administrative state, keyed by real worktree path. It
+contains PID, host, process start time, command, and source snapshot, uses
+`wx`, and is always released in `finally`; a stale lock is never silently
+stolen without explicit liveness-checked recovery. Atomic replacement fsyncs
+the temporary file and best-effort fsyncs the containing directory after
+rename.
 
 - [ ] **Step 4: Verify GREEN and package reproducibility**
 
