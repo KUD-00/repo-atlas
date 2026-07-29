@@ -48,7 +48,12 @@
 
 - [ ] **Step 1: Write the failing safety/identity tests**
 
-Add tests for normalized repository paths, bounded UTF-8 JSON, canonical key ordering, deterministic IDs, safe directory creation, atomic replacement, and lock contention. The core fixture assertions are:
+Add tests for normalized repository paths, bounded UTF-8 JSON, canonical key
+ordering, deterministic IDs, safe directory creation, atomic replacement, and
+lock contention. Include hostile duplicate-key/depth/member/string JSON,
+aggregate canonical/ID limits, redirected `GIT_*` environment,
+parent-directory swap injection, durability failures, and asynchronous lock
+settlement. The core fixture assertions are:
 
 ```js
 assert.equal(normalizeAuditRepoPath('src/a.ts'), 'src/a.ts')
@@ -56,10 +61,11 @@ assert.throws(() => normalizeAuditRepoPath('../outside'), /normalized repository
 assert.throws(() => normalizeAuditRepoPath('src\\a.ts'), /normalized repository-relative/)
 assert.equal(canonicalJson({ z: 1, a: { d: 2, b: 1 } }),
   '{"a":{"b":1,"d":2},"z":1}')
-assert.equal(stableAuditId('aobs', ['repo', 'security', 'unit', 'blob']).length, 29)
+assert.equal(stableAuditId('aobs', 'atlas-observation/v1',
+  ['repo', 'security', 'unit', 'blob']).length, 29)
 assert.equal(
-  stableAuditId('aobs', ['repo', 'security', 'unit', 'blob']),
-  stableAuditId('aobs', ['repo', 'security', 'unit', 'blob']),
+  stableAuditId('aobs', 'atlas-observation/v1', ['repo', 'security', 'unit', 'blob']),
+  stableAuditId('aobs', 'atlas-observation/v1', ['repo', 'security', 'unit', 'blob']),
 )
 ```
 
@@ -96,7 +102,7 @@ export function resolveSafeAuditFile(root: string, repoPath: string, options?: {
 export function readBoundedAuditJson(root: string, repoPath: string, maxBytes?: number): unknown
 export function canonicalJson(value: unknown): string
 export function stableAuditId(
-  prefix: 'aobs' | 'atf' | 'atocc' | 'adev' | 'amig',
+  prefix: 'aobs' | 'atocc' | 'adev' | 'amig',
   domainTag: string,
   parts: readonly string[],
 ): string
@@ -120,6 +126,15 @@ contains PID, host, process start time, command, and source snapshot, uses
 stolen without explicit liveness-checked recovery. Atomic replacement fsyncs
 the temporary file and best-effort fsyncs the containing directory after
 rename.
+
+The bounded reader uses a bounded JSON grammar parser rather than calling
+`JSON.parse` before depth/member/duplicate-key checks. Git discovery removes
+environment variables that can redirect repository administration and verifies
+the requested real top level. Async operations retain the state lock until
+their thenable settles. Directory fsync suppresses only known unsupported
+platform errors; real I/O failures propagate. The generic NUL-domain helper
+does not claim the direct `atf_ = sha256(fingerprint)` formula—Task 2 supplies
+formula-specific helpers and golden vectors.
 
 - [ ] **Step 4: Verify GREEN and package reproducibility**
 
