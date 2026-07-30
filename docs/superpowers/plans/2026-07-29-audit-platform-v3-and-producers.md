@@ -1261,7 +1261,7 @@ git commit -m "feat(audit): add isolated explicit Grok producer"
 - Create: `test/audit-cli.test.mjs`
 - Modify: `src/cli.ts`
 
-- [ ] **Step 1: Write failing CLI tests**
+- [x] **Step 1: Write failing CLI tests**
 
 Cover help, unknown arguments, dry-run/apply separation, exit codes, stdout JSON, and no ambient provider calls for:
 
@@ -1282,26 +1282,27 @@ repo-atlas audit localization input --locale <locale>
 repo-atlas audit localization check
 ```
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 ```bash
 pnpm build:cli && node --test test/audit-cli.test.mjs
 ```
 
-- [ ] **Step 3: Implement strict dispatch and exit policy**
+- [x] **Step 3: Implement strict dispatch and exit policy**
 
 `audit check` validates V3/V2/V1 ledgers, history, decisions, migration receipts, current exact/semantic coverage, lifecycle policy, and transcript/provenance references. Exit `0` only for complete state, or honest incomplete state with `--allow-incomplete`; structural invalidity is always nonzero. Mutating commands accept explicit `--apply` except decision append/run/update, whose command name already states the write.
 
-- [ ] **Step 4: Preserve legacy commands**
+- [x] **Step 4: Preserve legacy commands**
 
 Keep `audit-stamp`, `audit-import`, and existing localization aliases as deprecated compatibility commands. They must call the same safe implementations and print migration guidance.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 pnpm build:cli
 node --test test/audit-cli.test.mjs test/audits.test.mjs test/audit-localizations.test.mjs
-git add src/audit-cli.ts src/cli.ts test/audit-cli.test.mjs
+pnpm test
+git add src/audit-cli.ts src/cli.ts test/audit-cli.test.mjs dist/audit-cli.js dist/cli.js
 git commit -m "feat(audit): expose V3 audit command surface"
 ```
 
