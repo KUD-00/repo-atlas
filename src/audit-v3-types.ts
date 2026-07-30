@@ -1327,3 +1327,41 @@ export interface AuditDecisionStateV3 {
     eventId: string
   }>
 }
+
+// Clone-local provider-run state. These receipts and transcript chunks live
+// under `.atlas/.runtime/audit-runs/<invocationId>/`, are never committed, and
+// are never coverage evidence; only their digests may later appear in a
+// checked-in producer receipt. They carry no wall-clock fields.
+
+export type AuditProviderPhaseKind = 'inventory' | 'review' | 'verification' | 'synthesis'
+
+export interface AuditProviderTranscriptChunkV3 {
+  chunkId: string
+  phase: AuditProviderPhaseKind
+  unit: string
+  inputDigest: AuditSha256
+  outputDigest: AuditSha256
+  processCount: number
+  sessionIds: string[]
+  transcriptDigests: AuditSha256[]
+  digest: AuditSha256
+}
+
+export interface AuditProviderRunReceiptV3 {
+  formatVersion: 1
+  format: 'atlas-audit-provider-run/v1'
+  provider: 'grok'
+  adapter: string
+  adapterVersion: string
+  invocationId: string
+  ruleset: AuditRulesetReceiptV3
+  prompt: AuditPromptReceiptV3
+  model: string
+  effectiveConfigDigest: AuditSha256
+  environmentPolicyDigest: AuditSha256
+  snapshotManifestDigest: AuditSha256
+  inventoryDigest: AuditSha256
+  chunks: AuditProviderTranscriptChunkV3[]
+  transcriptDigest: AuditSha256
+  receiptDigest: AuditSha256
+}

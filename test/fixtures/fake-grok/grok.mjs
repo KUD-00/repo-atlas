@@ -1,0 +1,302 @@
+#!/usr/bin/env node
+// Fake `grok` CLI used by test/audit-provider-grok.test.mjs.
+//
+// Contract double for the Repo Atlas Grok adapter (repo-atlas/grok-v1):
+// - records every invocation (argv/env/cwd/stdin/prompt) into invocations/ next
+//   to this script;
+// - answers `--version`, `--help`, and `inspect --json` probes;
+// - for analysis runs, writes the adapter-contract session transcript at
+//   $XDG_DATA_HOME/grok/sessions/<session-id>/chat_history.jsonl and emits
+//   bounded streaming-json on stdout whose terminal response is byte-identical
+//   to the transcript terminal response.
+//
+// Behavior is steered by control.json written beside this script by the test.
+// The script never touches the network.
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const here = path.dirname(fileURLToPath(import.meta.url))
+const control = JSON.parse(fs.readFileSync(path.join(here, 'control.json'), 'utf8'))
+const mode = control.mode ?? 'ok'
+
+const argv = process.argv.slice(2)
+const invocationsDir = path.join(here, 'invocations')
+fs.mkdirSync(invocationsDir, { recursive: true })
+const sequence = fs.readdirSync(invocationsDir).filter((name) => name.endsWith('.json')).length
+const record = {
+  seq: sequence,
+  argv,
+  cwd: process.cwd(),
+  env: { ...process.env },
+  stdin: '',
+}
+
+function argValue(flag) {
+  const index = argv.indexOf(flag)
+  return index >= 0 ? argv[index + 1] : undefined
+}
+
+function finishRecord(extra) {
+  // Concurrent bounded sub-reviews may observe the same sequence number; the
+  // pid suffix keeps every process's record.
+  fs.writeFileSync(
+    path.join(invocationsDir, `${String(sequence).padStart(4, '0')}-${process.pid}.json`),
+    JSON.stringify({ ...record, ...extra }),
+  )
+}
+
+function timeline(mark, id) {
+  fs.appendFileSync(path.join(here, 'timeline.log'), `${mark} ${id} ${Date.now()}\n`)
+}
+
+const HELP_FLAGS = [
+  '--single',
+  '--no-plan',
+  '--permission-mode',
+  '--tools',
+  '--no-memory',
+  '--no-subagents',
+  '--disable-web-search',
+  '--output-format',
+  '--session-id',
+  '--cwd',
+  '--prompt-file',
+  '--model',
+]
+
+if (argv[0] === '--version') {
+  finishRecord({ kind: 'version' })
+  process.stdout.write('grok 0.2.82\n')
+  process.exit(0)
+}
+
+if (argv[0] === '--help') {
+  finishRecord({ kind: 'help' })
+  process.stdout.write(`grok CLI\n${HELP_FLAGS.join('\n')}\n`)
+  process.exit(0)
+}
+
+if (argv[0] === 'inspect') {
+  record.homeMode = (fs.statSync(process.env.HOME).mode & 0o777).toString(8)
+  record.homeEntries = listHome(process.env.HOME)
+  finishRecord({ kind: 'inspect' })
+  const inspect = {
+    version: '0.2.82',
+    hooks: [],
+    plugins: [],
+    mcpServers: [],
+    projectInstructions: [],
+    permissionSources: ['default'],
+    effectiveConfig: {},
+    ...(control.inspect ?? {}),
+  }
+  process.stdout.write(`${JSON.stringify(inspect)}\n`)
+  process.exit(0)
+}
+
+const sessionId = argValue('--session-id')
+const snapshotCwd = argValue('--cwd')
+const promptFile = argValue('--prompt-file')
+const prompt = fs.readFileSync(promptFile, 'utf8')
+record.kind = 'run'
+record.prompt = prompt
+record.homeMode = (fs.statSync(process.env.HOME).mode & 0o777).toString(8)
+record.homeEntries = listHome(process.env.HOME)
+timeline('S', sessionId)
+
+function listHome(home) {
+  const entries = []
+  const walk = (dir, rel) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const childRel = rel ? `${rel}/${entry.name}` : entry.name
+      const childPath = path.join(dir, entry.name)
+      const stat = fs.statSync(childPath)
+      if (entry.isDirectory()) {
+        entries.push({ path: `${childRel}/`, mode: (stat.mode & 0o777).toString(8) })
+        walk(childPath, childRel)
+      } else {
+        entries.push({
+          path: childRel,
+          mode: (stat.mode & 0o777).toString(8),
+          size: stat.size,
+        })
+      }
+    }
+  }
+  walk(home, '')
+  return entries
+}
+
+function parseUnit() {
+  const marker = prompt.lastIndexOf('ATLAS-UNIT')
+  if (marker < 0) throw new Error('prompt is missing the ATLAS-UNIT block')
+  return JSON.parse(prompt.slice(marker + 'ATLAS-UNIT'.length).trim())
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+const unit = parseUnit()
+record.unit = { kind: unit.kind, unit: unit.unit }
+record.snapshotFiles = unit.files.map((file) => {
+  const stat = fs.statSync(path.join(snapshotCwd, ...file.path.split('/')))
+  return { path: file.path, mode: (stat.mode & 0o777).toString(8) }
+})
+
+async function main() {
+  if (mode === 'signal') {
+    finishRecord({ phase: unit.kind })
+    process.kill(process.pid, 'SIGKILL')
+    await new Promise(() => {})
+  }
+  if (mode === 'exit-nonzero') {
+    finishRecord({ phase: unit.kind })
+    process.stderr.write('fake grok exploded\n')
+    process.exit(3)
+  }
+  if (control.sleepMs) await sleep(control.sleepMs)
+
+  if (mode === 'corrupt-snapshot') {
+    const victim = path.join(snapshotCwd, ...unit.files[0].path.split('/'))
+    fs.chmodSync(victim, 0o644)
+    fs.appendFileSync(victim, '/* tampered by fake grok */\n')
+  }
+
+  const events = []
+  let callSequence = 0
+  const readCall = (rel, startLine, endLine) => {
+    callSequence += 1
+    const id = `call_${callSequence}`
+    events.push({
+      type: 'tool_call',
+      id,
+      tool: 'Read',
+      input: { path: rel, offset: startLine, limit: endLine - startLine + 1 },
+    })
+    events.push({
+      type: 'tool_result',
+      id,
+      ok: true,
+      output: { path: rel, startLine, endLine },
+    })
+  }
+  const readFully = (rel, lines) => {
+    const chunk = 400
+    for (let start = 1; start <= lines; start += chunk) {
+      readCall(rel, start, Math.min(lines, start + chunk - 1))
+    }
+  }
+
+  if (mode !== 'zero-read') {
+    for (const file of unit.files) {
+      if (mode === 'bad-transcript-coverage') {
+        readCall(file.path, 1, Math.max(1, Math.floor(file.lines / 2)))
+      } else {
+        readFully(file.path, file.lines)
+      }
+    }
+  }
+  if (mode === 'bad-transcript-tool') {
+    events.push({ type: 'tool_call', id: 'call_bash', tool: 'Bash', input: { command: 'id' } })
+    events.push({ type: 'tool_result', id: 'call_bash', ok: true, output: {} })
+  }
+  if (mode === 'bad-transcript-path') {
+    events.push({
+      type: 'tool_call',
+      id: 'call_escape',
+      tool: 'Read',
+      input: { path: '../../outside.txt', offset: 1, limit: 1 },
+    })
+    events.push({
+      type: 'tool_result',
+      id: 'call_escape',
+      ok: true,
+      output: { path: '../../outside.txt', startLine: 1, endLine: 1 },
+    })
+  }
+  if (mode === 'tool-error') {
+    events.push({ type: 'tool_call', id: 'call_err', tool: 'Grep', input: { pattern: 'x' } })
+    events.push({ type: 'tool_result', id: 'call_err', ok: false, error: 'simulated tool error' })
+  }
+  if (mode === 'unsupported-event') {
+    events.push({ type: 'teleport', target: 'elsewhere' })
+  }
+
+  const findingsByPath = control.reviewFindings ?? {}
+  let payload
+  if (unit.kind === 'review') {
+    let files = unit.files
+    if (mode === 'missing-receipt') files = files.slice(0, -1)
+    const receipts = files.map((file) => {
+      const findings = (findingsByPath[file.path] ?? []).map((finding) => ({ ...finding }))
+      return {
+        path: file.path,
+        status: 'reviewed',
+        outcome: findings.length > 0 ? 'findings' : 'clean',
+        summary: findings.length > 0 ? 'findings recorded' : `checked ${file.path}`,
+        findings,
+      }
+    })
+    if (mode === 'extra-receipt') {
+      receipts.push({
+        path: 'src/unknown.ts',
+        status: 'reviewed',
+        outcome: 'clean',
+        summary: 'phantom',
+        findings: [],
+      })
+    }
+    payload = { receipts }
+  } else {
+    payload = {
+      dispositions: unit.candidates.map((candidate) => ({
+        fingerprint: candidate.fingerprint,
+        disposition: control.disposition ?? 'reportable',
+        rationale: 'independent evidence trace reconstructed',
+      })),
+    }
+  }
+
+  let response = JSON.stringify(payload)
+  if (mode === 'invalid-json') response = 'this is not json at all'
+
+  let transcriptResponse = response
+  if (mode === 'transcript-mismatch') {
+    const altered = JSON.parse(response)
+    altered.note = 'transcript disagrees with stdout'
+    transcriptResponse = JSON.stringify(altered)
+  }
+
+  events.push({ type: 'result', status: 'success', response: transcriptResponse })
+  if (mode === 'duplicate-result') {
+    events.push({ type: 'result', status: 'success', response: transcriptResponse })
+  }
+
+  if (mode !== 'no-transcript') {
+    const sessionDir = path.join(
+      process.env.XDG_DATA_HOME,
+      'grok',
+      'sessions',
+      sessionId,
+    )
+    fs.mkdirSync(sessionDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(sessionDir, 'chat_history.jsonl'),
+      events.map((event) => JSON.stringify(event)).join('\n') + '\n',
+    )
+  }
+
+  const stdoutEvents = []
+  stdoutEvents.push({ type: 'progress', message: 'starting' })
+  if (control.progressMarker) {
+    stdoutEvents.push({ type: 'progress', message: control.progressMarker })
+  }
+  stdoutEvents.push({ type: 'result', status: 'success', response })
+  for (const event of stdoutEvents) process.stdout.write(`${JSON.stringify(event)}\n`)
+  finishRecord({ phase: unit.kind })
+  timeline('E', sessionId)
+}
+
+await main()
