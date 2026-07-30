@@ -1127,7 +1127,7 @@ section: this is a real migrator with its own pure build API, apply API,
 fixtures, raw input/output seals, and deterministic receipt — not a shell
 promise in RelayOS documentation.
 
-- [ ] **Step 1: Write failing root-audits migration tests**
+- [x] **Step 1: Write failing root-audits migration tests**
 
 Assert:
 
@@ -1151,13 +1151,13 @@ Assert:
 - the receipt ID is a deterministic `amig_<24 hex>` under the same identity
   rules as the security migrator.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 ```bash
 pnpm build:cli && node --test test/audit-migrate-relayos-root-audits.test.mjs
 ```
 
-- [ ] **Step 3: Implement the pure builder and locked apply**
+- [x] **Step 3: Implement the pure builder and locked apply**
 
 Export the migrator's own pair:
 
@@ -1180,13 +1180,13 @@ plan-then-atomic-apply discipline under one audit lock. CLI wiring is Task 8's
 surface: this task adds CLI-level tests only if Task 8 has already landed;
 otherwise module-level tests only.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```bash
 pnpm build:cli
 node --test test/audit-migrate-relayos-root-audits.test.mjs
 pnpm test
-git add src/audit-migrate-relayos-root-audits.ts test/audit-migrate-relayos-root-audits.test.mjs test/fixtures/relayos-root-audits dist/audit-migrate-relayos-root-audits.js
+git add src/audit-migrate-relayos-root-audits.ts src/audit-migrate-relayos.ts test/audit-migrate-relayos-root-audits.test.mjs test/fixtures/relayos-root-audits dist/audit-migrate-relayos-root-audits.js dist/audit-migrate-relayos.js
 git commit -m "feat(audit): add relayos-root-audits-v1 migrator"
 ```
 
