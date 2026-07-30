@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { AUDIT_LIMITS, atomicWriteAuditFile, canonicalJson, normalizeAuditRepoPath, readBoundedAuditBytes, readBoundedAuditJson, readBoundedAuditJsonDocument, withAnchoredAuditGitCapability, withAnchoredAuditSupportSnapshot, withAuditLock, } from './audit-core.js';
+import { AUDIT_LIMITS, atomicWriteAuditFile, canonicalJson, normalizeAuditRepoPath, parseBoundedAuditJsonBytes, readBoundedAuditBytes, readBoundedAuditJson, withAnchoredAuditGitCapability, withAnchoredAuditSupportSnapshot, withAuditLock, } from './audit-core.js';
 import { computeAuditCanonicalDigest, computeAuditHistoryEntryDigest, computeAuditInventoryDigest, computeAuditScopeHash, computeAtlasFindingId, computeAtlasFingerprint, computeAtlasObservationId, computeAtlasOccurrenceId, computeExactScopeIdentityDigest, computeSemanticScopeIdentityDigest, } from './audit-v3.js';
 import { computeAuditDecisionEntryDigest, prepareAuditDecisionAppend, } from './audit-decisions.js';
-import { loadAuditReviewPolicy } from './audit-policy.js';
+import { parseAuditReviewPolicyValue } from './audit-policy.js';
 const SOURCE_KIND = 'relayos-security-scan/v1';
 const SOURCE_SCHEMA = 'relayos-security-scan/v1';
 const CANDIDATE_SCHEMA = 'relayos-security-scan/candidates/v1';
@@ -34,8 +34,14 @@ const POLICY_SCHEMA = 'atlas-review-policy-v1';
 const LEGACY_POLICY_SCHEMA = 'relayos-review-policy-v1';
 const POLICY_UNIT_RE = /^security-[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u;
 const picomatch = createRequire(import.meta.url)('picomatch');
+export class RelayOSMigrationError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'RelayOSMigrationError';
+    }
+}
 function fail(pointer, message) {
-    throw new Error(`RelayOS legacy migration ${pointer}: ${message}`);
+    throw new RelayOSMigrationError(`RelayOS legacy migration ${pointer}: ${message}`);
 }
 function recordAt(value, pointer) {
     if (value === null ||
@@ -685,27 +691,27 @@ function policyGlobsAt(value, pointer, nonempty) {
     }
     return rows;
 }
-function parseMigrationPolicy(value) {
-    const policy = recordAt(value, `/${POLICY_PATH}`);
-    const schema = stringAt(policy.format, `/${POLICY_PATH}/format`);
+function parseMigrationPolicy(value, policyPath) {
+    const policy = recordAt(value, `/${policyPath}`);
+    const schema = stringAt(policy.format, `/${policyPath}/format`);
     if (schema !== POLICY_SCHEMA && schema !== LEGACY_POLICY_SCHEMA) {
-        fail(`/${POLICY_PATH}/format`, `expected ${POLICY_SCHEMA} or ${LEGACY_POLICY_SCHEMA}`);
+        fail(`/${policyPath}/format`, `expected ${POLICY_SCHEMA} or ${LEGACY_POLICY_SCHEMA}`);
     }
     if (schema === POLICY_SCHEMA) {
-        exactKeys(policy, ['formatVersion', 'format', 'rules', 'units', 'securityDecisions'], ['historicalUnitAssignments'], `/${POLICY_PATH}`);
+        exactKeys(policy, ['formatVersion', 'format', 'rules', 'units', 'securityDecisions'], ['historicalUnitAssignments'], `/${policyPath}`);
     }
     else {
-        exactKeys(policy, ['formatVersion', 'format', 'rules', 'units'], [], `/${POLICY_PATH}`);
+        exactKeys(policy, ['formatVersion', 'format', 'rules', 'units'], [], `/${policyPath}`);
     }
     if (policy.formatVersion !== 1) {
-        fail(`/${POLICY_PATH}/formatVersion`, 'expected 1');
+        fail(`/${policyPath}/formatVersion`, 'expected 1');
     }
     if (!Array.isArray(policy.rules)) {
-        fail(`/${POLICY_PATH}/rules`, 'expected an array');
+        fail(`/${policyPath}/rules`, 'expected an array');
     }
-    const units = arrayAt(policy.units, `/${POLICY_PATH}/units`)
+    const units = arrayAt(policy.units, `/${policyPath}/units`)
         .map((value_, index) => {
-        const pointer = `/${POLICY_PATH}/units/${index}`;
+        const pointer = `/${policyPath}/units/${index}`;
         const unit = recordAt(value_, pointer);
         exactKeys(unit, ['domain', 'slug', 'title', 'include'], ['except', 'context'], pointer);
         if (unit.domain !== 'security' && unit.domain !== 'test') {
@@ -732,19 +738,19 @@ function parseMigrationPolicy(value) {
     const slugs = new Set();
     for (const unit of units) {
         if (slugs.has(unit.slug)) {
-            fail(`/${POLICY_PATH}/units`, `duplicate security unit ${unit.slug}`);
+            fail(`/${policyPath}/units`, `duplicate security unit ${unit.slug}`);
         }
         slugs.add(unit.slug);
     }
     if (units.length === 0) {
-        fail(`/${POLICY_PATH}/units`, 'requires at least one security unit');
+        fail(`/${policyPath}/units`, 'requires at least one security unit');
     }
     let historicalAssignments;
     if (schema === POLICY_SCHEMA) {
         historicalAssignments = (policy.historicalUnitAssignments === undefined
             ? []
-            : arrayAt(policy.historicalUnitAssignments, `/${POLICY_PATH}/historicalUnitAssignments`).map((value_, index) => {
-                const pointer = `/${POLICY_PATH}/historicalUnitAssignments/${index}`;
+            : arrayAt(policy.historicalUnitAssignments, `/${policyPath}/historicalUnitAssignments`).map((value_, index) => {
+                const pointer = `/${policyPath}/historicalUnitAssignments/${index}`;
                 const assignment = recordAt(value_, pointer);
                 exactKeys(assignment, ['id', 'sourceKind', 'domain', 'unit', 'include'], [], pointer);
                 if (assignment.sourceKind !== SOURCE_KIND ||
@@ -771,11 +777,11 @@ function parseMigrationPolicy(value) {
     const assignmentIds = new Set();
     for (const assignment of historicalAssignments) {
         if (assignmentIds.has(assignment.id)) {
-            fail(`/${POLICY_PATH}/historicalUnitAssignments`, `duplicate assignment ${assignment.id}`);
+            fail(`/${policyPath}/historicalUnitAssignments`, `duplicate assignment ${assignment.id}`);
         }
         assignmentIds.add(assignment.id);
         if (!slugs.has(assignment.unit)) {
-            fail(`/${POLICY_PATH}/historicalUnitAssignments/${assignment.id}`, `references missing security unit ${assignment.unit}`);
+            fail(`/${policyPath}/historicalUnitAssignments/${assignment.id}`, `references missing security unit ${assignment.unit}`);
         }
     }
     return {
@@ -861,25 +867,155 @@ function semanticSourceValue(source) {
         policy: source.policy,
     };
 }
-function readSource(root, sourceRoot) {
+function verifyRevisionCommit(git, revision, role) {
+    let resolved;
+    try {
+        resolved = gitText(git.gitBytes(['rev-parse', '--verify', `${revision}^{commit}`], 1024), `/git/${role}`);
+    }
+    catch {
+        fail(`/options/${role}`, 'does not name a commit in this repository');
+    }
+    if (resolved !== revision) {
+        fail(`/options/${role}`, 'does not resolve to the exact named commit');
+    }
+}
+function readVerifiedGitBlob(git, objectId, maxBytes, pointer) {
+    if (!SHA1_RE.test(objectId)) {
+        fail(pointer, 'expected a lowercase Git SHA-1 object identity');
+    }
+    let sizeText;
+    try {
+        sizeText = gitText(git.gitBytes(['cat-file', '-s', objectId], 1024), pointer);
+    }
+    catch {
+        fail(pointer, 'listed Git blob is unreadable');
+    }
+    if (!/^(0|[1-9][0-9]*)$/u.test(sizeText)) {
+        fail(pointer, 'Git returned an invalid blob size');
+    }
+    const size = Number(sizeText);
+    if (!Number.isSafeInteger(size) || size > maxBytes) {
+        fail(pointer, `Git blob exceeds the ${maxBytes}-byte limit`);
+    }
+    let bytes;
+    try {
+        bytes = Buffer.from(git.gitBytes(['cat-file', 'blob', objectId], maxBytes));
+    }
+    catch {
+        fail(pointer, 'listed Git blob is unreadable');
+    }
+    if (bytes.byteLength !== size) {
+        fail(pointer, 'Git blob byte length does not match its object size');
+    }
+    const verified = createHash('sha1')
+        .update(`blob ${bytes.byteLength}\0`, 'utf8')
+        .update(bytes)
+        .digest('hex');
+    if (verified !== objectId) {
+        fail(pointer, 'Git returned bytes for a different blob');
+    }
+    return bytes;
+}
+function resolveRevisionTreeFiles(git, revision, repoPaths, pointer) {
+    const requested = [...new Set(repoPaths)].sort(compareText);
+    const resolved = new Map();
+    if (requested.length === 0)
+        return resolved;
+    let listing;
+    try {
+        listing = Buffer.from(git.gitBytes([
+            'ls-tree',
+            '--full-tree',
+            '-z',
+            revision,
+            '--',
+            ...requested.map((repoPath) => `:(literal)${repoPath}`),
+        ], AUDIT_LIMITS.jsonBytes));
+    }
+    catch {
+        fail(pointer, 'unable to list the pinned revision tree');
+    }
+    let text;
+    try {
+        text = new TextDecoder('utf-8', { fatal: true }).decode(listing);
+    }
+    catch {
+        fail(pointer, 'pinned revision tree listing is not strict UTF-8');
+    }
+    const records = text.split('\0');
+    if (records.at(-1) === '')
+        records.pop();
+    const entries = new Map();
+    for (const record of records) {
+        const match = /^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40})\t([\s\S]+)$/u
+            .exec(record);
+        if (!match) {
+            fail(pointer, 'Git returned a malformed tree entry');
+        }
+        const [, mode, type, objectId, entryPath] = match;
+        if (requested.includes(entryPath)) {
+            if (type !== 'blob' || (mode !== '100644' && mode !== '100755')) {
+                fail(`${pointer}/${entryPath}`, 'revision tree entry is a symlink, gitlink, or non-regular file');
+            }
+            const existing = entries.get(entryPath);
+            if (existing !== undefined && existing.gitBlob !== objectId) {
+                fail(`${pointer}/${entryPath}`, 'conflicting revision tree entries');
+            }
+            entries.set(entryPath, { gitBlob: objectId });
+        }
+    }
+    for (const repoPath of requested) {
+        const entry = entries.get(repoPath);
+        if (entry !== undefined) {
+            resolved.set(repoPath, entry);
+            continue;
+        }
+        const prefix = `${repoPath}/`;
+        if (records.some((record) => {
+            const tab = record.indexOf('\t');
+            return tab !== -1 && record.slice(tab + 1).startsWith(prefix);
+        })) {
+            fail(`${pointer}/${repoPath}`, 'revision tree entry is a directory, not a regular file');
+        }
+        resolved.set(repoPath, null);
+    }
+    return resolved;
+}
+function readRevisionFile(git, revision, repoPath, maxBytes, pointer) {
+    const entry = resolveRevisionTreeFiles(git, revision, [repoPath], pointer).get(repoPath);
+    if (entry === undefined || entry === null)
+        return null;
+    return {
+        bytes: readVerifiedGitBlob(git, entry.gitBlob, maxBytes, `${pointer}/${repoPath}`),
+        gitBlob: entry.gitBlob,
+    };
+}
+function readSource(git, options) {
     const documents = new Map();
     for (const name of SOURCE_NAMES) {
-        const repoPath = `${sourceRoot}/${name}`;
-        const document = readBoundedAuditJsonDocument(root, repoPath, SOURCE_BYTES);
+        const repoPath = `${options.scanRoot}/${name}`;
+        const document = readRevisionFile(git, options.sourceRevision, repoPath, SOURCE_BYTES, '/source');
+        if (document === null) {
+            fail(`/source/${repoPath}`, 'canonical source file is missing at the source revision');
+        }
         documents.set(name, {
             path: repoPath,
-            bytes: Buffer.from(document.bytes),
-            value: document.value,
+            bytes: document.bytes,
+            gitBlob: document.gitBlob,
+            value: parseBoundedAuditJsonBytes(document.bytes, SOURCE_BYTES, repoPath),
         });
     }
-    const policyDocument = readBoundedAuditJsonDocument(root, POLICY_PATH, SOURCE_BYTES);
-    let policy = parseMigrationPolicy(policyDocument.value);
+    const policyDocument = readRevisionFile(git, options.validationRevision, options.policyPath, SOURCE_BYTES, `/${options.policyPath}`);
+    if (policyDocument === null) {
+        fail(`/${options.policyPath}`, 'review policy is missing at the validation revision');
+    }
+    let policy = parseMigrationPolicy(parseBoundedAuditJsonBytes(policyDocument.bytes, SOURCE_BYTES, options.policyPath), options.policyPath);
     if (policy.schema === POLICY_SCHEMA) {
-        const loaded = loadAuditReviewPolicy(root);
+        const loaded = parseAuditReviewPolicyValue(parseBoundedAuditJsonBytes(policyDocument.bytes, SOURCE_BYTES, options.policyPath));
         if (loaded.policy === null ||
             loaded.policyHash === null ||
             loaded.diagnostics.length !== 0) {
-            fail(`/${POLICY_PATH}`, `Atlas policy validation failed: ${loaded.diagnostics
+            fail(`/${options.policyPath}`, `Atlas policy validation failed: ${loaded.diagnostics
                 .map(({ code, message }) => `${code}: ${message}`)
                 .join('; ')}`);
         }
@@ -894,33 +1030,52 @@ function readSource(root, sourceRoot) {
         dispositions: parseDispositions(documents.get('dispositions.v1.json').value),
         provenance: parseProvenance(documents.get('phase-zero-provenance.v1.json').value),
         policy,
-        rawDocuments: [
-            ...[...documents.values()].map(({ path, bytes }) => ({
-                path,
-                bytes,
-            })),
-            {
-                path: POLICY_PATH,
-                bytes: Buffer.from(policyDocument.bytes),
-            },
-        ],
+        rawDocuments: [...documents.values()].map(({ path, bytes, gitBlob }) => ({
+            path,
+            bytes,
+            gitBlob,
+        })),
+        policySeal: {
+            path: options.policyPath,
+            gitBlob: policyDocument.gitBlob,
+            sha256: rawSha256(policyDocument.bytes),
+        },
     };
 }
 function snapshotOptions(unsafeOptions) {
     if (unsafeOptions === undefined) {
-        return { sourceRoot: DEFAULT_SOURCE_ROOT, apply: false };
+        fail('/options', 'migration options with sourceRevision and validationRevision are required');
     }
     const snapshot = JSON.parse(canonicalJson(unsafeOptions));
     const options = recordAt(snapshot, '/options');
-    exactKeys(options, [], ['sourceRoot', 'apply'], '/options');
-    const sourceRoot = options.sourceRoot === undefined
+    exactKeys(options, ['sourceRevision', 'validationRevision'], ['scanRoot', 'policyPath', 'includeHistory', 'apply'], '/options');
+    const scanRoot = options.scanRoot === undefined
         ? DEFAULT_SOURCE_ROOT
-        : repoPathAt(options.sourceRoot, '/options/sourceRoot');
+        : repoPathAt(options.scanRoot, '/options/scanRoot');
+    const policyPath = options.policyPath === undefined
+        ? POLICY_PATH
+        : repoPathAt(options.policyPath, '/options/policyPath');
+    const sourceRevision = stringAt(options.sourceRevision, '/options/sourceRevision');
+    if (!FULL_REVISION_RE.test(sourceRevision)) {
+        fail('/options/sourceRevision', 'expected a full lowercase Git commit revision');
+    }
+    const validationRevision = stringAt(options.validationRevision, '/options/validationRevision');
+    if (!FULL_REVISION_RE.test(validationRevision)) {
+        fail('/options/validationRevision', 'expected a full lowercase Git commit revision');
+    }
+    if (options.includeHistory !== undefined &&
+        typeof options.includeHistory !== 'boolean') {
+        fail('/options/includeHistory', 'expected a boolean');
+    }
     if (options.apply !== undefined && typeof options.apply !== 'boolean') {
         fail('/options/apply', 'expected a boolean');
     }
     return {
-        sourceRoot,
+        scanRoot,
+        policyPath,
+        sourceRevision,
+        validationRevision,
+        includeHistory: options.includeHistory !== false,
         apply: options.apply === true,
     };
 }
@@ -930,7 +1085,7 @@ function policyMatcher(include, except = []) {
     return (repoPath) => includes.some((match) => match(repoPath)) &&
         !exceptions.some((match) => match(repoPath));
 }
-function partitionLegacyPaths(source) {
+function partitionLegacyPaths(source, policyPath) {
     const units = source.policy.units.map((unit) => ({
         unit,
         matches: policyMatcher(unit.include, unit.except),
@@ -945,20 +1100,20 @@ function partitionLegacyPaths(source) {
         const historicalMatches = historical.filter(({ matches }) => matches(scan.path));
         if (scan.retired === undefined &&
             historicalMatches.length !== 0) {
-            fail(`/${POLICY_PATH}/historicalUnitAssignments`, `historical assignment matches active receipt ${scan.path}`);
+            fail(`/${policyPath}/historicalUnitAssignments`, `historical assignment matches active receipt ${scan.path}`);
         }
         if (direct.length > 1) {
-            fail(`/${POLICY_PATH}/units`, `legacy path ${scan.path} matches multiple security units`);
+            fail(`/${policyPath}/units`, `legacy path ${scan.path} matches multiple security units`);
         }
         if (direct.length === 1) {
             if (historicalMatches.length !== 0) {
-                fail(`/${POLICY_PATH}/historicalUnitAssignments`, `historical assignment overlaps current ownership for ${scan.path}`);
+                fail(`/${policyPath}/historicalUnitAssignments`, `historical assignment overlaps current ownership for ${scan.path}`);
             }
             pathUnits.set(scan.path, direct[0].unit.slug);
             continue;
         }
         if (scan.retired === undefined || historicalMatches.length !== 1) {
-            fail(`/${POLICY_PATH}`, scan.retired === undefined
+            fail(`/${policyPath}`, scan.retired === undefined
                 ? `active legacy path ${scan.path} has no security unit`
                 : `retired legacy path ${scan.path} must match exactly one ` +
                     'historical assignment');
@@ -1019,32 +1174,24 @@ function exactUtf8LineCount(bytes, pointer) {
         lines.pop();
     return lines.length;
 }
-function buildContext(root, sourceRoot) {
+function buildContext(root, options) {
     return withAnchoredAuditSupportSnapshot(root, () => {
-        const parsed = readSource(root, sourceRoot);
         const repositoryId = parseRepositoryId(root);
         return withAnchoredAuditGitCapability(root, (git) => {
-            const repositoryRevision = gitText(git.gitBytes(['rev-parse', '--verify', 'HEAD'], 1024), '/git/revision');
-            if (!FULL_REVISION_RE.test(repositoryRevision)) {
-                fail('/git/revision', 'expected a full Git revision');
-            }
-            const epochText = gitText(git.gitBytes(['show', '-s', '--format=%ct', 'HEAD'], 1024), '/git/committer-time');
+            verifyRevisionCommit(git, options.sourceRevision, 'sourceRevision');
+            verifyRevisionCommit(git, options.validationRevision, 'validationRevision');
+            const epochText = gitText(git.gitBytes(['show', '-s', '--format=%ct', options.sourceRevision], 1024), '/git/committer-time');
             if (!/^\d+$/u.test(epochText)) {
                 fail('/git/committer-time', 'expected an epoch second');
             }
             const recordedAt = new Date(Number(epochText) * 1000).toISOString();
-            const documents = parsed.rawDocuments.map(({ path: repoPath, bytes }) => {
-                const digests = git.hashWorktreeFileDigests(repoPath, SOURCE_BYTES);
-                if (digests === null) {
-                    fail(`/source/${repoPath}`, 'canonical source file disappeared');
-                }
-                return {
-                    path: repoPath,
-                    bytes,
-                    sha256: rawSha256(bytes),
-                    gitBlob: digests.sha1,
-                };
-            }).sort((left, right) => compareText(left.path, right.path));
+            const parsed = readSource(git, options);
+            const documents = parsed.rawDocuments.map(({ path: repoPath, bytes, gitBlob }) => ({
+                path: repoPath,
+                bytes,
+                sha256: rawSha256(bytes),
+                gitBlob,
+            })).sort((left, right) => compareText(left.path, right.path));
             const source = {
                 ledger: parsed.ledger,
                 candidates: parsed.candidates,
@@ -1054,7 +1201,7 @@ function buildContext(root, sourceRoot) {
                 documents,
             };
             validateCrossSource(source);
-            const partition = partitionLegacyPaths(source);
+            const partition = partitionLegacyPaths(source, options.policyPath);
             const relevantPaths = new Set();
             for (const scan of source.ledger.scans) {
                 if (scan.retired === undefined)
@@ -1068,15 +1215,31 @@ function buildContext(root, sourceRoot) {
                     relevantPaths.add(candidate.path);
                 }
             }
+            const scansByPath = new Map(source.ledger.scans.map((scan) => [scan.path, scan]));
+            const treeFiles = resolveRevisionTreeFiles(git, options.validationRevision, [...relevantPaths], '/validation');
             const currentFiles = new Map();
             for (const repoPath of [...relevantPaths].sort(compareText)) {
-                const digests = git.hashWorktreeFileDigests(repoPath, AUDIT_LIMITS.jsonBytes);
-                currentFiles.set(repoPath, digests === null
-                    ? null
-                    : {
-                        sha1: digests.sha1,
-                        sha256: digests.sha256,
-                    });
+                const entry = treeFiles.get(repoPath);
+                if (entry === undefined) {
+                    fail(`/validation/${repoPath}`, 'revision tree entry was not resolved');
+                }
+                if (entry === null) {
+                    currentFiles.set(repoPath, null);
+                    continue;
+                }
+                const bytes = readVerifiedGitBlob(git, entry.gitBlob, AUDIT_LIMITS.jsonBytes, `/validation/${repoPath}`);
+                const scan = scansByPath.get(repoPath);
+                const needsExactBytes = source.candidates.entries.some((candidate) => candidate.duplicateOf === undefined &&
+                    candidate.path === repoPath &&
+                    scan !== undefined &&
+                    scan.retired === undefined &&
+                    candidate.sourceBlob === scan.git_blob_sha1 &&
+                    candidate.sourceBlob === entry.gitBlob);
+                currentFiles.set(repoPath, {
+                    sha1: entry.gitBlob,
+                    sha256: rawSha256(bytes),
+                    ...(needsExactBytes ? { bytes } : {}),
+                });
             }
             const blobLineCounts = new Map();
             const objectInventory = Buffer.from(git.gitBytes([
@@ -1093,20 +1256,7 @@ function buildContext(root, sourceRoot) {
             for (const blob of new Set(source.ledger.scans.map(({ git_blob_sha1 }) => git_blob_sha1))) {
                 if (!availableObjects.has(blob))
                     continue;
-                let bytes;
-                try {
-                    bytes = Buffer.from(git.gitBytes(['cat-file', 'blob', blob], AUDIT_LIMITS.jsonBytes));
-                }
-                catch {
-                    fail(`/git/blobs/${blob}`, 'listed Git blob is unreadable');
-                }
-                const verified = createHash('sha1')
-                    .update(`blob ${bytes.byteLength}\0`, 'utf8')
-                    .update(bytes)
-                    .digest('hex');
-                if (verified !== blob) {
-                    fail(`/git/blobs/${blob}`, 'Git returned bytes for a different blob');
-                }
+                const bytes = readVerifiedGitBlob(git, blob, AUDIT_LIMITS.jsonBytes, `/git/blobs/${blob}`);
                 blobLineCounts.set(blob, exactUtf8LineCount(bytes, `/git/blobs/${blob}`));
             }
             const sourceSemanticDigest = prefixedSha256(semanticSourceValue(source));
@@ -1117,41 +1267,49 @@ function buildContext(root, sourceRoot) {
                 canonicalRuleset: CANONICAL_RULESET,
                 policyDigest: source.policy.digest,
             });
-            const validationDigest = currentStateDigest(repositoryRevision, currentFiles);
+            const historicalAssignmentsDigest = prefixedSha256({
+                namespace: 'repo-atlas/relayos-migration-historical-assignments/v1',
+                assignments: source.policy.historicalAssignments,
+            });
+            const validationDigest = currentStateDigest(options.validationRevision, currentFiles);
             const targetDigest = prefixedSha256({
                 namespace: 'repo-atlas/relayos-migration-target/v1',
                 repositoryId,
-                repositoryRevision,
+                repositoryRevision: options.validationRevision,
                 validationDigest,
             });
-            const migrationMaterial = {
-                sourceKind: SOURCE_KIND,
-                repositoryRevision,
+            const sortedInputSeals = documents.map(({ path: repoPath, gitBlob, sha256 }) => ({
+                path: repoPath,
+                gitBlob,
+                sha256,
+            }));
+            const migrationId = `amig_${rawSha256([
+                'atlas-migration/v1',
+                SOURCE_KIND,
                 repositoryId,
-                validationDigest,
-                converter: {
-                    name: CONVERTER_NAME,
-                    version: CONVERTER_VERSION,
-                    commit: CONVERTER_COMMIT,
-                },
-                files: documents.map(({ path: repoPath, gitBlob, sha256 }) => ({
-                    path: repoPath,
-                    gitBlob,
-                    sha256,
-                })),
-            };
-            const migrationId = `amig_${rawSha256(`atlas-migration/v1\0${canonicalJson(migrationMaterial)}`).slice(0, 24)}`;
+                options.sourceRevision,
+                options.validationRevision,
+                parsed.policySeal.sha256,
+                historicalAssignmentsDigest,
+                CONVERTER_NAME,
+                CONVERTER_VERSION,
+                CONVERTER_COMMIT,
+                canonicalJson(sortedInputSeals),
+            ].join('\0')).slice(0, 24)}`;
             return {
                 root,
-                sourceRoot,
+                scanRoot: options.scanRoot,
                 repositoryId,
-                repositoryRevision,
+                sourceRevision: options.sourceRevision,
+                validationRevision: options.validationRevision,
                 recordedAt,
                 source,
+                policySeal: parsed.policySeal,
+                historicalAssignmentsDigest,
                 sourceSemanticDigest,
                 rulesetDigest,
                 targetDigest,
-                targetId: `relayos-security-v1:${repositoryRevision}`,
+                targetId: `relayos-security-v1:${options.validationRevision}`,
                 migrationId,
                 currentFiles,
                 blobLineCounts,
@@ -1186,7 +1344,7 @@ function targetFor(context) {
         identityDigest: context.targetDigest,
         identityBasis: 'snapshot',
         snapshotDigest: context.targetDigest,
-        revision: context.repositoryRevision,
+        revision: context.validationRevision,
         dirty: false,
         displayName: 'RelayOS legacy security migration',
     };
@@ -1520,9 +1678,10 @@ function exactCodeFor(context, candidate, scan) {
         current.sha1 !== candidate.sourceBlob) {
         return undefined;
     }
-    const bytes = Buffer.from(readBoundedAuditBytes(context.root, candidate.path, AUDIT_LIMITS.jsonBytes));
-    current.bytes = bytes;
-    return { bytes, blob: candidate.sourceBlob };
+    if (current.bytes === undefined) {
+        fail(`/validation/${candidate.path}`, 'validation-revision bytes were not retained for an exact match');
+    }
+    return { bytes: current.bytes, blob: candidate.sourceBlob };
 }
 function buildObservations(context) {
     const canonicalCandidates = context.source.candidates.entries
@@ -1705,7 +1864,7 @@ function buildDispositionInput(context, observations, candidate, disposition) {
                     afterObservationId: layer.current.observationId,
                     beforeBindings: [sourceBinding],
                     afterBindings: [afterBinding],
-                    fixRevision: context.repositoryRevision,
+                    fixRevision: context.validationRevision,
                     outcome: 'finding-absent-after-fix',
                     summary: disposition.rationale,
                     sourceArtifact: dispositionArtifact,
@@ -1716,7 +1875,7 @@ function buildDispositionInput(context, observations, candidate, disposition) {
                 command: disposition.regression.command,
                 result: 'passed',
                 binding: {
-                    repositoryRevision: context.repositoryRevision,
+                    repositoryRevision: context.validationRevision,
                     observationId: layer.current.observationId,
                     files: [afterBinding],
                 },
@@ -1725,7 +1884,7 @@ function buildDispositionInput(context, observations, candidate, disposition) {
                 kind: 'remediation',
                 beforeBindings: [sourceBinding],
                 afterBindings: [afterBinding],
-                fixRevision: context.repositoryRevision,
+                fixRevision: context.validationRevision,
             },
         };
     }
@@ -1763,7 +1922,7 @@ function buildDispositionInput(context, observations, candidate, disposition) {
             {
                 kind: 'deletion',
                 deletionCommit,
-                parentRevision: context.repositoryRevision,
+                parentRevision: context.validationRevision,
                 deletedBindings: [sourceBinding],
                 outcome: 'exact-source-deleted',
                 summary: disposition.rationale,
@@ -1772,7 +1931,7 @@ function buildDispositionInput(context, observations, candidate, disposition) {
             {
                 kind: 'no-replacement',
                 observationId: layer.current.observationId,
-                searchRevision: context.repositoryRevision,
+                searchRevision: context.validationRevision,
                 reviewedBindings: [sourceBinding],
                 outcome: 'no-reportable-replacement',
                 summary: typeof disposition.noReplacementEvidence === 'string'
@@ -1787,7 +1946,7 @@ function buildDispositionInput(context, observations, candidate, disposition) {
             deletedBindings: [sourceBinding],
             noReplacementEvidence: {
                 observationId: layer.current.observationId,
-                searchRevision: context.repositoryRevision,
+                searchRevision: context.validationRevision,
                 reviewedBindings: [sourceBinding],
                 summary: typeof disposition.noReplacementEvidence === 'string'
                     ? disposition.noReplacementEvidence
@@ -1797,13 +1956,13 @@ function buildDispositionInput(context, observations, candidate, disposition) {
     };
 }
 function sourceArtifact(context, name) {
-    const repoPath = `${context.sourceRoot}/${name}`;
+    const repoPath = `${context.scanRoot}/${name}`;
     const document = context.source.documents.find(({ path: candidate }) => candidate === repoPath);
     if (document === undefined)
         fail(`/source/${repoPath}`, 'missing source seal');
     return {
         path: repoPath,
-        repositoryRevision: context.repositoryRevision,
+        repositoryRevision: context.sourceRevision,
         gitBlob: `git-sha1:${document.gitBlob}`,
         sha256: `sha256:${document.sha256}`,
     };
@@ -1846,7 +2005,7 @@ function buildRetirementInput(context, observations, scan) {
                 },
                 revisionProof: {
                     kind: 'git-tree-state',
-                    repositoryRevision: context.repositoryRevision,
+                    repositoryRevision: context.validationRevision,
                     presentBindings: [{
                             path: retirement.successorPath,
                             blob: `git-sha1:${successorBlob}`,
@@ -1863,7 +2022,7 @@ function buildRetirementInput(context, observations, scan) {
             deletionCommit: retirement.deletionCommit,
             deletionProof: {
                 kind: 'git-deletion',
-                parentRevision: context.repositoryRevision,
+                parentRevision: context.validationRevision,
                 parentBindings: [{
                         path: scan.path,
                         blob: `git-sha1:${scan.git_blob_sha1}`,
@@ -2086,7 +2245,7 @@ function buildMappings(context, observations, events) {
         const unit = observations.scanUnit.get(scan.path);
         const baseline = observations.byUnit.get(unit).baseline;
         mappings.push({
-            sourcePath: `${context.sourceRoot}/ledger.json`,
+            sourcePath: `${context.scanRoot}/ledger.json`,
             sourcePointer: `/scans/${scan.sourceIndex}`,
             sourceId: `${scan.path}@${scan.git_blob_sha1}`,
             destinationKind: 'file-receipt',
@@ -2098,7 +2257,7 @@ function buildMappings(context, observations, events) {
                 fail(`/ledger.json/scans/${scan.sourceIndex}/retired`, 'retirement event was not generated');
             }
             mappings.push({
-                sourcePath: `${context.sourceRoot}/ledger.json`,
+                sourcePath: `${context.scanRoot}/ledger.json`,
                 sourcePointer: `/scans/${scan.sourceIndex}/retired`,
                 sourceId: `${scan.path}@${scan.git_blob_sha1}`,
                 destinationKind: 'retirement',
@@ -2114,14 +2273,14 @@ function buildMappings(context, observations, events) {
             fail(`/candidates.v1.json/entries/${candidate.sourceIndex}`, 'identity alias event was not generated');
         }
         mappings.push({
-            sourcePath: `${context.sourceRoot}/candidates.v1.json`,
+            sourcePath: `${context.scanRoot}/candidates.v1.json`,
             sourcePointer: `/entries/${candidate.sourceIndex}`,
             sourceId: candidate.id,
             destinationKind: 'finding',
             destinationIds: [finding.findingId, finding.occurrenceId],
         });
         mappings.push({
-            sourcePath: `${context.sourceRoot}/candidates.v1.json`,
+            sourcePath: `${context.scanRoot}/candidates.v1.json`,
             sourcePointer: `/entries/${candidate.sourceIndex}/id`,
             sourceId: candidate.id,
             destinationKind: 'identity-alias',
@@ -2135,7 +2294,7 @@ function buildMappings(context, observations, events) {
             fail(`/dispositions.v1.json/dispositions/${disposition.sourceIndex}`, 'disposition event was not generated');
         }
         mappings.push({
-            sourcePath: `${context.sourceRoot}/dispositions.v1.json`,
+            sourcePath: `${context.scanRoot}/dispositions.v1.json`,
             sourcePointer: `/dispositions/${disposition.sourceIndex}`,
             sourceId: disposition.id,
             destinationKind: 'decision',
@@ -2146,8 +2305,8 @@ function buildMappings(context, observations, events) {
         compareText(left.sourcePointer, right.sourcePointer) ||
         compareText(left.destinationKind, right.destinationKind));
 }
-function buildPlan(root, sourceRoot) {
-    const context = buildContext(root, sourceRoot);
+function buildPlan(root, options) {
+    const context = buildContext(root, options);
     const observations = buildObservations(context);
     const events = buildEvents(context, observations);
     const outputs = [];
@@ -2161,7 +2320,10 @@ function buildPlan(root, sourceRoot) {
             layers.candidates,
             layers.current,
         ]);
-        outputs.push(output(`.atlas/audit-history/${unit}.json`, history.historyBytes, 'history'), output(`.atlas/audits/${unit}.json`, history.currentBytes, 'current'));
+        if (options.includeHistory) {
+            outputs.push(output(`.atlas/audit-history/${unit}.json`, history.historyBytes, 'history'));
+        }
+        outputs.push(output(`.atlas/audits/${unit}.json`, history.currentBytes, 'current'));
     }
     for (const [unit, bytes] of [...events.bytes.entries()]
         .sort(([left], [right]) => compareText(left, right))) {
@@ -2186,9 +2348,10 @@ function buildPlan(root, sourceRoot) {
         formatVersion: 1,
         format: 'atlas-audit-migration-v1',
         migrationId: context.migrationId,
+        repositoryId: context.repositoryId,
         source: {
             kind: SOURCE_KIND,
-            repositoryRevision: context.repositoryRevision,
+            repositoryRevision: context.sourceRevision,
             files: context.source.documents.map(({ path: repoPath, gitBlob, sha256 }) => ({
                 path: repoPath,
                 gitBlob,
@@ -2196,10 +2359,12 @@ function buildPlan(root, sourceRoot) {
             })),
         },
         validation: {
-            repositoryRevision: context.repositoryRevision,
+            repositoryRevision: context.validationRevision,
+            policy: context.policySeal,
+            historicalAssignmentsDigest: context.historicalAssignmentsDigest,
             exactWorktreeMatches: exactMatches,
             staleOrMissingPaths: active.length - exactMatches,
-            digest: currentStateDigest(context.repositoryRevision, context.currentFiles),
+            digest: currentStateDigest(context.validationRevision, context.currentFiles),
         },
         converter: {
             name: CONVERTER_NAME,
@@ -2261,12 +2426,12 @@ function buildPlan(root, sourceRoot) {
     };
     return { result, outputs: orderedOutputs };
 }
-function applyPlan(root, sourceRoot, expected) {
+function applyPlan(root, options, expected) {
     const isMissingOutput = (error) => error instanceof Error &&
         (/missing or not a safe regular file/u.test(error.message) ||
             /audit parent is missing:/u.test(error.message));
     withAuditLock(root, () => {
-        const current = buildPlan(root, sourceRoot);
+        const current = buildPlan(root, options);
         if (canonicalJson(current.result) !== canonicalJson(expected.result)) {
             fail('/apply', 'source or validation state changed after dry planning');
         }
@@ -2313,10 +2478,14 @@ function applyPlan(root, sourceRoot, expected) {
         }
     });
 }
+export function buildRelayOSAuditMigration(root, unsafeOptions) {
+    const options = snapshotOptions(unsafeOptions);
+    return buildPlan(root, options).result;
+}
 export function migrateRelayOSAudit(root, unsafeOptions) {
     const options = snapshotOptions(unsafeOptions);
-    const plan = buildPlan(root, options.sourceRoot);
+    const plan = buildPlan(root, options);
     if (options.apply)
-        applyPlan(root, options.sourceRoot, plan);
+        applyPlan(root, options, plan);
     return plan.result;
 }

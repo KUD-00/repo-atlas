@@ -595,6 +595,26 @@ export interface AuditReviewPolicyLoad {
   diagnostics: CoverageDiagnostic[]
 }
 
+export function parseAuditReviewPolicyValue(
+  value: unknown,
+): AuditReviewPolicyLoad {
+  try {
+    const parsed = parsePolicy(value)
+    return { ...parsed, diagnostics: [] }
+  } catch (error) {
+    return {
+      policy: null,
+      policyHash: null,
+      diagnostics: [{
+        code: error instanceof PolicyValidationError
+          ? error.code
+          : 'invalid-review-policy',
+        message: error instanceof Error ? error.message : String(error),
+      }],
+    }
+  }
+}
+
 export function loadAuditReviewPolicy(root: string): AuditReviewPolicyLoad {
   try {
     const document = readBoundedAuditJsonDocument(
@@ -602,8 +622,7 @@ export function loadAuditReviewPolicy(root: string): AuditReviewPolicyLoad {
       POLICY_PATH,
       POLICY_BYTES,
     )
-    const parsed = parsePolicy(document.value)
-    return { ...parsed, diagnostics: [] }
+    return parseAuditReviewPolicyValue(document.value)
   } catch (error) {
     return {
       policy: null,

@@ -81,6 +81,13 @@ function commit(root, message = 'fixture') {
   })
 }
 
+function head(root) {
+  return execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: root,
+    encoding: 'utf8',
+  }).trim()
+}
+
 function makeRepo() {
   const root = fs.mkdtempSync(
     path.join(os.tmpdir(), 'repo-atlas-relayos-migration-'),
@@ -129,7 +136,7 @@ function makeRepo() {
     'export const secureOutboundTransport = true\n',
   )
   commit(root)
-  return root
+  return { root, revision: head(root) }
 }
 
 function cleanup(...roots) {
@@ -138,9 +145,11 @@ function cleanup(...roots) {
   }
 }
 
-function migrationOptions(overrides = {}) {
+function migrationOptions(sourceRevision, validationRevision, overrides = {}) {
   return {
-    sourceRoot: SOURCE_ROOT,
+    scanRoot: SOURCE_ROOT,
+    sourceRevision,
+    validationRevision,
     ...overrides,
   }
 }
@@ -172,15 +181,34 @@ function semanticIds(result) {
 
 test('maps the real-shape RelayOS corpus losslessly without inventing semantic closure', async () => {
   const api = await migrationApi()
-  const repo = makeRepo()
+  const { root: repo, revision } = makeRepo()
   try {
-    const first = api.migrateRelayOSAudit(repo, migrationOptions())
-    const second = api.migrateRelayOSAudit(repo, migrationOptions())
+    const first = api.migrateRelayOSAudit(
+      repo,
+      migrationOptions(revision, revision),
+    )
+    const second = api.migrateRelayOSAudit(
+      repo,
+      migrationOptions(revision, revision),
+    )
 
     assert.deepEqual(second, first)
     assert.equal(first.receipt.format, 'atlas-audit-migration-v1')
     assert.match(first.migrationId, /^amig_[0-9a-f]{24}$/)
     assert.equal(first.receipt.migrationId, first.migrationId)
+    assert.equal(first.receipt.repositoryId, REPOSITORY_ID)
+    assert.equal(first.receipt.source.repositoryRevision, revision)
+    assert.equal(first.receipt.validation.repositoryRevision, revision)
+    assert.equal(
+      first.receipt.validation.policy.path,
+      '.atlas/review-policy.json',
+    )
+    assert.match(first.receipt.validation.policy.gitBlob, /^[0-9a-f]{40}$/)
+    assert.match(first.receipt.validation.policy.sha256, /^[0-9a-f]{64}$/)
+    assert.match(
+      first.receipt.validation.historicalAssignmentsDigest,
+      /^sha256:[0-9a-f]{64}$/,
+    )
     assert.equal('executedAt' in first.receipt, false)
     assert.equal('generatedAt' in first.receipt, false)
     assert.equal('wallClock' in first.receipt, false)
@@ -279,7 +307,7 @@ test('maps the real-shape RelayOS corpus losslessly without inventing semantic c
 
 test('retains exact finding evidence only for matching repository bytes', async () => {
   const api = await migrationApi()
-  const repo = makeRepo()
+  const { root: repo } = makeRepo()
   const candidateId = 'SEC-48AABC8B1EB6'
   const sourcePath =
     'packages/kernel/governance-relay/src/runtime/transition.ts'
@@ -323,8 +351,12 @@ test('retains exact finding evidence only for matching repository bytes', async 
       provenance,
     )
     commit(repo, 'matching candidate bytes')
+    const matchingRevision = head(repo)
 
-    const matching = api.migrateRelayOSAudit(repo, migrationOptions())
+    const matching = api.migrateRelayOSAudit(
+      repo,
+      migrationOptions(matchingRevision, matchingRevision),
+    )
     const exactFinding = matching.observations
       .filter(({ producer }) => producer.runId.endsWith('/current'))
       .flatMap(({ findings }) => findings)
@@ -343,13 +375,25 @@ test('retains exact finding evidence only for matching repository bytes', async 
 
     write(repo, sourcePath, `${sourceBytes.toString('utf8')}// drift\n`)
     commit(repo, 'drift candidate bytes')
-    const drifted = api.migrateRelayOSAudit(repo, migrationOptions())
+    const driftedRevision = head(repo)
+    const drifted = api.migrateRelayOSAudit(
+      repo,
+      migrationOptions(matchingRevision, driftedRevision),
+    )
     const driftedFinding = drifted.observations
       .filter(({ producer }) => producer.runId.endsWith('/current'))
       .flatMap(({ findings }) => findings)
       .find(({ fingerprints }) => fingerprints.some(({ value }) =>
         value === candidateId))
     assert.equal(driftedFinding.codeEvidence, undefined)
+    assert.equal(
+      drifted.receipt.source.repositoryRevision,
+      matchingRevision,
+    )
+    assert.equal(
+      drifted.receipt.validation.repositoryRevision,
+      driftedRevision,
+    )
     assert.notEqual(drifted.migrationId, matching.migrationId)
   } finally {
     cleanup(repo)
@@ -358,9 +402,12 @@ test('retains exact finding evidence only for matching repository bytes', async 
 
 test('keeps semantic identities stable while preserving reordered raw-byte seals', async () => {
   const api = await migrationApi()
-  const repo = makeRepo()
+  const { root: repo, revision: originalRevision } = makeRepo()
   try {
-    const original = api.migrateRelayOSAudit(repo, migrationOptions())
+    const original = api.migrateRelayOSAudit(
+      repo,
+      migrationOptions(originalRevision, originalRevision),
+    )
     for (const [name, member] of [
       ['ledger.json', 'scans'],
       ['candidates.v1.json', 'entries'],
@@ -371,10 +418,23 @@ test('keeps semantic identities stable while preserving reordered raw-byte seals
       value[member].reverse()
       writeJson(repo, `${SOURCE_ROOT}/${name}`, value)
     }
-    const reordered = api.migrateRelayOSAudit(repo, migrationOptions())
+    commit(repo, 'reordered legacy corpus')
+    const reorderedRevision = head(repo)
+    const reordered = api.migrateRelayOSAudit(
+      repo,
+      migrationOptions(reorderedRevision, originalRevision),
+    )
 
     assert.deepEqual(semanticIds(reordered), semanticIds(original))
     assert.deepEqual(reordered.observations, original.observations)
+    assert.equal(
+      reordered.receipt.source.repositoryRevision,
+      reorderedRevision,
+    )
+    assert.equal(
+      reordered.receipt.validation.repositoryRevision,
+      originalRevision,
+    )
     assert.notEqual(reordered.migrationId, original.migrationId)
     assert.notDeepEqual(reordered.receipt.source.files, original.receipt.source.files)
     assert.deepEqual(
@@ -394,12 +454,15 @@ test('apply publishes the dry-run bytes once and exact reruns are idempotent', a
   const api = await migrationApi()
   const { loadAuditDecisionLedgers } =
     await import('../dist/audit-decisions.js')
-  const repo = makeRepo()
+  const { root: repo, revision } = makeRepo()
   try {
-    const dry = api.migrateRelayOSAudit(repo, migrationOptions())
+    const dry = api.migrateRelayOSAudit(
+      repo,
+      migrationOptions(revision, revision),
+    )
     const applied = api.migrateRelayOSAudit(
       repo,
-      migrationOptions({ apply: true }),
+      migrationOptions(revision, revision, { apply: true }),
     )
     assert.deepEqual(applied, dry)
     for (const output of dry.writes) {
@@ -416,7 +479,7 @@ test('apply publishes the dry-run bytes once and exact reruns are idempotent', a
     ]))
     const rerun = api.migrateRelayOSAudit(
       repo,
-      migrationOptions({ apply: true }),
+      migrationOptions(revision, revision, { apply: true }),
     )
     assert.deepEqual(rerun, dry)
     for (const [repoPath, bytes] of before) {
@@ -429,7 +492,12 @@ test('apply publishes the dry-run bytes once and exact reruns are idempotent', a
     const ledger = readJson(repo, `${SOURCE_ROOT}/ledger.json`)
     ledger.scanner.run = `${ledger.scanner.run} changed`
     writeJson(repo, `${SOURCE_ROOT}/ledger.json`, ledger)
-    const changed = api.migrateRelayOSAudit(repo, migrationOptions())
+    commit(repo, 'scanner identity drift')
+    const changedRevision = head(repo)
+    const changed = api.migrateRelayOSAudit(
+      repo,
+      migrationOptions(changedRevision, revision),
+    )
     assert.notEqual(changed.migrationId, dry.migrationId)
   } finally {
     cleanup(repo)
@@ -497,15 +565,24 @@ test('rejects malformed or inconsistent sources before any migration write', asy
   ]
 
   for (const fixtureCase of cases) {
-    const repo = makeRepo()
+    const { root: repo } = makeRepo()
     try {
       fixtureCase.mutate(repo)
+      commit(repo, `malformed input: ${fixtureCase.name}`)
+      const revision = head(repo)
       assert.throws(
         () => api.migrateRelayOSAudit(
           repo,
-          migrationOptions({ apply: true }),
+          migrationOptions(revision, revision, { apply: true }),
         ),
-        /RelayOS|legacy|candidate|disposition|provenance|unknown|duplicate|missing|inconsistent/i,
+        (error) => {
+          assert.equal(error.name, 'RelayOSMigrationError', fixtureCase.name)
+          assert.match(
+            error.message,
+            /RelayOS|legacy|candidate|disposition|provenance|unknown|duplicate|missing|inconsistent/i,
+          )
+          return true
+        },
         fixtureCase.name,
       )
       assert.equal(fs.existsSync(path.join(repo, '.atlas/migrations')), false)

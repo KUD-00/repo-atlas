@@ -383,11 +383,28 @@ function parsePolicy(value) {
         policyHash,
     };
 }
+export function parseAuditReviewPolicyValue(value) {
+    try {
+        const parsed = parsePolicy(value);
+        return { ...parsed, diagnostics: [] };
+    }
+    catch (error) {
+        return {
+            policy: null,
+            policyHash: null,
+            diagnostics: [{
+                    code: error instanceof PolicyValidationError
+                        ? error.code
+                        : 'invalid-review-policy',
+                    message: error instanceof Error ? error.message : String(error),
+                }],
+        };
+    }
+}
 export function loadAuditReviewPolicy(root) {
     try {
         const document = readBoundedAuditJsonDocument(root, POLICY_PATH, POLICY_BYTES);
-        const parsed = parsePolicy(document.value);
-        return { ...parsed, diagnostics: [] };
+        return parseAuditReviewPolicyValue(document.value);
     }
     catch (error) {
         return {
