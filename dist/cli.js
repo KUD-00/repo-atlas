@@ -5,8 +5,9 @@ import { repoRoot, headCommit, headCommitFull, dirtyPaths, atlasDir, loadConfig,
 import { noteFileFor, loadNotes, stampNote, moveNoteFile, notesRoot } from './notes.js';
 import { loadConceptPages, sourcesHashFor, stampConceptPage, conceptFileFor } from './conceptPages.js';
 import { loadArtifacts } from './artifacts.js';
-import { importLegacyAudit, loadAuditPortfolios } from './audits.js';
-import { buildAuditLocalizationInput, canonicalAuditLocalizationJson, loadConfiguredAuditLocalizations, } from './audit-localizations.js';
+import { loadAuditPortfolios } from './audits.js';
+import { auditImportLegacyCommand, auditLocalizationCheckCommand, auditLocalizationInputCommand, auditStampCommand, runAuditCommand, } from './audit-cli.js';
+import { loadConfiguredAuditLocalizations } from './audit-localizations.js';
 import { loadReviewCoverage } from './review-coverage.js';
 import { computeStatus, summarize, summarizeConcepts } from './status.js';
 import { buildHtml, writeAtlas } from './build.js';
@@ -17,7 +18,6 @@ import { computeCheck } from './check.js';
 import { concepts } from './concepts.js';
 import { assertQualityAuditOwnership, computeQuality, failingFindings, formatQualitySummary, parseLayers, writeQualityArtifacts, writeQualityAuditLedger, writeQualityReport } from './quality.js';
 import { assertCanonicalReadabilityOutput, assertReadabilityAuditOwnership, assertReadabilityReportOutput, computeReadability, formatReadabilitySummary, isSupportedReadabilityReport, readReadabilityReport, writeCanonicalReadabilityReport, writeReadabilityArtifacts, writeReadabilityAuditLedger, writeReadabilityReport, diffReadabilityReports } from './readability.js';
-import { stampAudits } from './audits.js';
 const USAGE = `repo-atlas — incremental codebase atlas with staleness tracking
 
 usage: repo-atlas <command> [args]
@@ -29,13 +29,23 @@ usage: repo-atlas <command> [args]
   stamp [paths...|--all]   stamp note(s) with the current git hash + HEAD anchor;
                            concept pages too: stamp .atlas/concepts/<slug>.md
                            (or concepts/<slug>) recomputes their sources_hash
-  audit-stamp [names...]   (re)stamp audit ledgers in .atlas/audits/*.json with
-                           per-file git hashes, so status tracks per-file drift
-  audit-import <files...>  import legacy scans[] ledgers into atlas-audit-v1;
+  audit <verb> [args]      hierarchical audit surface: check, coverage check|update,
+                           status, run security --provider grok, import
+                           codex-security|legacy-v1, migrate relayos-security-v1|
+                           relayos-root-audits-v1, decision set, reconcile, retire,
+                           stamp, localization input|check
+                           (run 'repo-atlas audit' for the full usage)
+  audit-stamp [names...]   deprecated alias of 'audit stamp': (re)stamp audit
+                           ledgers in .atlas/audits/*.json with per-file git
+                           hashes, so status tracks per-file drift
+  audit-import <files...>  deprecated alias of 'audit import legacy-v1': import
+                           legacy scans[] ledgers into atlas-audit-v1;
                            scan-time hashes are preserved (safe on stale audits)
   audit-localization-input --locale <en|ja|zh|ko> [--json]
+                           deprecated alias of 'audit localization input':
                            emit digest-bound canonical audit prose for translation
   audit-localization-check [--json]
+                           deprecated alias of 'audit localization check':
                            require every configured audit content locale to be current
   migrate [--apply]        relocate notes whose targets moved (dry-run by default);
                            also rewrites references to the old paths in note prose
@@ -76,10 +86,10 @@ of repo paths (frontmatter: title, audience, sources, sources_hash, anchor,
 stamped). 'status' reports them fresh / outdated / broken-source.
 
 Agent loop: status --json  ->  migrate --apply  ->  read diffs, revise note bodies  ->  stamp  ->  build`;
-function main() {
+async function main() {
     const [cmd, ...args] = process.argv.slice(2);
     try {
-        dispatch(cmd, args);
+        await dispatch(cmd, args);
     }
     catch (err) {
         console.error(err instanceof Error ? err.message : String(err));
@@ -99,6 +109,7 @@ function dispatch(cmd, args) {
         case 'concepts': return concepts(root, args);
         case 'readability': return readability(root, args);
         case 'quality': return quality(root, args);
+        case 'audit': return runAuditCommand(root, args);
         case 'audit-stamp': return auditStamp(root, args);
         case 'audit-import': return auditImport(root, args);
         case 'audit-localization-input': return auditLocalizationInput(root, args);
@@ -514,28 +525,17 @@ function check(root, args) {
     if (summary.total)
         process.exitCode = 1;
 }
+function deprecatedAuditAlias(flat, hierarchical) {
+    console.error(`repo-atlas ${flat} is deprecated — use 'repo-atlas ${hierarchical}' instead ` +
+        '(same safe implementation; the flat spelling will be removed in a future release)');
+}
 function auditStamp(root, args) {
-    const names = args.filter((a) => !a.startsWith('--'));
-    const { stamped, skipped, notFound } = stampAudits(root, scan(root, requireConfig(root)), names.length ? names : undefined);
-    for (const s of stamped)
-        console.log(`stamped: ${s}`);
-    for (const s of skipped)
-        console.error(`refused: ${s}`);
-    for (const name of notFound)
-        console.error(`refused: ${name}: audit ledger not found`);
-    if (!stamped.length)
-        console.log('no ledgers to stamp (check .atlas/audits/*.json)');
-    if (skipped.length || notFound.length)
-        process.exitCode = 1;
+    deprecatedAuditAlias('audit-stamp', 'audit stamp');
+    auditStampCommand(root, args);
 }
 function auditImport(root, args) {
-    const sources = args.filter((arg) => !arg.startsWith('--'));
-    if (!sources.length)
-        throw new Error('usage: repo-atlas audit-import <legacy-ledger.json>...');
-    for (const source of sources) {
-        const imported = importLegacyAudit(root, source);
-        console.log(`imported: ${imported.name} · ${imported.fileCount} files · ${imported.findingCount} finding(s) → ${imported.file}`);
-    }
+    deprecatedAuditAlias('audit-import', 'audit import legacy-v1');
+    auditImportLegacyCommand(root, args);
 }
 function readability(root, args) {
     const config = loadConfig(root) ?? {};
@@ -696,57 +696,12 @@ function build(root, args) {
     console.log(`wrote ${target}`);
     console.log(`${sum.total} paths · ${sum.fresh} fresh · ${sum.outdated} outdated · ${sum.missing} missing`);
 }
-const AUDIT_LOCALES = new Set(['en', 'ja', 'zh', 'ko']);
-function auditLocalizationContext(root, config) {
-    const scanResult = scan(root, config);
-    const status = computeStatus(root, scanResult, { readability: false });
-    const portfolios = loadAuditPortfolios(root, status.audits);
-    const reviewCoverage = loadReviewCoverage(root, portfolios);
-    return { portfolios, reviewCoverage };
-}
 function auditLocalizationInput(root, args) {
-    const localeIndex = args.indexOf('--locale');
-    const localeValue = localeIndex >= 0 ? args[localeIndex + 1] : undefined;
-    const expectedLength = args.includes('--json') ? 3 : 2;
-    if (localeIndex < 0 || localeIndex + 1 >= args.length || args.length !== expectedLength ||
-        !localeValue || !AUDIT_LOCALES.has(localeValue)) {
-        throw new Error('usage: repo-atlas audit-localization-input --locale <en|ja|zh|ko> [--json]');
-    }
-    const locale = localeValue;
-    const config = requireConfig(root);
-    const sourceLocale = config.auditSourceLocale ?? 'en';
-    if (locale === sourceLocale) {
-        throw new Error('audit localization target locale must differ from the canonical source locale');
-    }
-    const { portfolios, reviewCoverage } = auditLocalizationContext(root, config);
-    const input = buildAuditLocalizationInput(sourceLocale, locale, reviewCoverage, portfolios);
-    process.stdout.write(canonicalAuditLocalizationJson(input));
+    deprecatedAuditAlias('audit-localization-input', 'audit localization input');
+    auditLocalizationInputCommand(root, args);
 }
 function auditLocalizationCheck(root, args) {
-    if (args.some((arg) => arg !== '--json') || args.filter((arg) => arg === '--json').length > 1) {
-        throw new Error('usage: repo-atlas audit-localization-check [--json]');
-    }
-    const config = requireConfig(root);
-    const { portfolios, reviewCoverage } = auditLocalizationContext(root, config);
-    const loaded = loadConfiguredAuditLocalizations(root, config, reviewCoverage, portfolios);
-    if (args.includes('--json')) {
-        process.stdout.write(canonicalAuditLocalizationJson({
-            sourceLocale: loaded.sourceLocale,
-            locales: loaded.portfolios,
-        }));
-    }
-    else if (Object.keys(loaded.portfolios).length === 0) {
-        console.log('audit localizations: no required content locales configured');
-    }
-    else {
-        for (const [locale, portfolio] of Object.entries(loaded.portfolios)) {
-            console.log(`audit localization ${locale}: ${portfolio?.state ?? 'missing'}`);
-            for (const error of portfolio?.errors ?? [])
-                console.log(`  ${error.code}: ${error.message}`);
-        }
-    }
-    if (Object.values(loaded.portfolios).some((portfolio) => portfolio?.state !== 'complete')) {
-        process.exitCode = 1;
-    }
+    deprecatedAuditAlias('audit-localization-check', 'audit localization check');
+    auditLocalizationCheckCommand(root, args);
 }
 main();
