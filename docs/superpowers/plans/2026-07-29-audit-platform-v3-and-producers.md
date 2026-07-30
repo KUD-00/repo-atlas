@@ -22,6 +22,7 @@
 - `src/audit-coverage-generator.ts` — exact-byte and semantic coverage join, deterministic report generation, enforcement, and update.
 - `src/audit-import-codex.ts` — sealed offline Codex Security bundle importer.
 - `src/audit-migrate-relayos.ts` — deterministic RelayOS legacy migration and receipt generation.
+- `src/audit-migrate-relayos-root-audits.ts` — `relayos-root-audits-v1` migrator for root design-scan/historical reports.
 - `src/audit-providers.ts` — provider interface, phase graph, snapshot manifest, transcript verification, and resume state.
 - `src/audit-provider-grok.ts` — explicit isolated Grok CLI adapter.
 - `src/audit-cli.ts` — hierarchical audit command parser and exit-code policy.
@@ -33,10 +34,12 @@
 - `test/audit-policy-generator.test.mjs` — closed-world classification and deterministic coverage tests.
 - `test/audit-import-codex.test.mjs` — Codex adapter fixtures and fail-closed inputs.
 - `test/audit-migrate-relayos.test.mjs` — legacy ledger/candidate/disposition migration fixtures.
+- `test/audit-migrate-relayos-root-audits.test.mjs` — root-audits design parity and historical-report move tests.
 - `test/audit-provider-grok.test.mjs` — fake Grok executable, isolation, transcript, and resume tests.
 - `test/audit-cli.test.mjs` — command/exit-code/wiring tests.
 - `test/fixtures/codex-security/*` — sealed adapter fixtures.
 - `test/fixtures/relayos-security/*` — minimal deterministic legacy fixtures.
+- `test/fixtures/relayos-root-audits/*` — design-scan file copies and historical-report stand-ins.
 - `README.md`, `package.json` — public workflow and reproducible Git-package build.
 
 ### Task 1: Add audit core safety and deterministic identity primitives
@@ -964,7 +967,7 @@ git commit -m "feat(audit): import sealed Codex Security bundles"
 - Create: `test/fixtures/relayos-security/dispositions.v1.json`
 - Create: `test/fixtures/relayos-security/phase-zero-provenance.v1.json`
 
-- [ ] **Step 1: Write failing migration tests**
+- [x] **Step 1: Write failing migration tests**
 
 Assert:
 
@@ -980,13 +983,13 @@ Assert:
 - rerun is idempotent and a changed input produces a new deterministic migration receipt;
 - malformed/inconsistent source artifacts fail without partial writes.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 ```bash
 pnpm build:cli && node --test test/audit-migrate-relayos.test.mjs
 ```
 
-- [ ] **Step 3: Implement migration mapping and receipts**
+- [x] **Step 3: Implement migration mapping and receipts**
 
 Export:
 
@@ -1014,13 +1017,177 @@ export function migrateRelayOSAudit(
 
 Partition observations by policy unit. The receipt at `.atlas/migrations/<migrationId>.json` contains sorted source digest/input/output mappings and no wall-clock field. Apply validates every output first, then writes under one lock; it never deletes legacy material.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```bash
 pnpm build:cli
 node --test test/audit-migrate-relayos.test.mjs test/audit-decisions.test.mjs
 git add src/audit-migrate-relayos.ts test/audit-migrate-relayos.test.mjs test/fixtures/relayos-security
 git commit -m "feat(audit): migrate RelayOS legacy evidence"
+```
+
+Completed as `6ac19ca` with all tests green. The API block above is kept as
+the historical record; the library seam is refined to the two-revision
+consumer contract by Task 6B.
+
+### Task 6B: Align the RelayOS migration seam with the two-revision consumer contract
+
+**Files:**
+- Modify: `src/audit-migrate-relayos.ts`
+- Modify: `src/audit-policy.ts` (export `parseAuditReviewPolicyValue` for revision-pinned policy bytes)
+- Modify: `test/audit-migrate-relayos.test.mjs`
+- Create: `test/audit-migrate-relayos-seam.test.mjs`
+- Modify: `dist/audit-migrate-relayos.js`, `dist/audit-policy.js` (tracked build output, rebuilt via `pnpm build:cli`)
+
+- [x] **Step 1: Write failing tests for the two-revision seam**
+
+Assert:
+
+- `buildRelayOSAuditMigration` is pure — no writes, no lock — and returns
+  byte-identical output to `migrateRelayOSAudit(..., { apply: false })`;
+- options are `{ scanRoot?, policyPath?, sourceRevision, validationRevision, includeHistory?, apply? }`
+  with `scanRoot` default `audits/security-scan`, `policyPath` default
+  `.atlas/review-policy.json`, `includeHistory` default `true`, and `apply`
+  default `false`;
+- `sourceRevision` and `validationRevision` are required full 40-hex commits;
+  abbreviated, symbolic, or missing revisions fail closed;
+- source bytes are read through the bounded Git-tree reader at
+  `sourceRevision`: resolve the exact tree entry first, reject
+  symlink/gitlink/nonregular modes, read the strict object ID with bounded
+  output and a sanitized Git environment, never
+  `git show <revision>:<unchecked-path>`;
+- current-blob, path-absence, and output-placement validation run against
+  `validationRevision`;
+- apply with a stale plan (inputs drifted since build) fails before any
+  mutation; and
+- the receipt gains separate `source` and `validation` blocks, and its
+  identity covers both full revisions, repository identity, the exact policy
+  seal, the historical-assignment digest, converter name/version/commit, and
+  sorted raw input seals.
+
+- [x] **Step 2: Run and verify RED**
+
+```bash
+pnpm build:cli && node --test test/audit-migrate-relayos.test.mjs test/audit-migrate-relayos-seam.test.mjs
+```
+
+- [x] **Step 3: Implement the pure builder and locked apply**
+
+Export:
+
+```ts
+export interface RelayOSMigrationOptions {
+  scanRoot?: string
+  policyPath?: string
+  sourceRevision: string
+  validationRevision: string
+  includeHistory?: boolean
+  apply?: boolean
+}
+
+export function buildRelayOSAuditMigration(
+  root: string,
+  options: RelayOSMigrationOptions,
+): RelayOSMigrationResult
+
+export function migrateRelayOSAudit(
+  root: string,
+  options: RelayOSMigrationOptions,
+): RelayOSMigrationResult
+```
+
+`buildRelayOSAuditMigration` materializes every canonical byte before any
+mutation. `migrateRelayOSAudit` revalidates the unchanged plan and applies it
+under one audit lock in the order history → decisions → current ledgers →
+receipt. Exact pre-existing prefixes may resume; any divergent path/digest
+fails before further mutation.
+
+- [x] **Step 4: Verify and commit**
+
+```bash
+pnpm build:cli
+node --test test/audit-migrate-relayos.test.mjs test/audit-migrate-relayos-seam.test.mjs
+pnpm test
+git add src/audit-migrate-relayos.ts src/audit-policy.ts test/audit-migrate-relayos.test.mjs test/audit-migrate-relayos-seam.test.mjs dist/audit-migrate-relayos.js dist/audit-policy.js
+git commit -m "refactor(audit): align RelayOS migration seam with two-revision contract"
+```
+
+### Task 6C: Add the relayos-root-audits-v1 migrator
+
+**Files:**
+- Create: `src/audit-migrate-relayos-root-audits.ts`
+- Create: `test/audit-migrate-relayos-root-audits.test.mjs`
+- Create: `test/fixtures/relayos-root-audits/` — fixture copies of
+  `audits/design-scan/{README.md,findings.md,ledger.json,check.mjs,to-atlas-ledger.mjs}`
+  plus three historical-report stand-ins
+- Create: `dist/audit-migrate-relayos-root-audits.js` (tracked build output, rebuilt via `pnpm build:cli`)
+
+Contract per the RelayOS migration design's "Non-security root audit files"
+section: this is a real migrator with its own pure build API, apply API,
+fixtures, raw input/output seals, and deterministic receipt — not a shell
+promise in RelayOS documentation.
+
+- [ ] **Step 1: Write failing root-audits migration tests**
+
+Assert:
+
+- the five design-scan files are sealed by Git blob and SHA-256;
+- every old design-ledger unit and finding maps to the exact current design-V2
+  ledger output, with current V2 scope hashes, file hashes, and findings
+  checked;
+- prose-only historical context is recorded as bounded Atlas artifacts;
+- zero unmapped durable facts are reported;
+- the three historical reports (atlas-suspicion report, atlas-suspicion
+  solutions, mobile-responsive findings) move byte-for-byte to
+  `.atlas/artifacts/historical-audits/` with original Git blobs and mapping
+  recorded;
+- the security-egress-boundaries before/after paths and seals are recorded in
+  the receipt without the migrator performing that product-policy move itself;
+- source files are never deleted;
+- `--source-revision` supplies pre-move Git blobs when an old path is gone
+  from the worktree;
+- design V2 ledgers are NOT rewritten to security V3;
+- dry-run and apply return identical canonical bytes; and
+- the receipt ID is a deterministic `amig_<24 hex>` under the same identity
+  rules as the security migrator.
+
+- [ ] **Step 2: Run and verify RED**
+
+```bash
+pnpm build:cli && node --test test/audit-migrate-relayos-root-audits.test.mjs
+```
+
+- [ ] **Step 3: Implement the pure builder and locked apply**
+
+Export the migrator's own pair:
+
+```ts
+export function buildRelayOSRootAuditsMigration(
+  root: string,
+  options: RelayOSRootAuditsMigrationOptions,
+): RelayOSRootAuditsMigrationResult
+
+export function migrateRelayOSRootAudits(
+  root: string,
+  options: RelayOSRootAuditsMigrationOptions,
+): RelayOSRootAuditsMigrationResult
+```
+
+Source-revision root files are read through the same bounded Git-tree reader
+as the security migrator; the builder validates the existing design ledgers
+and the validation-revision destination policy, and publication uses the same
+plan-then-atomic-apply discipline under one audit lock. CLI wiring is Task 8's
+surface: this task adds CLI-level tests only if Task 8 has already landed;
+otherwise module-level tests only.
+
+- [ ] **Step 4: Verify and commit**
+
+```bash
+pnpm build:cli
+node --test test/audit-migrate-relayos-root-audits.test.mjs
+pnpm test
+git add src/audit-migrate-relayos-root-audits.ts test/audit-migrate-relayos-root-audits.test.mjs test/fixtures/relayos-root-audits dist/audit-migrate-relayos-root-audits.js
+git commit -m "feat(audit): add relayos-root-audits-v1 migrator"
 ```
 
 ### Task 7: Add provider orchestration and the isolated Grok CLI adapter
@@ -1104,8 +1271,8 @@ repo-atlas audit coverage update [--allow-incomplete]
 repo-atlas audit status [--json]
 repo-atlas audit run security --provider grok [--unit <slug> | --all | --stale] [--resume <id>]
 repo-atlas audit import codex-security <scan-dir> --slug <slug> [--apply]
-repo-atlas audit migrate relayos-security-v1 --scan-root <path> --policy <path> [--include-history] [--apply]
-repo-atlas audit migrate relayos-root-audits-v1 --audits-root <path> --source-revision <commit> [--apply]
+repo-atlas audit migrate relayos-security-v1 --scan-root <path> --policy <path> --source-revision <commit> --validation-revision <commit> [--include-history] [--apply]
+repo-atlas audit migrate relayos-root-audits-v1 --audits-root <path> --source-revision <commit> --validation-revision <commit> [--apply]
 repo-atlas audit decision set <finding-or-occurrence> <action>
 repo-atlas audit reconcile <before> <after>
 repo-atlas audit retire <path>
@@ -1221,7 +1388,7 @@ README sections must include current layout, V1/V2 compatibility, V3 guarantees,
 
 ```bash
 pnpm build
-node --test test/audit-core.test.mjs test/audit-v3.test.mjs test/audit-decisions.test.mjs test/audit-policy-generator.test.mjs test/audit-import-codex.test.mjs test/audit-migrate-relayos.test.mjs test/audit-provider-grok.test.mjs test/audit-cli.test.mjs test/audit-copy-boundary.test.mjs
+node --test test/audit-core.test.mjs test/audit-v3.test.mjs test/audit-decisions.test.mjs test/audit-policy-generator.test.mjs test/audit-import-codex.test.mjs test/audit-migrate-relayos.test.mjs test/audit-migrate-relayos-root-audits.test.mjs test/audit-provider-grok.test.mjs test/audit-cli.test.mjs test/audit-copy-boundary.test.mjs
 ```
 
 - [ ] **Step 4: Run the full project verification**
@@ -1254,5 +1421,7 @@ git push origin feat/codex-security-atlas-adapter
 - [ ] Grok runs only through an explicit command in an isolated snapshot with transcript proof.
 - [ ] Codex Security import is offline, sealed, digest-checked, and loss-preserving.
 - [ ] RelayOS migration is deterministic, idempotent, non-destructive, and emits a canonical receipt.
+- [ ] The RelayOS migration seam splits into a pure builder and a locked apply under the two-revision source/validation contract; the receipt identity covers both full revisions, repository identity, the exact policy seal, the historical-assignment digest, converter name/version/commit, and sorted raw input seals.
+- [ ] `relayos-root-audits-v1` is a real migrator with its own build/apply APIs, fixtures, raw input/output seals, and deterministic receipt.
 - [ ] Viewer/localization distinguish unknown from clean and exact from semantic.
 - [ ] Full tests, typechecks, packaging, and Git status are freshly verified.

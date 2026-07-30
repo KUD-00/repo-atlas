@@ -2641,21 +2641,68 @@ Repo Atlas ships a generic, explicitly named migrator:
 repo-atlas audit migrate relayos-security-v1 \
   --scan-root audits/security-scan \
   --policy .atlas/review-policy.json \
+  --source-revision <phase-zero-full-commit> \
+  --validation-revision <clean-full-commit> \
   [--include-history] \
   [--apply] [--json]
 
 repo-atlas audit migrate relayos-root-audits-v1 \
   --audits-root audits \
   --source-revision <phase-zero-full-commit> \
+  --validation-revision <clean-full-commit> \
   --design-ledgers .atlas/audits \
   --historical-artifacts .atlas/artifacts/historical-audits \
   [--apply] [--json]
 ```
 
 It is implemented in Repo Atlas, not copied into RelayOS. Dry-run is the
-default. The detailed source-to-target mapping and deletion sequence live in
+default. Both `--source-revision` and `--validation-revision` are required
+full 40-hex commits; abbreviated or symbolic revisions fail closed.
+`sourceRevision` is the phase-zero commit containing the exact legacy audit
+corpus: all legacy JSON, Git-object recovery, source seals, and timestamp
+upper bounds come from that tree. `validationRevision` is the later clean
+commit containing the final policy and product code against which current
+blobs, path absence, dispositions, and output placement are validated. The
+detailed source-to-target mapping and deletion sequence live in
 the RelayOS migration design, while the adapter itself is tested with fixtures
 and remains usable for that historical schema.
+
+The security migrator exposes a pure planning seam and one mutating seam:
+
+```ts
+buildRelayOSAuditMigration(root, {
+  scanRoot,
+  policyPath,
+  sourceRevision,
+  validationRevision,
+  includeHistory: true,
+  apply: false,
+})
+
+migrateRelayOSAudit(root, {
+  scanRoot,
+  policyPath,
+  sourceRevision,
+  validationRevision,
+  includeHistory: true,
+  apply,
+})
+```
+
+`buildRelayOSAuditMigration` materializes every canonical byte before any
+mutation. `migrateRelayOSAudit` revalidates the unchanged plan and applies it
+under one audit lock in the order history, then decisions, then current
+ledgers, then receipt. Exact pre-existing prefixes may resume; any divergent
+path/digest fails before further mutation. Options are
+`{ scanRoot, policyPath, sourceRevision, validationRevision, includeHistory, apply }`
+with `scanRoot` default `audits/security-scan`, `policyPath` default
+`.atlas/review-policy.json`, `includeHistory` default `true`, and `apply`
+default `false`.
+
+Source-revision bytes use a bounded Git-tree reader: it resolves the exact
+tree entry first, rejects symlink/gitlink/nonregular modes, then reads the
+strict object ID with bounded output and a sanitized Git environment. It never
+constructs `git show <revision>:<unchecked-path>`.
 
 The migrator emits:
 
@@ -2690,12 +2737,18 @@ The type order is migration serialization, not a claim that the original human
 decisions occurred in that order. `createdAt` therefore need not be monotonic.
 Original source timing remains in event provenance when available.
 
-The root-audits migrator seals and projects historical reports and verifies
-existing design-ledger parity. Product-specific egress-policy relocation
-remains an ordinary reviewed RelayOS edit, but its before/after paths and seals
-enter the receipt. `--source-revision` is a required full commit and supplies
-pre-move Git blobs when an old path no longer exists in the worktree. Neither
-migrator deletes source files.
+The root-audits migrator is a real migrator with its own pure build API,
+apply API, fixture tests, raw input/output seals, and deterministic receipt —
+not a shell promise in RelayOS documentation. It seals and projects historical
+reports and verifies existing design-ledger parity. It reads source-revision
+root files through the same bounded Git-tree reader, validates the existing
+design ledgers and the validation-revision destination policy, and publishes
+only through the same plan-then-atomic-apply discipline. Product-specific
+egress-policy relocation remains an ordinary reviewed RelayOS edit, but its
+before/after paths and seals enter the receipt. `--source-revision` and
+`--validation-revision` are required full commits; the source revision
+supplies pre-move Git blobs when an old path no longer exists in the
+worktree. Neither migrator deletes source files.
 
 ## Migration receipt
 
@@ -2704,6 +2757,7 @@ migrator deletes source files.
   "formatVersion": 1,
   "format": "atlas-audit-migration-v1",
   "migrationId": "amig_<24 hex>",
+  "repositoryId": "repo_<producer-neutral id>",
   "source": {
     "kind": "relayos-security-scan/v1",
     "repositoryRevision": "<full commit>",
@@ -2714,6 +2768,15 @@ migrator deletes source files.
         "sha256": "<hex>"
       }
     ]
+  },
+  "validation": {
+    "repositoryRevision": "<full commit>",
+    "policy": {
+      "path": ".atlas/review-policy.json",
+      "gitBlob": "<hex>",
+      "sha256": "<hex>"
+    },
+    "historicalAssignmentsDigest": "sha256:<hex>"
   },
   "converter": {
     "name": "repo-atlas",
@@ -2743,6 +2806,11 @@ migrator deletes source files.
 }
 ```
 
+The receipt has separate `source` and `validation` blocks: `source` seals the
+phase-zero corpus by sorted raw input path/Git-blob/SHA-256 tuples, while
+`validation` pins the later clean revision, the exact policy seal at that
+revision, and the historical-assignment digest.
+
 `unmapped` must be empty before `--apply` succeeds. `safeToDelete` is an
 informational, exact-path list and does not authorize deletion. Counts and
 histograms are recomputed from source bytes; README numbers are never inputs.
@@ -2754,13 +2822,21 @@ migrationId =
   "amig_" + first24(sha256(
     "atlas-migration/v1" NUL
     source.kind NUL
+    repositoryId NUL
     source.repositoryRevision NUL
+    validation.repositoryRevision NUL
+    validation.policy.sha256 NUL
+    validation.historicalAssignmentsDigest NUL
     converter.name NUL
     converter.version NUL
     converter.commit NUL
     canonicalJson(sorted source.files path/gitBlob/sha256 tuples)
   ))
 ```
+
+Migration identity therefore covers both full revisions, repository identity,
+the exact policy seal, the historical-assignment digest, converter
+name/version/commit, and the sorted raw input seals.
 
 `receiptDigest` is SHA-256 over RFC 8785 canonical receipt JSON excluding only
 `receiptDigest`. Migration receipts contain no wall-clock execution fields;
@@ -2980,6 +3056,10 @@ environment flag are present. CI never spends model credits by default.
 - zero unmapped requirement; and
 - source tree never deleted or modified by the adapter.
 
+Root-audits fixtures add the five design-scan files with exact design-V2
+parity, the three historical reports with original Git blobs, and the
+egress-policy before/after path seals.
+
 ## Delivery sequence
 
 1. Add V3 types, canonical JSON, hostile-input primitives, history, decisions,
@@ -2990,7 +3070,10 @@ environment flag are present. CI never spends model credits by default.
    support.
 4. Add the Codex Security adapter and full field matrix tests.
 5. Add the isolated Grok provider behind explicit `audit run`.
-6. Add the RelayOS legacy migrator and fixtures.
+6. Add the RelayOS legacy migrator and fixtures, align its seam with the
+   two-revision source/validation contract, and add the
+   `relayos-root-audits-v1` migrator with its own build/apply APIs, fixtures,
+   and deterministic receipt.
 7. Release and pin Repo Atlas in RelayOS.
 8. Run RelayOS dry migration, parity gates, and canonical regeneration.
 9. Switch RelayOS CI to Repo Atlas commands.
