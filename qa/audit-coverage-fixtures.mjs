@@ -24,6 +24,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { reviewCoverageInventoryHash } from '../dist/review-coverage-hash.js'
+import { loadAuditReviewPolicy } from '../dist/audit-policy.js'
+
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(HERE, '..')
 const CLI = path.join(REPO_ROOT, 'dist', 'cli.js')
@@ -32,8 +35,6 @@ const COVERAGE_REL = '.atlas/review-coverage.json'
 const SELF_PATH = COVERAGE_REL
 const GENERATED_PROOF = 'GENERATED-PROOF'
 const HTML_REL = path.join('.atlas', 'atlas.html')
-
-const POLICY = { format: 'fixture-policy-v1', hash: 'a'.repeat(64) }
 
 function write(root, rel, contents) {
   const file = path.join(root, rel)
@@ -82,11 +83,10 @@ function fileHashes(root, files) {
 }
 
 function inventoryHashFor(entries) {
-  const lines = entries.map((entry) => {
-    const marker = entry.path === SELF_PATH ? GENERATED_PROOF : entry.blob
-    return `${marker}  ${entry.path}`
-  }).sort()
-  return createHash('sha256').update(lines.join('\n') + '\n').digest('hex')
+  return reviewCoverageInventoryHash(entries.map((entry) => ({
+    marker: entry.path === SELF_PATH ? GENERATED_PROOF : entry.blob,
+    path: entry.path,
+  })))
 }
 
 function summaryFrom(entries, invalidLedgerDetails = []) {
@@ -161,7 +161,7 @@ function summaryFrom(entries, invalidLedgerDetails = []) {
   }
 }
 
-function excludedEntry(root, repoPath, ruleId, category, reason) {
+function excludedEntry(root, repoPath, ruleId, category, reason, owner) {
   return {
     path: repoPath,
     blob: gitBlob(root, repoPath),
@@ -171,6 +171,7 @@ function excludedEntry(root, repoPath, ruleId, category, reason) {
       ruleId,
       category,
       reason,
+      ...(owner === undefined ? {} : { owner }),
     },
     evidence: {},
   }
@@ -185,21 +186,164 @@ function selfEntry() {
       ruleId: 'generated-proof',
       category: 'generated-proof',
       reason: 'canonical report validates its own bytes',
+      owner: 'repo-atlas-fixtures',
     },
     evidence: {},
   }
 }
 
 function reviewEntry(root, repoPath, domains, evidence) {
+  const domainNames = Object.keys(domains).sort()
   return {
     path: repoPath,
     blob: gitBlob(root, repoPath),
-    ruleIds: ['source'],
+    ruleIds: [`source-${domainNames.join('-')}`],
     classification: {
       kind: 'review',
       domains,
     },
     evidence,
+  }
+}
+
+function decisionPolicy() {
+  return {
+    requireDisposition: true,
+    blockingActions: ['open', 'reopened'],
+    drift: {
+      findingBearing: 'blocking',
+      clean: 'advisory',
+      unknown: 'blocking',
+    },
+    expiry: {
+      warningDays: 14,
+      requiredFor: ['accepted-risk', 'separate-design'],
+      acceptedRiskMaximumDays: 90,
+      separateDesignMaximumDays: 90,
+      falsePositiveMustBeNull: true,
+      severityOverrides: [{
+        severities: ['critical', 'high'],
+        maximumDays: 30,
+        minimumIndependentReviews: 2,
+        reviewEvidenceRequired: true,
+      }],
+    },
+    remediation: {
+      fixBlobRequired: true,
+      postFixProofRequired: true,
+      passingRegressionRequired: true,
+      allowedRegressionKinds: ['test', 'guardrail', 'check'],
+    },
+    falsePositive: {
+      reviewedBlobRequired: true,
+      sourceEvidenceRequired: true,
+    },
+    superseded: {
+      replacementOrDeletionProofRequired: true,
+      existingPathRequiresCurrentReview: true,
+    },
+    retirement: {
+      historyProofRequired: true,
+      allowedReasons: [
+        'deleted',
+        'moved',
+        'superseded',
+        'staged-deletion',
+        'uncommitted-snapshot-absent',
+      ],
+    },
+    acceptedRulesets: ['fixture-security-v1', 'fixture-test-v1'],
+  }
+}
+
+function fixtureReviewPolicy(units, reviewEntries, excludedPaths) {
+  const reviewRules = new Map()
+  for (const entry of reviewEntries) {
+    const id = entry.ruleIds[0]
+    const existing = reviewRules.get(id)
+    if (existing === undefined) {
+      reviewRules.set(id, {
+        id,
+        include: [entry.path],
+        except: [],
+        rationale: `Browser fixture ${id} review scope.`,
+        domains: Object.keys(entry.classification.domains).sort(),
+      })
+    } else {
+      existing.include.push(entry.path)
+      existing.include.sort()
+    }
+  }
+  const ownedPaths = new Map(units.map((unit) => [
+    `${unit.domain}:${unit.slug}`,
+    [],
+  ]))
+  for (const entry of reviewEntries) {
+    for (const [domain, assignment] of Object.entries(
+      entry.classification.domains,
+    )) {
+      ownedPaths.get(`${domain}:${assignment.unit}`)?.push(entry.path)
+    }
+  }
+  return {
+    formatVersion: 1,
+    format: 'atlas-review-policy-v1',
+    rules: [
+      ...reviewRules.values(),
+      {
+        id: 'generated-proof',
+        include: [COVERAGE_REL],
+        except: [],
+        rationale: 'Canonical generated coverage proof.',
+        excluded: {
+          category: 'generated-proof',
+          reason: 'canonical report validates its own bytes',
+          owner: 'repo-atlas-fixtures',
+        },
+      },
+      {
+        id: 'fixture-config',
+        include: ['.atlas/config.json'],
+        except: [],
+        rationale: 'Browser fixture configuration.',
+        excluded: {
+          category: 'fixture',
+          reason:
+            'fixture configuration is outside browser acceptance inventory',
+          owner: 'repo-atlas-fixtures',
+        },
+      },
+      {
+        id: 'fixture-policy',
+        include: ['.atlas/review-policy.json'],
+        except: [],
+        rationale: 'Canonical browser fixture review policy.',
+        excluded: {
+          category: 'fixture',
+          reason: 'fixture review policy defines this synthetic inventory',
+          owner: 'repo-atlas-fixtures',
+        },
+      },
+      {
+        id: 'generated-ledger',
+        include: [...excludedPaths].sort(),
+        except: [],
+        rationale: 'Generated browser acceptance evidence.',
+        excluded: {
+          category: 'generated',
+          reason: 'strict fixture builder output',
+          owner: 'repo-atlas-fixtures',
+        },
+      },
+    ],
+    units: units.map((unit) => ({
+      ...unit,
+      include: [...(ownedPaths.get(`${unit.domain}:${unit.slug}`) ?? [])]
+        .sort(),
+      except: [],
+      context: [],
+    })),
+    securityDecisions: decisionPolicy(),
   }
 }
 
@@ -227,12 +371,53 @@ function writeV2(root, { domain, slug, title, files, findings, evidenceRefs = []
 }
 
 function writeCoverage(root, { verdict, units, reviewEntries, excludedPaths }) {
+  const reviewPolicy = fixtureReviewPolicy(
+    units,
+    reviewEntries,
+    excludedPaths,
+  )
+  write(
+    root,
+    '.atlas/review-policy.json',
+    JSON.stringify(reviewPolicy, null, 2) + '\n',
+  )
+  git(root, ['add', '--', '.atlas/review-policy.json'])
+  const loadedPolicy = loadAuditReviewPolicy(root)
+  if (loadedPolicy.policyHash === null) {
+    throw new Error(
+      `fixture review policy is invalid: ${
+        loadedPolicy.diagnostics.map((item) => item.message).join('; ')
+      }`,
+    )
+  }
   const entries = [
     ...reviewEntries,
     selfEntry(),
-    excludedEntry(root, '.atlas/config.json', 'fixture-config', 'fixture', 'fixture configuration is outside browser acceptance inventory'),
+    excludedEntry(
+      root,
+      '.atlas/config.json',
+      'fixture-config',
+      'fixture',
+      'fixture configuration is outside browser acceptance inventory',
+      'repo-atlas-fixtures',
+    ),
+    excludedEntry(
+      root,
+      '.atlas/review-policy.json',
+      'fixture-policy',
+      'fixture',
+      'fixture review policy defines this synthetic inventory',
+      'repo-atlas-fixtures',
+    ),
     ...excludedPaths.map((repoPath) =>
-      excludedEntry(root, repoPath, 'generated-ledger', 'generated', 'strict fixture builder output'),
+      excludedEntry(
+        root,
+        repoPath,
+        'generated-ledger',
+        'generated',
+        'strict fixture builder output',
+        'repo-atlas-fixtures',
+      ),
     ),
   ]
 
@@ -243,7 +428,10 @@ function writeCoverage(root, { verdict, units, reviewEntries, excludedPaths }) {
     formatVersion: 1,
     format: 'atlas-review-coverage-v1',
     verdict,
-    policy: POLICY,
+    policy: {
+      format: 'atlas-review-policy-v1',
+      hash: loadedPolicy.policyHash,
+    },
     inventoryHash: inventoryHashFor(entries),
     units,
     summary: summaryFrom(entries),

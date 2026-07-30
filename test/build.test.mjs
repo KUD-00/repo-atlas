@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
 import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -7,8 +6,10 @@ import test from 'node:test'
 
 import { loadAuditPortfolios } from '../dist/audits.js'
 import { buildAuditLocalizationInput } from '../dist/audit-localizations.js'
+import { loadAuditReviewPolicy } from '../dist/audit-policy.js'
 import { buildPayload } from '../dist/build.js'
 import { loadReviewCoverage } from '../dist/review-coverage.js'
+import { reviewCoverageInventoryHash } from '../dist/review-coverage-hash.js'
 import { scan } from '../dist/scan.js'
 import { computeStatus } from '../dist/status.js'
 import { cleanup, commitAll, gitBlob, makeRepo, scopeHash, write } from './helpers.mjs'
@@ -17,6 +18,108 @@ const CLI = new URL('../dist/cli.js', import.meta.url).pathname
 const COVERAGE_REL = '.atlas/review-coverage.json'
 const SELF_PATH = COVERAGE_REL
 const GENERATED_PROOF = 'GENERATED-PROOF'
+
+function fixtureReviewPolicy() {
+  return {
+    formatVersion: 1,
+    format: 'atlas-review-policy-v1',
+    rules: [
+      {
+        id: 'source',
+        include: ['src/**'],
+        except: [],
+        rationale: 'Fixture source requires security review.',
+        domains: ['security'],
+      },
+      {
+        id: 'generated-proof',
+        include: [COVERAGE_REL],
+        except: [],
+        rationale: 'Canonical generated coverage proof.',
+        excluded: {
+          category: 'generated-proof',
+          reason: 'canonical report validates its own bytes',
+        },
+      },
+      {
+        id: 'fixture-config',
+        include: ['.atlas/config.json'],
+        except: [],
+        rationale: 'Fixture configuration is not product source.',
+        excluded: {
+          category: 'fixture',
+          reason: 'fixture configuration is outside this parser test',
+          owner: 'repo-atlas-tests',
+        },
+      },
+      {
+        id: 'generated-ledger',
+        include: ['.atlas/audits/**'],
+        except: [],
+        rationale: 'Fixture audit output is generated.',
+        excluded: {
+          category: 'generated',
+          reason: 'strict fixture builder output',
+        },
+      },
+    ],
+    units: [{
+      domain: 'security',
+      slug: 'security-src',
+      title: 'Source',
+      include: ['src/**'],
+      except: [],
+      context: [],
+    }],
+    securityDecisions: {
+      requireDisposition: true,
+      blockingActions: ['open', 'reopened'],
+      drift: {
+        findingBearing: 'blocking',
+        clean: 'advisory',
+        unknown: 'blocking',
+      },
+      expiry: {
+        warningDays: 14,
+        requiredFor: ['accepted-risk', 'separate-design'],
+        acceptedRiskMaximumDays: 90,
+        separateDesignMaximumDays: 90,
+        falsePositiveMustBeNull: true,
+        severityOverrides: [{
+          severities: ['critical', 'high'],
+          maximumDays: 30,
+          minimumIndependentReviews: 2,
+          reviewEvidenceRequired: true,
+        }],
+      },
+      remediation: {
+        fixBlobRequired: true,
+        postFixProofRequired: true,
+        passingRegressionRequired: true,
+        allowedRegressionKinds: ['test', 'guardrail', 'check'],
+      },
+      falsePositive: {
+        reviewedBlobRequired: true,
+        sourceEvidenceRequired: true,
+      },
+      superseded: {
+        replacementOrDeletionProofRequired: true,
+        existingPathRequiresCurrentReview: true,
+      },
+      retirement: {
+        historyProofRequired: true,
+        allowedReasons: [
+          'deleted',
+          'moved',
+          'superseded',
+          'staged-deletion',
+          'uncommitted-snapshot-absent',
+        ],
+      },
+      acceptedRulesets: ['fixture-security-v1'],
+    },
+  }
+}
 
 function securityFinding(file, severity = 'medium') {
   return {
@@ -117,14 +220,20 @@ test('payload carries testAudits from the portfolio loader and defaults to []', 
 })
 
 function inventoryHashFor(entries) {
-  const lines = entries.map((entry) => {
-    const marker = entry.path === SELF_PATH ? GENERATED_PROOF : entry.blob
-    return `${marker}  ${entry.path}`
-  }).sort()
-  return createHash('sha256').update(lines.join('\n') + '\n').digest('hex')
+  return reviewCoverageInventoryHash(entries.map((entry) => ({
+    marker: entry.path === SELF_PATH ? GENERATED_PROOF : entry.blob,
+    path: entry.path,
+  })))
 }
 
 function writeCoverageReport(root, verdict = 'incomplete') {
+  write(
+    root,
+    '.atlas/review-policy.json',
+    `${JSON.stringify(fixtureReviewPolicy(), null, 2)}\n`,
+  )
+  const policy = loadAuditReviewPolicy(root)
+  assert.notEqual(policy.policyHash, null)
   const securityStatus = verdict === 'incomplete' ? 'missing' : 'fresh'
   const securityLedgers = verdict === 'incomplete' ? [] : ['security-src']
   const entries = [
@@ -160,6 +269,7 @@ function writeCoverageReport(root, verdict = 'incomplete') {
         ruleId: 'fixture-config',
         category: 'fixture',
         reason: 'fixture configuration is outside this parser test',
+        owner: 'repo-atlas-tests',
       },
       evidence: {},
     },
@@ -198,7 +308,10 @@ function writeCoverageReport(root, verdict = 'incomplete') {
     formatVersion: 1,
     format: 'atlas-review-coverage-v1',
     verdict,
-    policy: { format: 'fixture-policy-v1', hash: 'a'.repeat(64) },
+    policy: {
+      format: 'atlas-review-policy-v1',
+      hash: policy.policyHash,
+    },
     inventoryHash: inventoryHashFor(entries),
     units: [{ domain: 'security', slug: 'security-src', title: 'Source' }],
     summary,

@@ -1,7 +1,9 @@
-import { createHash } from 'node:crypto';
-import fs from 'node:fs';
 import path from 'node:path';
-import { atlasDir, git, hashFilePaths, readRepoFile } from './scan.js';
+import { loadAuditExactEvidence, } from './audits.js';
+import { classifyAuditInventory, loadAuditReviewPolicy, readAuditTrackedInventory, } from './audit-policy.js';
+import { canonicalJson, readBoundedAuditJsonDocument, withAnchoredAuditFileIdentity, withAnchoredAuditRootIdentity, } from './audit-core.js';
+import { atlasDir } from './scan.js';
+import { reviewCoverageInventoryHash } from './review-coverage-hash.js';
 import { missingReviewCoverage } from './review-coverage-portfolio.js';
 export { missingReviewCoverage } from './review-coverage-portfolio.js';
 /**
@@ -19,9 +21,6 @@ const MAX_REPORT_BYTES = 32 * 1024 * 1024;
 const MAX_ENTRIES = 1_000_000;
 const MAX_DIAGNOSTICS = 100_000;
 const MAX_UNITS = 100_000;
-const REGULAR_FILE_MODES = new Set(['100644', '100755']);
-/** Fixed prefix before the path tab: `<mode> <blob> <stage>`. */
-const STAGE_RECORD_RE = /^(100644|100755|120000|160000|[0-7]{6}) ([0-9a-f]{40}) ([0-3])$/u;
 const TOP_LEVEL_KEYS = [
     'formatVersion',
     'format',
@@ -79,22 +78,6 @@ function invalidPortfolio(errors) {
 export function reviewCoveragePath(root) {
     return path.join(atlasDir(root), 'review-coverage.json');
 }
-function isSymlinkOrMissingDir(target) {
-    try {
-        const stat = fs.lstatSync(target);
-        if (stat.isSymbolicLink())
-            return 'symlink';
-        if (!stat.isDirectory())
-            return 'symlink';
-        return 'ok';
-    }
-    catch (error) {
-        const code = error.code;
-        if (code === 'ENOENT')
-            return 'missing';
-        return 'symlink';
-    }
-}
 function validRepoPath(repoPath) {
     return !!repoPath &&
         !path.isAbsolute(repoPath) &&
@@ -106,43 +89,6 @@ function validRepoPath(repoPath) {
         !repoPath.startsWith('../') &&
         !repoPath.includes('/../') &&
         !repoPath.includes('/./');
-}
-function deletedTrackedPathError(root, repoPath) {
-    const rootPath = path.resolve(root);
-    try {
-        const rootStat = fs.lstatSync(rootPath);
-        if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
-            return diagnostic('unreadable-path', 'repository root is not a safe directory', { path: repoPath });
-        }
-    }
-    catch {
-        return diagnostic('unreadable-path', 'repository root is missing or unreadable', { path: repoPath });
-    }
-    const segments = repoPath.split('/');
-    let parent = rootPath;
-    for (const segment of segments.slice(0, -1)) {
-        parent = path.join(parent, segment);
-        try {
-            const stat = fs.lstatSync(parent);
-            if (stat.isSymbolicLink() || !stat.isDirectory()) {
-                return diagnostic('unreadable-path', `deleted tracked path has a symlinked or non-directory parent: ${repoPath}`, { path: repoPath });
-            }
-        }
-        catch (error) {
-            if (error.code === 'ENOENT')
-                return null;
-            return diagnostic('unreadable-path', `deleted tracked path parent is unreadable: ${repoPath}`, { path: repoPath });
-        }
-    }
-    try {
-        fs.lstatSync(path.join(rootPath, ...segments));
-        return diagnostic('unreadable-path', `git reported a deletion but the tracked path still exists: ${repoPath}`, { path: repoPath });
-    }
-    catch (error) {
-        if (error.code === 'ENOENT')
-            return null;
-        return diagnostic('unreadable-path', `deleted tracked path is unreadable: ${repoPath}`, { path: repoPath });
-    }
 }
 function isPlainObject(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -380,12 +326,18 @@ function parseEntry(value) {
     else if (value.path !== SELF_PATH) {
         return `entry blob is required except for the generated-proof self path (${value.path})`;
     }
-    if (!Array.isArray(value.ruleIds) || value.ruleIds.length === 0 || !value.ruleIds.every((item) => nonemptyString(item))) {
-        return `entry ruleIds must be a nonempty string array (${value.path})`;
+    if (!Array.isArray(value.ruleIds) ||
+        !value.ruleIds.every((item) => nonemptyString(item))) {
+        return `entry ruleIds must be a string array (${value.path})`;
     }
     const classification = parseClassification(value.classification);
     if (typeof classification === 'string')
         return `${classification} (${value.path})`;
+    if (value.ruleIds.length === 0 &&
+        classification.kind !== 'unclassified' &&
+        classification.kind !== 'conflict') {
+        return `review and excluded entry ruleIds must be nonempty (${value.path})`;
+    }
     const evidence = parseEvidence(value.evidence);
     if (typeof evidence === 'string')
         return `${evidence} (${value.path})`;
@@ -534,8 +486,16 @@ function gapCount(summary) {
 }
 function unitOwnershipErrors(entries, units) {
     const byDomainSlug = new Map();
+    const domainsBySlug = new Map();
     for (const unit of units) {
         byDomainSlug.set(`${unit.domain}:${unit.slug}`, unit);
+        const domains = domainsBySlug.get(unit.slug);
+        if (domains === undefined) {
+            domainsBySlug.set(unit.slug, new Set([unit.domain]));
+        }
+        else {
+            domains.add(unit.domain);
+        }
     }
     const errors = [];
     for (const entry of entries) {
@@ -548,9 +508,18 @@ function unitOwnershipErrors(entries, units) {
             const registered = byDomainSlug.get(`${domain}:${unitSlug}`);
             if (!registered) {
                 // Same slug registered under another domain is still wrong ownership.
-                const cross = units.find((unit) => unit.slug === unitSlug);
-                if (cross && cross.domain !== domain) {
-                    errors.push(diagnostic('unit-ownership', `review domain ${domain} names cross-domain unit ${unitSlug} registered under ${cross.domain}`, { path: entry.path, slug: unitSlug }));
+                const registeredDomains = domainsBySlug.get(unitSlug);
+                let crossDomain;
+                if (registeredDomains !== undefined) {
+                    for (const candidate of registeredDomains) {
+                        if (candidate !== domain) {
+                            crossDomain = candidate;
+                            break;
+                        }
+                    }
+                }
+                if (crossDomain !== undefined) {
+                    errors.push(diagnostic('unit-ownership', `review domain ${domain} names cross-domain unit ${unitSlug} registered under ${crossDomain}`, { path: entry.path, slug: unitSlug }));
                 }
                 else {
                     errors.push(diagnostic('unit-ownership', `review domain ${domain} names unregistered unit ${unitSlug}`, { path: entry.path, slug: unitSlug }));
@@ -611,27 +580,19 @@ function parseStructure(raw) {
             errors: [diagnostic('malformed-report', 'inventoryHash must be a lowercase 64-hex sha256')],
         };
     }
-    // Parse reportErrors early so a declared invalid verdict can fail closed
-    // without trusting embedded summary/fresh claims.
+    // Parse reportErrors early, but still structurally validate the complete
+    // body before surfacing a declared invalid report's own diagnostics.
     const reportErrors = parseDiagnostics(raw.reportErrors, 'reportErrors');
     if (typeof reportErrors === 'string') {
         return { ok: false, errors: [diagnostic('malformed-report', reportErrors)] };
     }
-    if (verdict === 'invalid') {
-        if (reportErrors.length === 0) {
-            return {
-                ok: false,
-                errors: [diagnostic('invalid-verdict', 'invalid verdict requires at least one reportErrors item')],
-            };
-        }
-        // Never project the body: embedded fresh counts and summary lies are untrusted.
+    if (verdict === 'invalid' && reportErrors.length === 0) {
         return {
             ok: false,
-            declaredInvalid: true,
-            errors: reportErrors.map((error) => diagnostic(error.code || 'report-error', error.message || 'coverage report declared invalid', { path: error.path, slug: error.slug })),
+            errors: [diagnostic('invalid-verdict', 'invalid verdict requires at least one reportErrors item')],
         };
     }
-    if (reportErrors.length > 0) {
+    if (verdict !== 'invalid' && reportErrors.length > 0) {
         return {
             ok: false,
             errors: [diagnostic('invalid-verdict', 'complete and incomplete verdicts require an empty reportErrors array')],
@@ -665,6 +626,15 @@ function parseStructure(raw) {
     if (ownership.length) {
         return { ok: false, errors: ownership };
     }
+    if (verdict === 'invalid') {
+        // Structurally valid invalid bodies are never projected or revalidated as
+        // fresh; only their declared diagnostics leave this parser.
+        return {
+            ok: false,
+            declaredInvalid: true,
+            errors: reportErrors.map((error) => diagnostic(error.code || 'report-error', error.message || 'coverage report declared invalid', { path: error.path, slug: error.slug })),
+        };
+    }
     const gaps = gapCount(summary);
     if (verdict === 'complete' && gaps !== 0) {
         return {
@@ -693,115 +663,78 @@ function parseStructure(raw) {
     return { ok: true, report };
 }
 function inventoryHashFrom(hashes) {
-    // Sort the finished `<marker>  <path>` lines, not paths alone — the marker is
-    // part of the canonical ordering (GENERATED-PROOF vs 40-hex blobs).
-    const lines = [...hashes.entries()].map(([repoPath, blob]) => {
-        const marker = repoPath === SELF_PATH ? GENERATED_PROOF : blob;
-        return `${marker}  ${repoPath}`;
-    }).sort();
-    return createHash('sha256').update(lines.join('\n') + '\n').digest('hex');
+    return reviewCoverageInventoryHash([...hashes.entries()].map(([repoPath, blob]) => ({
+        marker: repoPath === SELF_PATH ? GENERATED_PROOF : blob,
+        path: repoPath,
+    })));
 }
-/**
- * One-pass NUL-safe tracked inventory from `git ls-files --stage -z`, then
- * overwrite dirty worktree paths from `git diff-files --name-only -z` via
- * `hashFilePaths`. Never calls `scan()` (untracked + Code excludes).
- */
 function readTrackedInventory(root) {
-    let stageRaw;
-    try {
-        stageRaw = git(root, ['ls-files', '--stage', '-z']);
+    const inventory = readAuditTrackedInventory(root);
+    if (inventory.objectFormat === 'sha256') {
+        return [diagnostic('unsupported-object-format', 'atlas-review-coverage-v1 supports only SHA-1 Git repositories')];
     }
-    catch {
-        return [diagnostic('git-error', 'failed to read git ls-files --stage inventory')];
+    if (inventory.objectFormat !== 'sha1') {
+        return inventory.diagnostics.length > 0
+            ? inventory.diagnostics
+            : [diagnostic('git-error', 'failed to read a supported tracked Git inventory')];
+    }
+    const fatalDiagnostics = inventory.diagnostics.filter((entry) => entry.code !== 'tracked-deletion');
+    if (fatalDiagnostics.length > 0) {
+        return fatalDiagnostics.map((entry) => entry.code === 'unsafe-worktree-file'
+            ? { ...entry, code: 'unreadable-path' }
+            : entry);
     }
     const hashes = new Map();
-    const records = stageRaw.split('\0');
-    for (const record of records) {
-        if (!record)
+    for (const file of inventory.files) {
+        if (file.deleted)
             continue;
-        const tab = record.indexOf('\t');
-        if (tab <= 0) {
-            return [diagnostic('malformed-inventory', 'git ls-files --stage record is missing the path separator')];
+        if (file.currentBlob === null || file.currentBlob.length !== 40) {
+            return [diagnostic('malformed-inventory', `tracked path has no readable SHA-1 worktree blob: ${file.path}`, { path: file.path })];
         }
-        const meta = record.slice(0, tab);
-        const repoPath = record.slice(tab + 1);
-        const match = STAGE_RECORD_RE.exec(meta);
-        if (!match) {
-            return [diagnostic('malformed-inventory', `git ls-files --stage record has an unreadable mode/blob/stage prefix (${meta})`, { path: validRepoPath(repoPath) ? repoPath : undefined })];
-        }
-        const [, mode, blob, stage] = match;
-        if (!validRepoPath(repoPath)) {
-            return [diagnostic('unsafe-path', `tracked path is not a normalized repository-relative path: ${repoPath}`)];
-        }
-        if (hashes.has(repoPath)) {
-            return [diagnostic('duplicate-path', `duplicate tracked path in git index: ${repoPath}`, { path: repoPath })];
-        }
-        if (stage !== '0') {
-            return [diagnostic('unresolved-index', `tracked path has unresolved git index stage ${stage}`, { path: repoPath })];
-        }
-        if (mode === '120000') {
-            return [diagnostic('symlink-path', `tracked path is a git symlink (mode 120000)`, { path: repoPath })];
-        }
-        if (mode === '160000') {
-            return [diagnostic('gitlink-path', `tracked path is a gitlink/submodule (mode 160000)`, { path: repoPath })];
-        }
-        if (!REGULAR_FILE_MODES.has(mode)) {
-            return [diagnostic('unsafe-mode', `tracked path has unsupported git mode ${mode}`, { path: repoPath })];
-        }
-        hashes.set(repoPath, blob);
+        hashes.set(file.path, file.currentBlob);
     }
-    let dirtyRaw;
-    let deletedRaw;
-    try {
-        dirtyRaw = git(root, ['diff-files', '--name-only', '-z']);
-        deletedRaw = git(root, ['diff-files', '--diff-filter=D', '--name-only', '-z']);
+    return { inventory, hashes };
+}
+function sameStringSet(actual, expected) {
+    if (actual.length !== expected.length)
+        return false;
+    const values = new Set(actual);
+    return values.size === actual.length &&
+        expected.every((value) => values.has(value));
+}
+function policyClassificationErrors(report, inventory, policy) {
+    const classified = classifyAuditInventory(inventory.files, policy);
+    if (classified.diagnostics.length > 0) {
+        return classified.diagnostics;
     }
-    catch {
-        return [diagnostic('git-error', 'failed to read git diff-files dirty tracked paths')];
-    }
-    const dirty = dirtyRaw.split('\0').filter(Boolean);
-    if (dirty.length) {
-        const dirtySet = new Set();
-        for (const repoPath of dirty) {
-            if (!validRepoPath(repoPath)) {
-                return [diagnostic('unsafe-path', `dirty tracked path is not a normalized repository-relative path: ${repoPath}`)];
-            }
-            if (dirtySet.has(repoPath)) {
-                return [diagnostic('malformed-inventory', `git diff-files named a dirty tracked path more than once: ${repoPath}`, { path: repoPath })];
-            }
-            if (!hashes.has(repoPath)) {
-                // diff-files should only name index paths; treat surprises as unreadable inventory.
-                return [diagnostic('malformed-inventory', `git diff-files named a path absent from ls-files --stage: ${repoPath}`, { path: repoPath })];
-            }
-            dirtySet.add(repoPath);
-        }
-        const deleted = new Set();
-        for (const repoPath of deletedRaw.split('\0').filter(Boolean)) {
-            if (!validRepoPath(repoPath)) {
-                return [diagnostic('unsafe-path', `deleted tracked path is not a normalized repository-relative path: ${repoPath}`)];
-            }
-            if (deleted.has(repoPath)) {
-                return [diagnostic('malformed-inventory', `git diff-files named a deleted tracked path more than once: ${repoPath}`, { path: repoPath })];
-            }
-            if (!dirtySet.has(repoPath) || !hashes.has(repoPath)) {
-                return [diagnostic('malformed-inventory', `git diff-files deletion is not present in the dirty stage-zero inventory: ${repoPath}`, { path: repoPath })];
-            }
-            const pathError = deletedTrackedPathError(root, repoPath);
-            if (pathError)
-                return [pathError];
-            deleted.add(repoPath);
-            hashes.delete(repoPath);
-        }
-        const snapshot = hashFilePaths(root, dirty.filter((repoPath) => !deleted.has(repoPath)));
-        if (snapshot.missing.length || snapshot.failed.length) {
-            const bad = [...snapshot.missing, ...snapshot.failed];
-            return bad.map((repoPath) => diagnostic('unreadable-path', `dirty tracked path is missing, symlinked, or unreadable: ${repoPath}`, { path: repoPath }));
-        }
-        for (const [repoPath, blob] of snapshot.hashes) {
-            hashes.set(repoPath, blob);
+    const expectedByPath = new Map(classified.files.map((file) => [file.path, file]));
+    const errors = [];
+    for (const entry of report.entries) {
+        const expected = expectedByPath.get(entry.path);
+        if (expected === undefined ||
+            !sameStringSet(entry.ruleIds, expected.ruleIds) ||
+            canonicalJson(entry.classification) !==
+                canonicalJson(expected.classification)) {
+            errors.push(diagnostic('policy-classification-mismatch', `coverage classification does not match the current strict policy for ` +
+                `${JSON.stringify(entry.path)}`, { path: entry.path }));
         }
     }
-    return { hashes };
+    if (report.entries.length !== expectedByPath.size) {
+        errors.push(diagnostic('policy-classification-mismatch', 'coverage classification path set does not match the current tracked inventory'));
+    }
+    const expectedUnits = new Map(policy.units.map((unit) => [
+        `${unit.domain}:${unit.slug}`,
+        unit.title,
+    ]));
+    const actualUnits = new Map(report.units.map((unit) => [
+        `${unit.domain}:${unit.slug}`,
+        unit.title,
+    ]));
+    if (actualUnits.size !== expectedUnits.size ||
+        [...expectedUnits].some(([key, title]) => actualUnits.get(key) !== title)) {
+        errors.push(diagnostic('policy-classification-mismatch', 'coverage unit identities and titles do not match the current strict policy'));
+    }
+    return errors;
 }
 function selfEntryErrors(report) {
     const self = report.entries.find((entry) => entry.path === SELF_PATH);
@@ -844,18 +777,31 @@ function inventoryDrift(report, current) {
     changed.sort();
     return { added, removed, changed };
 }
-function indexUnitsByDomainSlug(portfolios) {
-    const out = new Map();
-    for (const unit of portfolios.security) {
-        out.set(`security:${unit.slug}`, unit);
+function freshEvidenceErrors(report, current, exactEvidence, acceptedRulesets) {
+    const unitsByKey = new Map();
+    const domainsBySlug = new Map();
+    for (const unit of exactEvidence.units) {
+        const key = `${unit.domain}:${unit.slug}`;
+        const indexed = {
+            unit,
+            receiptsByPath: new Map(unit.receipts.map((receipt) => [receipt.path, receipt])),
+        };
+        const existing = unitsByKey.get(key);
+        if (existing === undefined)
+            unitsByKey.set(key, [indexed]);
+        else
+            existing.push(indexed);
+        const domains = domainsBySlug.get(unit.slug);
+        if (domains === undefined) {
+            domainsBySlug.set(unit.slug, new Set([unit.domain]));
+        }
+        else {
+            domains.add(unit.domain);
+        }
     }
-    for (const unit of portfolios.tests) {
-        out.set(`test:${unit.slug}`, unit);
-    }
-    return out;
-}
-function freshEvidenceErrors(report, current, portfolios) {
-    const unitsByKey = indexUnitsByDomainSlug(portfolios);
+    const acceptedRulesetSet = acceptedRulesets === null
+        ? null
+        : new Set(acceptedRulesets);
     const errors = [];
     const assignedUnits = new Set();
     for (const entry of report.entries) {
@@ -882,6 +828,14 @@ function freshEvidenceErrors(report, current, portfolios) {
                 errors.push(diagnostic('evidence-ledgers', `fresh ${domain} evidence requires a nonempty ledger list`, { path: entry.path }));
                 continue;
             }
+            const assignedSlug = entry.classification.kind === 'review'
+                ? entry.classification.domains[domain]?.unit
+                : undefined;
+            if (assignedSlug === undefined ||
+                claim.ledgers.some((slug) => slug !== assignedSlug)) {
+                errors.push(diagnostic('wrong-unit-ledger', `fresh ${domain} evidence must name only the policy-assigned unit`, { path: entry.path, slug: assignedSlug }));
+                continue;
+            }
             const currentBlob = current.get(entry.path);
             const reportBlob = entry.blob;
             if (!currentBlob || !reportBlob || currentBlob !== reportBlob) {
@@ -890,13 +844,19 @@ function freshEvidenceErrors(report, current, portfolios) {
             }
             let matched = false;
             for (const slug of claim.ledgers) {
-                const unit = unitsByKey.get(`${domain}:${slug}`);
-                if (!unit) {
-                    // Prefer an explicit cross-domain diagnostic when the slug exists elsewhere.
-                    const cross = domain === 'security'
-                        ? portfolios.tests.find((item) => item.slug === slug)
-                        : portfolios.security.find((item) => item.slug === slug);
-                    if (cross) {
+                const units = unitsByKey.get(`${domain}:${slug}`) ?? [];
+                if (units.length === 0) {
+                    const registeredDomains = domainsBySlug.get(slug);
+                    let crossDomain;
+                    if (registeredDomains !== undefined) {
+                        for (const candidate of registeredDomains) {
+                            if (candidate !== domain) {
+                                crossDomain = candidate;
+                                break;
+                            }
+                        }
+                    }
+                    if (crossDomain !== undefined) {
                         errors.push(diagnostic('cross-domain-ledger', `fresh ${domain} evidence names cross-domain ledger ${slug}`, { path: entry.path, slug }));
                     }
                     else {
@@ -904,16 +864,32 @@ function freshEvidenceErrors(report, current, portfolios) {
                     }
                     continue;
                 }
-                if (unit.formatVersion === 2 &&
-                    !unit.stale &&
-                    unit.files.includes(entry.path) &&
-                    unit.hashes !== null &&
-                    unit.hashes[entry.path] === reportBlob) {
+                if (units.length !== 1) {
+                    errors.push(diagnostic('ambiguous-ledger', `fresh ${domain} evidence names more than one ledger for ${slug}`, { path: entry.path, slug }));
+                    continue;
+                }
+                const indexed = units[0];
+                const unit = indexed.unit;
+                const receipt = indexed.receiptsByPath.get(entry.path);
+                const accepted = acceptedRulesetSet === null
+                    ? unit.version === 2
+                    : (unit.ruleset !== null &&
+                        acceptedRulesetSet.has(unit.ruleset) &&
+                        (unit.version !== 3 ||
+                            (unit.rulesetDigest !== null &&
+                                /^sha256:[0-9a-f]{64}$/u.test(unit.rulesetDigest))));
+                if (unit.version !== 1 &&
+                    accepted &&
+                    receipt !== undefined &&
+                    receipt.reviewed &&
+                    receipt.fullRead &&
+                    receipt.blob === reportBlob) {
                     matched = true;
                 }
             }
             if (!matched) {
-                errors.push(diagnostic('fresh-evidence', `fresh ${domain} claim has no current same-domain v2 ledger containing the exact blob`, { path: entry.path }));
+                errors.push(diagnostic('fresh-evidence', `fresh ${domain} claim has no accepted current same-domain exact ` +
+                    'full-read receipt for the assigned unit and blob', { path: entry.path }));
             }
         }
     }
@@ -930,7 +906,7 @@ function freshEvidenceErrors(report, current, portfolios) {
  * Task 3: revalidate inventory freshness and ledger evidence against Git and
  * audit portfolios. Structural success is not enough for `current`.
  */
-function revalidateAgainstRepository(root, report, portfolios) {
+function revalidateAgainstRepository(root, report, _portfolios) {
     const inventory = readTrackedInventory(root);
     if (Array.isArray(inventory)) {
         return invalidPortfolio(inventory);
@@ -955,7 +931,33 @@ function revalidateAgainstRepository(root, report, portfolios) {
             drift,
         };
     }
-    const evidenceErrors = freshEvidenceErrors(report, inventory.hashes, portfolios);
+    if (report.policy.format !== 'atlas-review-policy-v1') {
+        return invalidPortfolio([diagnostic('unsupported-policy-format', `coverage policy format ${JSON.stringify(report.policy.format)} is unsupported`)]);
+    }
+    const policy = loadAuditReviewPolicy(root);
+    if (policy.policy === null || policy.policyHash === null) {
+        return invalidPortfolio(policy.diagnostics);
+    }
+    if (policy.policyHash !== report.policy.hash) {
+        return invalidPortfolio([diagnostic('policy-drift', 'coverage report policy hash does not match the current parsed review policy')]);
+    }
+    const classificationErrors = policyClassificationErrors(report, inventory.inventory, policy.policy);
+    if (classificationErrors.length > 0) {
+        return invalidPortfolio(classificationErrors);
+    }
+    const exactEvidence = loadAuditExactEvidence(root);
+    if (exactEvidence.invalidLedgers.length > 0) {
+        return invalidPortfolio(exactEvidence.invalidLedgers);
+    }
+    if (exactEvidence.invalidClaimedPaths.length > 0) {
+        return invalidPortfolio(exactEvidence.invalidClaimedPaths.map((claim) => diagnostic('invalid-evidence-path', `invalid audit ledger claimed path ${JSON.stringify(claim.path)}`, { slug: claim.slug ?? undefined })));
+    }
+    for (const unit of exactEvidence.units) {
+        if (unit.invalidClaimedPaths.length > 0) {
+            return invalidPortfolio(unit.invalidClaimedPaths.map((repoPath) => diagnostic('invalid-evidence-path', `audit ledger contains invalid claimed path ${JSON.stringify(repoPath)}`, { slug: unit.slug })));
+        }
+    }
+    const evidenceErrors = freshEvidenceErrors(report, inventory.hashes, exactEvidence, policy.policy.securityDecisions.acceptedRulesets);
     if (evidenceErrors.length) {
         return invalidPortfolio(evidenceErrors);
     }
@@ -966,44 +968,54 @@ function revalidateAgainstRepository(root, report, portfolios) {
         drift: emptyDrift(),
     };
 }
-export function loadReviewCoverage(root, portfolios) {
-    const atlas = atlasDir(root);
-    const atlasState = isSymlinkOrMissingDir(atlas);
-    if (atlasState === 'symlink') {
-        return invalidPortfolio([diagnostic('unsafe-path', '.atlas directory is symlinked or not a regular directory')]);
-    }
-    const absolute = reviewCoveragePath(root);
-    if (!fs.existsSync(absolute)) {
-        return missingPortfolio();
-    }
+function loadReviewCoverageAnchored(root, portfolios) {
     try {
-        const linkStat = fs.lstatSync(absolute);
-        if (linkStat.isSymbolicLink() || !linkStat.isFile()) {
-            return invalidPortfolio([diagnostic('unsafe-path', 'coverage report path is symlinked or not a regular file', { path: COVERAGE_REL })]);
+        return withAnchoredAuditFileIdentity(root, COVERAGE_REL, () => {
+            let raw;
+            try {
+                raw = readBoundedAuditJsonDocument(root, COVERAGE_REL, MAX_REPORT_BYTES).value;
+            }
+            catch (error) {
+                const message = error instanceof Error
+                    ? error.message
+                    : String(error);
+                const code = /exceeds the \d+-byte limit/iu.test(message)
+                    ? 'report-too-large'
+                    : /missing|safe regular|symlink|outside|changed while/iu.test(message)
+                        ? 'unsafe-path'
+                        : 'malformed-json';
+                return invalidPortfolio([diagnostic(code, `coverage report could not be parsed: ${message}`, { path: COVERAGE_REL })]);
+            }
+            const parsed = parseStructure(raw);
+            if (!parsed.ok) {
+                return invalidPortfolio(parsed.errors);
+            }
+            // Structural layer passed. Task 3 overlays Git inventory + ledger
+            // revalidation while the report and .atlas parent identities remain
+            // retained.
+            return revalidateAgainstRepository(root, parsed.report, portfolios);
+        });
+    }
+    catch (error) {
+        if (error !== null &&
+            typeof error === 'object' &&
+            'code' in error &&
+            String(error.code) === 'ENOENT') {
+            return missingPortfolio();
         }
+        const message = error instanceof Error ? error.message : String(error);
+        const code = /exceeds.*byte (?:bound|limit)|byte (?:bound|limit).*exceed/iu
+            .test(message)
+            ? 'report-too-large'
+            : 'unsafe-path';
+        return invalidPortfolio([diagnostic(code, `coverage report identity could not be retained: ${message}`, { path: COVERAGE_REL })]);
     }
-    catch {
-        return missingPortfolio();
-    }
-    // Bound bytes before JSON.parse; reject truncated/oversized reports.
-    const opened = readRepoFile(root, COVERAGE_REL, MAX_REPORT_BYTES + 1);
-    if (!opened) {
-        return invalidPortfolio([diagnostic('unsafe-path', 'coverage report is not a safe regular in-repository file', { path: COVERAGE_REL })]);
-    }
-    if (opened.truncated || opened.size > MAX_REPORT_BYTES) {
-        return invalidPortfolio([diagnostic('report-too-large', `coverage report exceeds the ${MAX_REPORT_BYTES} byte limit`, { path: COVERAGE_REL })]);
-    }
-    let raw;
+}
+export function loadReviewCoverage(root, portfolios) {
     try {
-        raw = JSON.parse(opened.buffer.toString('utf8'));
+        return withAnchoredAuditRootIdentity(root, (anchoredRoot) => loadReviewCoverageAnchored(anchoredRoot, portfolios));
     }
-    catch {
-        return invalidPortfolio([diagnostic('malformed-json', 'coverage report is malformed JSON', { path: COVERAGE_REL })]);
+    catch (error) {
+        return invalidPortfolio([diagnostic('root-identity', `coverage reader could not retain one repository root identity: ${error instanceof Error ? error.message : String(error)}`)]);
     }
-    const parsed = parseStructure(raw);
-    if (!parsed.ok) {
-        return invalidPortfolio(parsed.errors);
-    }
-    // Structural layer passed. Task 3 overlays Git inventory + ledger revalidation.
-    return revalidateAgainstRepository(root, parsed.report, portfolios);
 }

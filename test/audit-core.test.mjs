@@ -746,6 +746,21 @@ test('canonical JSON rejects array accessors and extra properties without execut
   )
 })
 
+test('canonical JSON rejects proxies before invoking their traps', () => {
+  let trapCalls = 0
+  const hostile = new Proxy({}, {
+    getPrototypeOf() {
+      trapCalls += 1
+      throw new Error('canonical proxy trap must not execute')
+    },
+  })
+  assert.throws(
+    () => canonicalJson(hostile),
+    /proxy|unsupported|canonical JSON/i,
+  )
+  assert.equal(trapCalls, 0)
+})
+
 test('canonical JSON enforces aggregate text and serialized byte bounds', () => {
   assert.throws(
     () => canonicalJson(Array.from(
@@ -2843,6 +2858,422 @@ test('bounded audit directory listing enforces aggregate name bounds while strea
     assert.ok(readCalls < 100, 'aggregate bound must fail before unbounded allocation')
   } finally {
     fs.opendirSync = originalOpendir
+    cleanup(root)
+  }
+})
+
+test('audit support snapshots seal a missing tracked leaf until verification completes', () => {
+  const root = makeRoot()
+  try {
+    initGit(root)
+    write(root, 'src/existing.ts', 'export const existing = true\n')
+    commitFixture(root)
+    assert.throws(
+      () => auditCore.withAnchoredAuditSupportSnapshot(root, () =>
+        auditCore.withAnchoredAuditGitCapability(root, (capability) => {
+          assert.equal(
+            capability.hashWorktreeFile(
+              'src/appeared.ts',
+              'sha1',
+              1024,
+            ),
+            null,
+          )
+          write(root, 'src/appeared.ts', 'export const appeared = true\n')
+        })),
+      /appeared|missing|absence|support|snapshot|transaction|changed/i,
+    )
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('audit support snapshots seal a missing tracked parent until verification completes', () => {
+  const root = makeRoot()
+  try {
+    initGit(root)
+    write(root, 'tracked.ts', 'export const tracked = true\n')
+    commitFixture(root)
+    assert.throws(
+      () => auditCore.withAnchoredAuditSupportSnapshot(root, () =>
+        auditCore.withAnchoredAuditGitCapability(root, (capability) => {
+          assert.equal(
+            capability.hashWorktreeFile(
+              'later/deep/appeared.ts',
+              'sha1',
+              1024,
+            ),
+            null,
+          )
+          write(
+            root,
+            'later/deep/appeared.ts',
+            'export const appeared = true\n',
+          )
+        })),
+      /appeared|missing|absence|support|snapshot|transaction|changed/i,
+    )
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('audit support snapshots recheck a missing leaf after final parent cleanup', () => {
+  const root = makeRoot()
+  const sourceParent = path.join(root, 'src')
+  const originalOpen = fs.openSync
+  const originalClose = fs.closeSync
+  const openedPaths = new Map()
+  let appeared = false
+  try {
+    initGit(root)
+    write(root, 'src/existing.ts', 'export const existing = true\n')
+    commitFixture(root)
+    fs.openSync = function trackDirectoryOpen(file, flags, ...rest) {
+      const fd = originalOpen.call(fs, file, flags, ...rest)
+      try {
+        openedPaths.set(fd, fs.realpathSync(`/proc/self/fd/${fd}`))
+      } catch {
+        // Only retained directory descriptors matter here.
+      }
+      return fd
+    }
+    fs.closeSync = function createLeafAfterFinalParentCleanup(fd) {
+      const openedPath = openedPaths.get(fd)
+      openedPaths.delete(fd)
+      const result = originalClose.call(fs, fd)
+      if (
+        !appeared &&
+        openedPath === sourceParent &&
+        new Error().stack?.includes('verifyAuditSupportSnapshot')
+      ) {
+        write(root, 'src/appeared.ts', 'export const appeared = true\n')
+        appeared = true
+      }
+      return result
+    }
+
+    assert.throws(
+      () => auditCore.withAnchoredAuditSupportSnapshot(root, () =>
+        auditCore.withAnchoredAuditGitCapability(root, (capability) => {
+          assert.equal(
+            capability.hashWorktreeFile(
+              'src/appeared.ts',
+              'sha1',
+              1024,
+            ),
+            null,
+          )
+        })),
+      /appeared|missing|absence|support|snapshot|transaction|changed/i,
+    )
+    assert.equal(appeared, true)
+  } finally {
+    fs.openSync = originalOpen
+    fs.closeSync = originalClose
+    cleanup(root)
+  }
+})
+
+test('audit support snapshots recheck a missing parent after final root cleanup', () => {
+  const root = makeRoot()
+  const originalOpen = fs.openSync
+  const originalClose = fs.closeSync
+  const openedPaths = new Map()
+  let appeared = false
+  try {
+    initGit(root)
+    write(root, 'tracked.ts', 'export const tracked = true\n')
+    commitFixture(root)
+    fs.openSync = function trackDirectoryOpen(file, flags, ...rest) {
+      const fd = originalOpen.call(fs, file, flags, ...rest)
+      try {
+        openedPaths.set(fd, fs.realpathSync(`/proc/self/fd/${fd}`))
+      } catch {
+        // Only retained directory descriptors matter here.
+      }
+      return fd
+    }
+    fs.closeSync = function createParentAfterFinalRootCleanup(fd) {
+      const openedPath = openedPaths.get(fd)
+      openedPaths.delete(fd)
+      const stack = new Error().stack ?? ''
+      const result = originalClose.call(fs, fd)
+      if (
+        !appeared &&
+        openedPath === root &&
+        stack.includes('verifyAuditSupportSnapshot') &&
+        stack.includes('closeAnchoredGitContext')
+      ) {
+        write(
+          root,
+          'later/deep/appeared.ts',
+          'export const appeared = true\n',
+        )
+        appeared = true
+      }
+      return result
+    }
+
+    assert.throws(
+      () => auditCore.withAnchoredAuditSupportSnapshot(root, () =>
+        auditCore.withAnchoredAuditGitCapability(root, (capability) => {
+          assert.equal(
+            capability.hashWorktreeFile(
+              'later/deep/appeared.ts',
+              'sha1',
+              1024,
+            ),
+            null,
+          )
+        })),
+      /appeared|missing|absence|support|snapshot|transaction|changed/i,
+    )
+    assert.equal(appeared, true)
+  } finally {
+    fs.openSync = originalOpen
+    fs.closeSync = originalClose
+    cleanup(root)
+  }
+})
+
+test('audit support snapshots reject a missing leaf created after final lstat', () => {
+  const root = makeRoot()
+  const originalLstat = fs.lstatSync
+  let appeared = false
+  try {
+    initGit(root)
+    write(root, 'src/existing.ts', 'export const existing = true\n')
+    commitFixture(root)
+    fs.lstatSync = function createLeafAfterFinalMissingResult(
+      file,
+      options,
+      ...rest
+    ) {
+      const result = originalLstat.call(fs, file, options, ...rest)
+      const stack = new Error().stack ?? ''
+      if (
+        !appeared &&
+        result === undefined &&
+        path.basename(String(file)) === 'appeared.ts' &&
+        stack.includes('verifyVisibleAuditSupportAbsenceSeal')
+      ) {
+        appeared = true
+        write(root, 'src/appeared.ts', 'export const appeared = true\n')
+      }
+      return result
+    }
+
+    assert.throws(
+      () => auditCore.withAnchoredAuditSupportSnapshot(root, () =>
+        auditCore.withAnchoredAuditGitCapability(root, (capability) => {
+          assert.equal(
+            capability.hashWorktreeFile(
+              'src/appeared.ts',
+              'sha1',
+              1024,
+            ),
+            null,
+          )
+        })),
+      /appeared|missing|absence|support|snapshot|transaction|changed/i,
+    )
+    assert.equal(appeared, true)
+  } finally {
+    fs.lstatSync = originalLstat
+    cleanup(root)
+  }
+})
+
+test('audit support snapshots reject a missing parent created after final lstat', () => {
+  const root = makeRoot()
+  const originalLstat = fs.lstatSync
+  let appeared = false
+  try {
+    initGit(root)
+    write(root, 'tracked.ts', 'export const tracked = true\n')
+    commitFixture(root)
+    fs.lstatSync = function createParentAfterFinalMissingResult(
+      file,
+      options,
+      ...rest
+    ) {
+      const result = originalLstat.call(fs, file, options, ...rest)
+      const stack = new Error().stack ?? ''
+      if (
+        !appeared &&
+        result === undefined &&
+        path.basename(String(file)) === 'later' &&
+        stack.includes('verifyVisibleAuditSupportAbsenceSeal')
+      ) {
+        appeared = true
+        write(
+          root,
+          'later/deep/appeared.ts',
+          'export const appeared = true\n',
+        )
+      }
+      return result
+    }
+
+    assert.throws(
+      () => auditCore.withAnchoredAuditSupportSnapshot(root, () =>
+        auditCore.withAnchoredAuditGitCapability(root, (capability) => {
+          assert.equal(
+            capability.hashWorktreeFile(
+              'later/deep/appeared.ts',
+              'sha1',
+              1024,
+            ),
+            null,
+          )
+        })),
+      /appeared|missing|absence|support|snapshot|transaction|changed/i,
+    )
+    assert.equal(appeared, true)
+  } finally {
+    fs.lstatSync = originalLstat
+    cleanup(root)
+  }
+})
+
+test('anchored Git capability remains open until an async callback settles and then closes every descriptor', async () => {
+  const root = makeRoot()
+  const originalOpen = fs.openSync
+  const originalClose = fs.closeSync
+  const capabilityFds = new Set()
+  let resume
+  let pending
+  try {
+    initGit(root)
+    write(root, 'tracked.txt', 'tracked\n')
+    commitFixture(root)
+    const expectedHead = execFileSync(
+      'git',
+      ['-C', root, 'rev-parse', '--verify', 'HEAD'],
+      { encoding: 'utf8' },
+    ).trim()
+
+    fs.openSync = function trackCapabilityOpen(file, flags, ...rest) {
+      const fd = originalOpen.call(fs, file, flags, ...rest)
+      try {
+        const real = fs.realpathSync(`/proc/self/fd/${fd}`)
+        if (real === root || real === path.join(root, '.git')) {
+          capabilityFds.add(fd)
+        }
+      } catch {
+        // Only the retained root and Git-admin directory descriptors matter.
+      }
+      return fd
+    }
+
+    pending = auditCore.withAnchoredAuditGitCapability(
+      root,
+      async (capability) => {
+        await new Promise((resolve) => {
+          resume = resolve
+        })
+        return Buffer.from(
+          capability.gitBytes(
+            ['rev-parse', '--verify', 'HEAD'],
+            4 * 1024,
+          ),
+        ).toString('utf8').trim()
+      },
+    )
+
+    assert.equal(capabilityFds.size, 2)
+    for (const fd of capabilityFds) {
+      assert.doesNotThrow(
+        () => fs.fstatSync(fd),
+        'capability descriptors must remain live while the callback is pending',
+      )
+    }
+    resume()
+    resume = null
+    assert.equal(await pending, expectedHead)
+    for (const fd of capabilityFds) {
+      assert.throws(
+        () => fs.fstatSync(fd),
+        (error) => error?.code === 'EBADF',
+        'capability descriptor remained open after callback settlement',
+      )
+    }
+  } finally {
+    if (resume) resume()
+    if (pending && typeof pending.then === 'function') {
+      await Promise.resolve(pending).catch(() => {})
+    }
+    fs.openSync = originalOpen
+    fs.closeSync = originalClose
+    for (const fd of capabilityFds) {
+      try {
+        originalClose.call(fs, fd)
+      } catch {
+        // Assertions above require every retained descriptor to be closed.
+      }
+    }
+    cleanup(root)
+  }
+})
+
+test('anchored Git capability adopts hostile thenables before releasing its descriptors', async () => {
+  const root = makeRoot()
+  try {
+    initGit(root)
+    write(root, 'tracked.txt', 'tracked\n')
+    commitFixture(root)
+    const expectedHead = execFileSync(
+      'git',
+      ['-C', root, 'rev-parse', '--verify', 'HEAD'],
+      { encoding: 'utf8' },
+    ).trim()
+
+    const value = await auditCore.withAnchoredAuditGitCapability(
+      root,
+      (capability) => ({
+        then(resolve, reject) {
+          queueMicrotask(() => {
+            try {
+              resolve(Buffer.from(
+                capability.gitBytes(
+                  ['rev-parse', '--verify', 'HEAD'],
+                  4 * 1024,
+                ),
+              ).toString('utf8').trim())
+            } catch (error) {
+              reject(error)
+            }
+          })
+        },
+      }),
+    )
+    assert.equal(value, expectedHead)
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('anchored Git capability reads a then getter once and still cleans up when it throws', () => {
+  const root = makeRoot()
+  let getterCalls = 0
+  try {
+    initGit(root)
+    const hostileThenable = Object.defineProperty({}, 'then', {
+      get() {
+        getterCalls += 1
+        throw new Error('injected anchored Git then getter failure')
+      },
+    })
+    assert.throws(
+      () => auditCore.withAnchoredAuditGitCapability(
+        root,
+        () => hostileThenable,
+      ),
+      /injected anchored Git then getter failure/,
+    )
+    assert.equal(getterCalls, 1)
+  } finally {
     cleanup(root)
   }
 })

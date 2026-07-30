@@ -431,8 +431,120 @@ export interface TestAuditUnit extends BaseAuditUnit {
 /** Legacy alias: security portfolio units only during the domain migration. */
 export type AuditUnit = SecurityAuditUnit
 
+/** Schema-owned, viewer-neutral exact-byte evidence. Coverage consumers use
+ * this projection and never reinterpret raw audit ledgers. */
+export interface AuditExactEvidenceReceipt {
+  path: string
+  blob: string | null
+  reviewed: boolean
+  fullRead: boolean
+}
+
+export interface AuditExactEvidenceUnit {
+  version: 1 | 2 | 3
+  domain: PortfolioDomain
+  slug: string
+  ruleset: string | null
+  rulesetDigest: string | null
+  /** Runtime-only assurance projection; never serialized into coverage V1. */
+  semanticStatus: 'covered' | 'unknown' | 'gap'
+  stale: boolean
+  receipts: AuditExactEvidenceReceipt[]
+  invalidClaimedPaths: string[]
+  sourcePath: string
+}
+
+export interface AuditInvalidClaimedPath {
+  path: string
+  domain: PortfolioDomain | null
+  slug: string | null
+  sourcePath: string
+}
+
+export interface AuditExactEvidenceLoad {
+  units: AuditExactEvidenceUnit[]
+  invalidLedgers: CoverageDiagnostic[]
+  invalidClaimedPaths: AuditInvalidClaimedPath[]
+}
+
 export type ReviewCoverageVerdict = 'complete' | 'incomplete' | 'invalid'
 export type CoverageEvidenceStatus = 'fresh' | 'missing' | 'stale' | 'invalid'
+
+export interface AuditReviewDomainRuleV1 {
+  id: string
+  include: string[]
+  except: string[]
+  rationale: string
+  domains: PortfolioDomain[]
+}
+
+export interface AuditReviewExclusionRuleV1 {
+  id: string
+  include: string[]
+  except: string[]
+  rationale: string
+  excluded: {
+    category: string
+    reason: string
+    owner?: string
+  }
+}
+
+export type AuditReviewRuleV1 =
+  | AuditReviewDomainRuleV1
+  | AuditReviewExclusionRuleV1
+
+export interface AuditReviewUnitV1 {
+  domain: PortfolioDomain
+  slug: string
+  title: string
+  include: string[]
+  except: string[]
+  /** Supporting paths only. Context never owns coverage. */
+  context: string[]
+}
+
+export interface HistoricalAuditUnitAssignmentV1 {
+  id: string
+  sourceKind: 'relayos-security-scan/v1'
+  domain: 'security'
+  unit: string
+  include: string[]
+}
+
+export interface AuditReviewPolicyV1 {
+  formatVersion: 1
+  format: 'atlas-review-policy-v1'
+  rules: AuditReviewRuleV1[]
+  units: AuditReviewUnitV1[]
+  historicalUnitAssignments: HistoricalAuditUnitAssignmentV1[]
+  securityDecisions: import('./audit-v3-types.js').AuditDecisionPolicyV1
+}
+
+export interface AuditTrackedFile {
+  path: string
+  indexBlob: string
+  currentBlob: string | null
+  indexMode: string
+  currentMode: '100644' | '100755' | null
+  deleted: boolean
+}
+
+export interface AuditTrackedInventory {
+  objectFormat: 'sha1' | 'sha256' | null
+  files: AuditTrackedFile[]
+  diagnostics: CoverageDiagnostic[]
+}
+
+export interface ClassifiedAuditTrackedFile extends AuditTrackedFile {
+  ruleIds: string[]
+  classification: CoverageClassification
+}
+
+export interface AuditInventoryClassification {
+  files: ClassifiedAuditTrackedFile[]
+  diagnostics: CoverageDiagnostic[]
+}
 
 export interface CoverageUnitRef {
   domain: PortfolioDomain

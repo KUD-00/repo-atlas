@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { atlasDir, hashFilePaths, isSafeRepoFile, readRepoFile } from './scan.js';
-import { listBoundedAuditDirectory, readBoundedAuditBytes, readBoundedAuditJsonDocument, } from './audit-core.js';
+import { listBoundedAuditDirectory, readBoundedAuditJsonDocument, withAnchoredAuditGitCapability, } from './audit-core.js';
 import { loadAuditObservations } from './audit-v3.js';
+const MAX_EXACT_AUDIT_FILE_BYTES = 512 * 1024 * 1024;
 const SEVERITIES = new Set(['info', 'low', 'medium', 'high', 'critical']);
 const DISPOSITIONS = new Set(['open', 'accepted-risk', 'separate-design']);
 const TEST_IMPACTS = new Set(['blocking', 'warning', 'advisory']);
@@ -98,8 +99,27 @@ export function writeAuditLedgerFile(root, file, contents) {
     }
 }
 /** qa/audit.ts 的 scope 指纹算法：sorted "<blobSha>  <path>" 行的 sha1。 */
-function scopeHash(root, files) {
-    const snapshot = hashFilePaths(root, files);
+function scopeHash(root, files, exactFile) {
+    const snapshot = exactFile === undefined
+        ? hashFilePaths(root, files)
+        : (() => {
+            const hashes = new Map();
+            const missing = [];
+            const failed = [];
+            for (const repoPath of files) {
+                try {
+                    const file = exactFile(repoPath);
+                    if (file === null)
+                        missing.push(repoPath);
+                    else
+                        hashes.set(repoPath, file.sha1);
+                }
+                catch {
+                    failed.push(repoPath);
+                }
+            }
+            return { hashes, missing, failed };
+        })();
     if (snapshot.missing.length || snapshot.failed.length || snapshot.hashes.size !== new Set(files).size) {
         return { hash: null, missing: snapshot.missing };
     }
@@ -195,7 +215,10 @@ function ledgerContractError(j) {
     else {
         return `formatVersion ${String(j.formatVersion)} is unsupported (known: 1, 2)`;
     }
-    if (!j.files.every(validRepoPath) || new Set(j.files).size !== j.files.length)
+    if (!j.files.every(validRepoPath))
+        return 'files must be unique normalized repository-relative paths';
+    const filePaths = new Set(j.files);
+    if (filePaths.size !== j.files.length)
         return 'files must be unique normalized repository-relative paths';
     if (typeof j.scope_hash !== 'string' || !/^[0-9a-f]{40}$/u.test(j.scope_hash))
         return 'scope_hash must be a lowercase SHA-1';
@@ -210,7 +233,7 @@ function ledgerContractError(j) {
         if (!j.hashes || typeof j.hashes !== 'object' || Array.isArray(j.hashes))
             return 'hashes must be an object';
         const keys = Object.keys(j.hashes);
-        if (keys.length !== j.files.length || keys.some((repoPath) => !j.files.includes(repoPath)) ||
+        if (keys.length !== j.files.length || keys.some((repoPath) => !filePaths.has(repoPath)) ||
             j.files.some((repoPath) => !/^[0-9a-f]{40}$/u.test(j.hashes[repoPath] ?? ''))) {
             return 'hashes must contain one lowercase SHA-1 for every scope file';
         }
@@ -308,7 +331,7 @@ function validStrictSecurityFinding(f) {
         validFindingId(finding.id) &&
         validDisposition(finding.disposition);
 }
-function evidenceRefsError(root, j) {
+function evidenceRefsError(root, j, exactFile) {
     if (j.evidenceRefs === undefined)
         return null;
     if (!Array.isArray(j.evidenceRefs) || !j.evidenceRefs.every((item) => typeof item === 'string')) {
@@ -318,7 +341,16 @@ function evidenceRefsError(root, j) {
         return 'evidence refs must be unique normalized repository-relative paths';
     }
     for (const ref of j.evidenceRefs) {
-        if (!isSafeRepoFile(root, ref)) {
+        let safe;
+        try {
+            safe = exactFile === undefined
+                ? isSafeRepoFile(root, ref)
+                : exactFile(ref) !== null;
+        }
+        catch {
+            safe = false;
+        }
+        if (!safe) {
             return `evidence ref is not a safe regular repository file: ${ref}`;
         }
     }
@@ -420,7 +452,7 @@ function hasValidFindingCounts(findings) {
     }
     return true;
 }
-function viewerMetadataError(root, j, entry, label) {
+function viewerMetadataError(root, j, entry, label, exactFile) {
     if (j.slug !== path.basename(entry, '.json'))
         return `${label} slug must match its ledger filename`;
     if (![j.title, j.ruleset, j.scanned_at].every((value) => typeof value === 'string' && value.trim())) {
@@ -429,6 +461,16 @@ function viewerMetadataError(root, j, entry, label) {
     if (!j.files.length)
         return `${label} scope must contain at least one file`;
     for (const repoPath of j.files) {
+        if (exactFile !== undefined) {
+            try {
+                // A formerly reviewed file may be absent; freshness reports it stale.
+                exactFile(repoPath);
+            }
+            catch {
+                return `${label} scope path is not a safe regular file: ${repoPath}`;
+            }
+            continue;
+        }
         try {
             fs.lstatSync(path.resolve(root, repoPath));
             if (!isSafeRepoFile(root, repoPath))
@@ -446,15 +488,15 @@ function viewerMetadataError(root, j, entry, label) {
         return `${label} rounds must be an array`;
     return null;
 }
-function securityLedgerError(root, j, raw, entry) {
+function securityLedgerError(root, j, raw, entry, exactFile) {
     const record = raw && typeof raw === 'object' ? raw : null;
     if (isV2(j)) {
         if (j.domain !== 'security')
             return 'unsupported audit domain';
-        const meta = viewerMetadataError(root, j, entry, 'security');
+        const meta = viewerMetadataError(root, j, entry, 'security', exactFile);
         if (meta)
             return meta;
-        const refsError = evidenceRefsError(root, j);
+        const refsError = evidenceRefsError(root, j, exactFile);
         if (refsError)
             return refsError;
         if (j.conceptSlug !== undefined && !nonemptyString(j.conceptSlug)) {
@@ -474,7 +516,7 @@ function securityLedgerError(root, j, raw, entry) {
         return 'security formatVersion must be 1';
     if (record.format !== undefined && record.format !== 'atlas-audit-v1')
         return 'unsupported security format';
-    const meta = viewerMetadataError(root, j, entry, 'security');
+    const meta = viewerMetadataError(root, j, entry, 'security', exactFile);
     if (meta)
         return meta;
     for (const finding of findingsOf(j)) {
@@ -486,13 +528,13 @@ function securityLedgerError(root, j, raw, entry) {
     }
     return null;
 }
-function testLedgerError(root, j, entry) {
+function testLedgerError(root, j, entry, exactFile) {
     if (!isV2(j) || j.domain !== 'test')
         return 'unsupported audit domain';
-    const meta = viewerMetadataError(root, j, entry, 'test');
+    const meta = viewerMetadataError(root, j, entry, 'test', exactFile);
     if (meta)
         return meta;
-    const refsError = evidenceRefsError(root, j);
+    const refsError = evidenceRefsError(root, j, exactFile);
     if (refsError)
         return refsError;
     if (!findingsOf(j).every(validTestFinding)) {
@@ -502,13 +544,13 @@ function testLedgerError(root, j, entry) {
 }
 /** Design ledgers are ledger-grade, not viewer-grade: same envelope + freshness
  * contract as the portfolio domains, but no coverage claim and no unit render. */
-function designLedgerError(root, j, entry) {
+function designLedgerError(root, j, entry, exactFile) {
     if (!isV2(j) || j.domain !== 'design')
         return 'unsupported audit domain';
-    const meta = viewerMetadataError(root, j, entry, 'design');
+    const meta = viewerMetadataError(root, j, entry, 'design', exactFile);
     if (meta)
         return meta;
-    const refsError = evidenceRefsError(root, j);
+    const refsError = evidenceRefsError(root, j, exactFile);
     if (refsError)
         return refsError;
     if (!findingsOf(j).every(validDesignFinding)) {
@@ -516,25 +558,28 @@ function designLedgerError(root, j, entry) {
     }
     return null;
 }
-function domainLedgerError(root, j, raw, entry) {
+function domainLedgerError(root, j, raw, entry, exactFile) {
     if (isV2(j)) {
-        if (j.domain === 'security')
-            return securityLedgerError(root, j, raw, entry);
+        if (j.domain === 'security') {
+            return securityLedgerError(root, j, raw, entry, exactFile);
+        }
         if (j.domain === 'test')
-            return testLedgerError(root, j, entry);
-        if (j.domain === 'design')
-            return designLedgerError(root, j, entry);
+            return testLedgerError(root, j, entry, exactFile);
+        if (j.domain === 'design') {
+            return designLedgerError(root, j, entry, exactFile);
+        }
         return 'unsupported audit domain';
     }
-    if (isLegacySecurityLedger(j))
-        return securityLedgerError(root, j, raw, entry);
+    if (isLegacySecurityLedger(j)) {
+        return securityLedgerError(root, j, raw, entry, exactFile);
+    }
     return null;
 }
-function unitStale(root, j, file, statusByFile) {
+function unitStale(root, j, file, statusByFile, exactFile) {
     const knownStatus = statusByFile?.get(path.resolve(file));
     if (knownStatus)
         return knownStatus.status !== 'fresh';
-    const current = scopeHash(root, j.files);
+    const current = scopeHash(root, j.files, exactFile);
     return current.missing.length > 0 || current.hash !== j.scope_hash;
 }
 function toSecurityUnit(root, j, file, statusByFile) {
@@ -582,16 +627,12 @@ function toTestUnit(root, j, file, statusByFile) {
 function rawGitObjectId(blob) {
     return blob.slice(blob.indexOf(':') + 1);
 }
-function currentGitBlobId(receipt, bytes) {
-    const algorithm = receipt.blob.startsWith('git-sha256:')
-        ? 'sha256'
-        : 'sha1';
-    return createHash(algorithm)
-        .update(`blob ${bytes.byteLength}\0`, 'utf8')
-        .update(bytes)
-        .digest('hex');
+function currentGitBlobId(receipt, file) {
+    return receipt.blob.startsWith('git-sha256:')
+        ? file.sha256
+        : file.sha1;
 }
-function auditV3Freshness(root, ledger) {
+function auditV3FreshnessWithInspector(ledger, exactFile) {
     const scope = ledger.current.scope;
     if (scope.identityBasis !== 'exact-inventory') {
         return {
@@ -606,23 +647,16 @@ function auditV3Freshness(root, ledger) {
     const failedFiles = [];
     for (const receipt of scope.files) {
         try {
-            const bytes = readBoundedAuditBytes(root, receipt.path);
-            if (currentGitBlobId(receipt, bytes) !== rawGitObjectId(receipt.blob)) {
+            const file = exactFile(receipt.path);
+            if (file === null) {
+                missingFiles.push(receipt.path);
+            }
+            else if (currentGitBlobId(receipt, file) !== rawGitObjectId(receipt.blob)) {
                 changedFiles.push(receipt.path);
             }
         }
         catch {
-            let visible;
-            try {
-                visible = fs.lstatSync(path.join(root, ...receipt.path.split('/')), { throwIfNoEntry: false });
-            }
-            catch {
-                // A racy or unsafe topology is a read failure, never fresh evidence.
-            }
-            if (visible === undefined)
-                missingFiles.push(receipt.path);
-            else
-                failedFiles.push(receipt.path);
+            failedFiles.push(receipt.path);
         }
     }
     return {
@@ -633,6 +667,34 @@ function auditV3Freshness(root, ledger) {
         changedFiles,
         failedFiles,
     };
+}
+function auditV3Freshness(root, ledger, exactFile) {
+    if (exactFile !== undefined) {
+        return auditV3FreshnessWithInspector(ledger, exactFile);
+    }
+    try {
+        return withAnchoredAuditGitCapability(root, (capability) => {
+            const snapshots = new Map();
+            const inspector = (repoPath) => {
+                if (!snapshots.has(repoPath)) {
+                    snapshots.set(repoPath, capability.hashWorktreeFileDigests(repoPath, MAX_EXACT_AUDIT_FILE_BYTES));
+                }
+                return snapshots.get(repoPath);
+            };
+            return auditV3FreshnessWithInspector(ledger, inspector);
+        });
+    }
+    catch {
+        const files = ledger.current.scope.identityBasis === 'exact-inventory'
+            ? ledger.current.scope.files.map((receipt) => receipt.path)
+            : [];
+        return {
+            stale: true,
+            missingFiles: [],
+            changedFiles: [],
+            failedFiles: [...new Set(files)].sort(),
+        };
+    }
 }
 function projectAuditV3Finding(finding) {
     return {
@@ -762,6 +824,255 @@ function auditV3LoadReason(diagnostics) {
         return 'V3 current ledger has no strictly verified current/history pair';
     }
     return diagnostics.map((entry) => `${entry.path || '/'} ${entry.message}`).join('; ');
+}
+function exactEvidenceDiagnostic(code, message, repoPath, slug) {
+    return {
+        code,
+        message,
+        ...(repoPath !== undefined && validRepoPath(repoPath)
+            ? { path: repoPath }
+            : {}),
+        ...(slug === undefined ? {} : { slug }),
+    };
+}
+function projectLegacyExactEvidence(root, ledger, file, sourcePath, exactFile) {
+    const version = isV2(ledger) ? 2 : 1;
+    const completeHashes = version === 2 && ledger.hashes !== undefined;
+    return {
+        version,
+        domain: ledger.domain === 'test' ? 'test' : 'security',
+        slug: ledger.slug,
+        ruleset: typeof ledger.ruleset === 'string' ? ledger.ruleset : null,
+        rulesetDigest: null,
+        semanticStatus: 'unknown',
+        stale: unitStale(root, ledger, file, null, exactFile),
+        receipts: ledger.files.map((repoPath) => ({
+            path: repoPath,
+            blob: completeHashes ? ledger.hashes[repoPath] ?? null : null,
+            reviewed: version === 2,
+            fullRead: completeHashes,
+        })),
+        invalidClaimedPaths: [],
+        sourcePath,
+    };
+}
+function projectV3ExactEvidence(root, ledger, sourcePath, exactFile) {
+    const observation = ledger.current;
+    const scope = observation.scope;
+    const exact = scope.identityBasis === 'exact-inventory';
+    const ruleset = observation.producer.kind === 'codex-security'
+        ? null
+        : observation.producer.ruleset;
+    const hasFullReadReceipts = observation.exactCoverage.basis === 'full-read-receipts';
+    return {
+        version: 3,
+        domain: 'security',
+        slug: ledger.slug,
+        ruleset: ruleset?.id ?? null,
+        rulesetDigest: ruleset?.digest ?? null,
+        semanticStatus: observation.semanticCoverage.completeness === 'complete'
+            ? 'covered'
+            : observation.semanticCoverage.completeness === 'partial'
+                ? 'gap'
+                : 'unknown',
+        stale: !exact || auditV3Freshness(root, ledger, exactFile).stale,
+        receipts: exact
+            ? scope.files.map((receipt) => ({
+                path: receipt.path,
+                blob: rawGitObjectId(receipt.blob),
+                reviewed: receipt.status === 'reviewed',
+                fullRead: receipt.status === 'reviewed' &&
+                    hasFullReadReceipts,
+            }))
+            : [],
+        invalidClaimedPaths: [],
+        sourcePath,
+    };
+}
+function invalidClaimedPathsFromRaw(raw, sourcePath) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+        return [];
+    const record = raw;
+    const domain = record.domain === 'security' || record.domain === 'test'
+        ? record.domain
+        : null;
+    const slug = typeof record.slug === 'string' ? record.slug : null;
+    let files = record.files;
+    if (files === undefined &&
+        record.current &&
+        typeof record.current === 'object' &&
+        !Array.isArray(record.current)) {
+        const scope = record.current.scope;
+        if (scope && typeof scope === 'object' && !Array.isArray(scope)) {
+            files = scope.files;
+        }
+    }
+    if (!Array.isArray(files))
+        return [];
+    const paths = [];
+    for (const item of files) {
+        if (typeof item === 'string') {
+            paths.push(item);
+        }
+        else if (item &&
+            typeof item === 'object' &&
+            !Array.isArray(item) &&
+            typeof item.path === 'string') {
+            paths.push(item.path);
+        }
+    }
+    return [...new Set(paths)].map((repoPath) => ({
+        path: repoPath,
+        domain,
+        slug,
+        sourcePath,
+    }));
+}
+/**
+ * Normalized exact-byte evidence owned by the strict ledger schemas. Coverage
+ * generation and hostile report revalidation consume this projection instead
+ * of interpreting raw V1/V2/V3 documents themselves.
+ */
+function loadAuditExactEvidenceWithInspector(root, exactFile) {
+    const directory = auditDirectoryEntries(root);
+    if (directory.error !== null) {
+        return {
+            units: [],
+            invalidLedgers: [exactEvidenceDiagnostic('audit-directory-invalid', directory.error)],
+            invalidClaimedPaths: [],
+        };
+    }
+    const units = [];
+    const invalidLedgers = [];
+    const invalidClaimedPaths = [];
+    const v3Load = loadAuditObservations(root);
+    for (const entry of v3Load.diagnostics) {
+        invalidLedgers.push(exactEvidenceDiagnostic('invalid-audit-ledger', `${entry.path || '/'} ${entry.message}`, validRepoPath(entry.path) ? entry.path : undefined));
+    }
+    const v3ByEntry = new Map(v3Load.observations.map((ledger) => [
+        `${ledger.slug}.json`,
+        ledger,
+    ]));
+    for (const entry of directory.entries) {
+        if (!entry.endsWith('.json')) {
+            invalidLedgers.push(exactEvidenceDiagnostic('invalid-audit-ledger', `unexpected non-JSON audit directory entry ${entry}`));
+            continue;
+        }
+        const sourcePath = `.atlas/audits/${entry}`;
+        const file = path.join(auditsRoot(root), entry);
+        const read = readLedger(root, file);
+        const claimedPaths = invalidClaimedPathsFromRaw(read.raw, sourcePath);
+        if (isV3Candidate(read.raw)) {
+            const ledger = v3ByEntry.get(entry);
+            if (ledger !== undefined) {
+                units.push(projectV3ExactEvidence(root, ledger, sourcePath, exactFile));
+            }
+            else if (v3Load.diagnostics.length === 0) {
+                invalidLedgers.push(exactEvidenceDiagnostic('invalid-audit-ledger', 'V3 ledger has no strictly verified current/history pair', sourcePath, path.basename(entry, '.json')));
+            }
+            if (ledger === undefined)
+                invalidClaimedPaths.push(...claimedPaths);
+            continue;
+        }
+        if (!read.ledger) {
+            invalidLedgers.push(exactEvidenceDiagnostic('invalid-audit-ledger', read.error ?? 'malformed audit ledger', sourcePath, path.basename(entry, '.json')));
+            invalidClaimedPaths.push(...claimedPaths);
+            continue;
+        }
+        const ledger = read.ledger;
+        if (isV2(ledger)) {
+            let error;
+            if (ledger.domain === 'security') {
+                error = securityLedgerError(root, ledger, read.raw, entry, exactFile);
+            }
+            else if (ledger.domain === 'test') {
+                error = testLedgerError(root, ledger, entry, exactFile);
+            }
+            else if (ledger.domain === 'design') {
+                error = designLedgerError(root, ledger, entry, exactFile);
+            }
+            else {
+                error = 'unsupported audit domain';
+            }
+            if (error !== null) {
+                invalidLedgers.push(exactEvidenceDiagnostic('invalid-audit-ledger', error, sourcePath, ledger.slug));
+                invalidClaimedPaths.push(...claimedPaths);
+            }
+            else if (ledger.domain === 'security' || ledger.domain === 'test') {
+                units.push(projectLegacyExactEvidence(root, ledger, file, sourcePath, exactFile));
+            }
+            continue;
+        }
+        if (!isLegacySecurityLedger(ledger)) {
+            invalidLedgers.push(exactEvidenceDiagnostic('invalid-audit-ledger', 'V1 exact evidence requires a completed finalPass legacy ledger', sourcePath, ledger.slug));
+            invalidClaimedPaths.push(...claimedPaths);
+            continue;
+        }
+        const error = securityLedgerError(root, ledger, read.raw, entry, exactFile);
+        if (error !== null) {
+            invalidLedgers.push(exactEvidenceDiagnostic('invalid-audit-ledger', error, sourcePath, ledger.slug));
+            invalidClaimedPaths.push(...claimedPaths);
+        }
+        else {
+            units.push(projectLegacyExactEvidence(root, ledger, file, sourcePath, exactFile));
+        }
+    }
+    const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+    units.sort((left, right) => compareText(left.domain, right.domain) ||
+        compareText(left.slug, right.slug) ||
+        compareText(left.sourcePath, right.sourcePath));
+    invalidLedgers.sort((left, right) => compareText(left.path ?? '', right.path ?? '') ||
+        compareText(left.slug ?? '', right.slug ?? '') ||
+        compareText(left.message, right.message));
+    const claimedSeen = new Set();
+    const sortedInvalidClaimedPaths = invalidClaimedPaths
+        .sort((left, right) => compareText(left.sourcePath, right.sourcePath) ||
+        compareText(left.path, right.path))
+        .filter((claim) => {
+        const key = `${claim.sourcePath}\0${claim.path}`;
+        if (claimedSeen.has(key))
+            return false;
+        claimedSeen.add(key);
+        return true;
+    });
+    return {
+        units,
+        invalidLedgers,
+        invalidClaimedPaths: sortedInvalidClaimedPaths,
+    };
+}
+export function loadAuditExactEvidence(root) {
+    try {
+        return withAnchoredAuditGitCapability(root, (capability) => {
+            const snapshots = new Map();
+            const exactFile = (repoPath) => {
+                let snapshot = snapshots.get(repoPath);
+                if (snapshot === undefined) {
+                    try {
+                        snapshot = {
+                            ok: true,
+                            value: capability.hashWorktreeFileDigests(repoPath, MAX_EXACT_AUDIT_FILE_BYTES),
+                        };
+                    }
+                    catch (error) {
+                        snapshot = { ok: false, error };
+                    }
+                    snapshots.set(repoPath, snapshot);
+                }
+                if (!snapshot.ok)
+                    throw snapshot.error;
+                return snapshot.value;
+            };
+            return loadAuditExactEvidenceWithInspector(root, exactFile);
+        });
+    }
+    catch (error) {
+        return {
+            units: [],
+            invalidLedgers: [exactEvidenceDiagnostic('audit-snapshot-invalid', `exact audit evidence could not retain one repository snapshot: ${error instanceof Error ? error.message : String(error)}`)],
+            invalidClaimedPaths: [],
+        };
+    }
 }
 /** Build/serve 契约：一次目录遍历加载 security + test 两个 portfolio。 */
 export function loadAuditPortfolios(root, statuses) {

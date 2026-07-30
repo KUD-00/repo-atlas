@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
 import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
 
+import { AUDIT_LIMITS } from '../dist/audit-core.js'
 import { loadAuditPortfolios } from '../dist/audits.js'
+import { loadAuditReviewPolicy } from '../dist/audit-policy.js'
+import { updateAuditCoverage } from '../dist/audit-coverage-generator.js'
 import { loadReviewCoverage, reviewCoveragePath } from '../dist/review-coverage.js'
+import { reviewCoverageInventoryHash } from '../dist/review-coverage-hash.js'
 import { cleanup, commitAll, gitBlob, makeRepo, scopeHash, write } from './helpers.mjs'
 
 const CLI = new URL('../dist/cli.js', import.meta.url).pathname
@@ -14,6 +17,113 @@ const CLI = new URL('../dist/cli.js', import.meta.url).pathname
 const COVERAGE_REL = '.atlas/review-coverage.json'
 const SELF_PATH = COVERAGE_REL
 const GENERATED_PROOF = 'GENERATED-PROOF'
+
+function decisionPolicy() {
+  return {
+    requireDisposition: true,
+    blockingActions: ['open', 'reopened'],
+    drift: {
+      findingBearing: 'blocking',
+      clean: 'advisory',
+      unknown: 'blocking',
+    },
+    expiry: {
+      warningDays: 14,
+      requiredFor: ['accepted-risk', 'separate-design'],
+      acceptedRiskMaximumDays: 90,
+      separateDesignMaximumDays: 90,
+      falsePositiveMustBeNull: true,
+      severityOverrides: [{
+        severities: ['critical', 'high'],
+        maximumDays: 30,
+        minimumIndependentReviews: 2,
+        reviewEvidenceRequired: true,
+      }],
+    },
+    remediation: {
+      fixBlobRequired: true,
+      postFixProofRequired: true,
+      passingRegressionRequired: true,
+      allowedRegressionKinds: ['test', 'guardrail', 'check'],
+    },
+    falsePositive: {
+      reviewedBlobRequired: true,
+      sourceEvidenceRequired: true,
+    },
+    superseded: {
+      replacementOrDeletionProofRequired: true,
+      existingPathRequiresCurrentReview: true,
+    },
+    retirement: {
+      historyProofRequired: true,
+      allowedReasons: [
+        'deleted',
+        'moved',
+        'superseded',
+        'staged-deletion',
+        'uncommitted-snapshot-absent',
+      ],
+    },
+    acceptedRulesets: ['fixture-security-v1'],
+  }
+}
+
+function fixtureReviewPolicy() {
+  return {
+    formatVersion: 1,
+    format: 'atlas-review-policy-v1',
+    rules: [
+      {
+        id: 'source',
+        include: ['src/**'],
+        except: [],
+        rationale: 'Fixture source requires security review.',
+        domains: ['security'],
+      },
+      {
+        id: 'generated-proof',
+        include: [COVERAGE_REL],
+        except: [],
+        rationale: 'Canonical generated coverage proof.',
+        excluded: {
+          category: 'generated-proof',
+          reason: 'canonical report validates its own bytes',
+          owner: 'repo-atlas-tests',
+        },
+      },
+      {
+        id: 'fixture-config',
+        include: ['.atlas/config.json'],
+        except: [],
+        rationale: 'Fixture configuration is not product source.',
+        excluded: {
+          category: 'fixture',
+          reason: 'fixture configuration is outside this parser test',
+          owner: 'repo-atlas-tests',
+        },
+      },
+      {
+        id: 'generated-ledger',
+        include: ['.atlas/audits/**'],
+        except: [],
+        rationale: 'Fixture audit output is generated.',
+        excluded: {
+          category: 'generated',
+          reason: 'strict fixture builder output',
+        },
+      },
+    ],
+    units: [{
+      domain: 'security',
+      slug: 'security-src',
+      title: 'Source',
+      include: ['src/**'],
+      except: [],
+      context: [],
+    }],
+    securityDecisions: decisionPolicy(),
+  }
+}
 
 function writeV2(root, domain, slug, files, findings, extra = {}) {
   const value = {
@@ -49,13 +159,12 @@ function securityFinding(file) {
 }
 
 function inventoryHashFor(entries) {
-  const lines = entries.map((entry) => {
-    const marker = entry.path === SELF_PATH
+  return reviewCoverageInventoryHash(entries.map((entry) => ({
+    marker: entry.path === SELF_PATH
       ? GENERATED_PROOF
-      : entry.blob
-    return `${marker}  ${entry.path}`
-  }).sort()
-  return createHash('sha256').update(lines.join('\n') + '\n').digest('hex')
+      : entry.blob,
+    path: entry.path,
+  })))
 }
 
 function summaryFrom(entries, invalidLedgerDetails = []) {
@@ -147,6 +256,7 @@ function canonicalEntries(root, { securityStatus = 'fresh', securityLedgers = ['
         ruleId: 'generated-proof',
         category: 'generated-proof',
         reason: 'canonical report validates its own bytes',
+        owner: 'repo-atlas-tests',
       },
       evidence: {},
     },
@@ -159,6 +269,7 @@ function canonicalEntries(root, { securityStatus = 'fresh', securityLedgers = ['
         ruleId: 'fixture-config',
         category: 'fixture',
         reason: 'fixture configuration is outside this parser test',
+        owner: 'repo-atlas-tests',
       },
       evidence: {},
     },
@@ -192,11 +303,16 @@ function buildReport(root, {
     securityLedgers: verdict === 'incomplete' ? [] : ['security-src'],
   })
   const resolvedSummary = summary ?? summaryFrom(resolvedEntries, invalidLedgerDetails)
+  const policy = loadAuditReviewPolicy(root)
+  assert.notEqual(policy.policyHash, null)
   return {
     formatVersion: 1,
     format: 'atlas-review-coverage-v1',
     verdict,
-    policy: { format: 'fixture-policy-v1', hash: 'a'.repeat(64) },
+    policy: {
+      format: 'atlas-review-policy-v1',
+      hash: policy.policyHash,
+    },
     inventoryHash: inventoryHash ?? inventoryHashFor(resolvedEntries),
     units,
     summary: resolvedSummary,
@@ -214,6 +330,15 @@ function prepareFixtureRepo() {
     hashes: { 'src/a.ts': gitBlob(root, 'src/a.ts') },
   })
   commitAll(root)
+  write(
+    root,
+    '.atlas/review-policy.json',
+    `${JSON.stringify(fixtureReviewPolicy(), null, 2)}\n`,
+  )
+  fs.appendFileSync(
+    path.join(root, '.git/info/exclude'),
+    '\n.atlas/review-policy.json\n',
+  )
   return root
 }
 
@@ -228,6 +353,8 @@ function load(root) {
 
 test('missing coverage report is unknown rather than zero coverage', () => {
   const root = prepareFixtureRepo()
+  const atlas = path.join(root, '.atlas')
+  const parkedAtlas = path.join(root, '.atlas-missing-fixture')
   try {
     assert.ok(!fs.existsSync(reviewCoveragePath(root)))
     const portfolio = load(root)
@@ -237,7 +364,16 @@ test('missing coverage report is unknown rather than zero coverage', () => {
     assert.deepEqual(portfolio.drift, { added: [], removed: [], changed: [] })
     // Missing must not fabricate a zero-coverage report.
     assert.equal(portfolio.report?.summary?.tracked, undefined)
+
+    fs.renameSync(atlas, parkedAtlas)
+    const missingDirectory = load(root)
+    assert.equal(missingDirectory.state, 'missing')
+    assert.equal(missingDirectory.report, null)
+    assert.deepEqual(missingDirectory.errors, [])
   } finally {
+    if (fs.existsSync(parkedAtlas) && !fs.existsSync(atlas)) {
+      fs.renameSync(parkedAtlas, atlas)
+    }
     cleanup(root)
   }
 })
@@ -294,6 +430,764 @@ test('complete and incomplete reports preserve explicit verdicts', () => {
   }
 })
 
+test('coverage reader cannot certify across a pre-retention atlas acquisition gap', () => {
+  const root = prepareFixtureRepo()
+  const atlas = path.join(root, '.atlas')
+  const parkedAtlas = path.join(root, '.atlas-original')
+  const replacementAtlas = path.join(root, '.atlas-replacement')
+  const originalOpendir = fs.opendirSync
+  let swapped = false
+  try {
+    writeCoverage(root, buildReport(root, { verdict: 'incomplete' }))
+    const baseline = load(root)
+    assert.equal(
+      baseline.state,
+      'current',
+      JSON.stringify(baseline.errors),
+    )
+    fs.cpSync(atlas, replacementAtlas, { recursive: true })
+    assert.notEqual(
+      fs.statSync(atlas).ino,
+      fs.statSync(replacementAtlas).ino,
+    )
+
+    fs.opendirSync = function swapAfterUnretainedAtlasListing(file, ...rest) {
+      const directory = originalOpendir.call(fs, file, ...rest)
+      let isAtlasRoot = false
+      try {
+        isAtlasRoot = fs.realpathSync(file) === atlas
+      } catch {
+        // Only a named listing of the live .atlas root is relevant.
+      }
+      if (isAtlasRoot) {
+        const originalClose = directory.closeSync.bind(directory)
+        directory.closeSync = function closeThenSwapAtlas() {
+          const result = originalClose()
+          if (!swapped) {
+            fs.renameSync(atlas, parkedAtlas)
+            fs.renameSync(replacementAtlas, atlas)
+            swapped = true
+          }
+          return result
+        }
+      }
+      return directory
+    }
+
+    const portfolio = load(root)
+    assert.equal(
+      swapped && portfolio.state === 'current',
+      false,
+      'a preliminary .atlas listing and the retained report must not come from different directory identities',
+    )
+  } finally {
+    fs.opendirSync = originalOpendir
+    cleanup(root)
+  }
+})
+
+test('coverage exact-evidence validation never reopens atlas files through the retained root name', () => {
+  const root = prepareFixtureRepo()
+  const originalOpen = fs.openSync
+  const namedAtlasOpens = []
+  try {
+    const configPath = '.atlas/config.json'
+    const policy = fixtureReviewPolicy()
+    policy.rules = policy.rules.filter((rule) =>
+      rule.id !== 'fixture-config')
+    policy.rules[0].include.push(configPath)
+    policy.units[0].include.push(configPath)
+    write(
+      root,
+      '.atlas/review-policy.json',
+      `${JSON.stringify(policy, null, 2)}\n`,
+    )
+    writeV2(
+      root,
+      'security',
+      'security-src',
+      ['src/a.ts', configPath],
+      [securityFinding('src/a.ts')],
+      {
+        hashes: {
+          'src/a.ts': gitBlob(root, 'src/a.ts'),
+          [configPath]: gitBlob(root, configPath),
+        },
+      },
+    )
+    commitAll(root, 'review an atlas-owned config path')
+
+    const entries = [
+      {
+        path: 'src/a.ts',
+        blob: gitBlob(root, 'src/a.ts'),
+        ruleIds: ['source'],
+        classification: {
+          kind: 'review',
+          domains: { security: { unit: 'security-src' } },
+        },
+        evidence: {
+          security: { status: 'fresh', ledgers: ['security-src'] },
+        },
+      },
+      {
+        path: configPath,
+        blob: gitBlob(root, configPath),
+        ruleIds: ['source'],
+        classification: {
+          kind: 'review',
+          domains: { security: { unit: 'security-src' } },
+        },
+        evidence: {
+          security: { status: 'fresh', ledgers: ['security-src'] },
+        },
+      },
+      {
+        path: SELF_PATH,
+        ruleIds: ['generated-proof'],
+        classification: {
+          kind: 'excluded',
+          ruleId: 'generated-proof',
+          category: 'generated-proof',
+          reason: 'canonical report validates its own bytes',
+          owner: 'repo-atlas-tests',
+        },
+        evidence: {},
+      },
+      {
+        path: '.atlas/audits/security-src.json',
+        blob: gitBlob(root, '.atlas/audits/security-src.json'),
+        ruleIds: ['generated-ledger'],
+        classification: {
+          kind: 'excluded',
+          ruleId: 'generated-ledger',
+          category: 'generated',
+          reason: 'strict fixture builder output',
+        },
+        evidence: {},
+      },
+    ]
+    writeCoverage(root, buildReport(root, { entries }))
+    const portfolios = loadAuditPortfolios(root)
+    const baseline = loadReviewCoverage(root, portfolios)
+    assert.equal(
+      baseline.state,
+      'current',
+      JSON.stringify(baseline.errors),
+    )
+
+    fs.openSync = function recordNamedAtlasOpen(file, flags, ...rest) {
+      const candidate = String(file)
+      if (
+        /^\/proc\/self\/fd\/\d+\/\.atlas\/config\.json$/u.test(candidate)
+      ) {
+        namedAtlasOpens.push(candidate)
+      }
+      return originalOpen.call(fs, file, flags, ...rest)
+    }
+
+    const portfolio = loadReviewCoverage(root, portfolios)
+    assert.equal(
+      portfolio.state,
+      'current',
+      JSON.stringify(portfolio.errors),
+    )
+    assert.deepEqual(
+      namedAtlasOpens,
+      [],
+      'all .atlas file validation and hashing must descend from the retained .atlas descriptor',
+    )
+  } finally {
+    fs.openSync = originalOpen
+    cleanup(root)
+  }
+})
+
+test('coverage reader never certifies a policy modified after its validated read', () => {
+  const root = prepareFixtureRepo()
+  const policyPath = path.join(root, '.atlas/review-policy.json')
+  const originalOpen = fs.openSync
+  const originalClose = fs.closeSync
+  const policyFds = new Set()
+  let modified = false
+  try {
+    writeCoverage(root, buildReport(root, { verdict: 'incomplete' }))
+    const portfolios = loadAuditPortfolios(root)
+    const baseline = loadReviewCoverage(root, portfolios)
+    assert.equal(
+      baseline.state,
+      'current',
+      JSON.stringify(baseline.errors),
+    )
+
+    fs.openSync = function trackPolicyOpen(file, flags, ...rest) {
+      const fd = originalOpen.call(fs, file, flags, ...rest)
+      try {
+        if (fs.realpathSync(`/proc/self/fd/${fd}`) === policyPath) {
+          policyFds.add(fd)
+        }
+      } catch {
+        // Only a successfully opened policy descriptor matters here.
+      }
+      return fd
+    }
+    fs.closeSync = function mutatePolicyAfterValidatedRead(fd) {
+      const result = originalClose.call(fs, fd)
+      if (!modified && policyFds.has(fd)) {
+        fs.writeFileSync(policyPath, '{malformed policy replacement\n')
+        modified = true
+      }
+      return result
+    }
+
+    const portfolio = loadReviewCoverage(root, portfolios)
+    assert.equal(modified, true)
+    assert.notEqual(
+      portfolio.state,
+      'current',
+      'supporting policy bytes must remain sealed until coverage validation returns',
+    )
+  } finally {
+    fs.openSync = originalOpen
+    fs.closeSync = originalClose
+    cleanup(root)
+  }
+})
+
+test('coverage reader never certifies a source modified when final support hashing closes', () => {
+  const root = prepareFixtureRepo()
+  const sourcePath = path.join(root, 'src/a.ts')
+  const originalOpen = fs.openSync
+  const originalClose = fs.closeSync
+  const sourceFds = new Set()
+  let modified = false
+  try {
+    writeCoverage(root, buildReport(root, { verdict: 'incomplete' }))
+    const portfolios = loadAuditPortfolios(root)
+    const baseline = loadReviewCoverage(root, portfolios)
+    assert.equal(
+      baseline.state,
+      'current',
+      JSON.stringify(baseline.errors),
+    )
+
+    fs.openSync = function trackSourceOpen(file, flags, ...rest) {
+      const fd = originalOpen.call(fs, file, flags, ...rest)
+      try {
+        if (fs.realpathSync(`/proc/self/fd/${fd}`) === sourcePath) {
+          sourceFds.add(fd)
+        }
+      } catch {
+        // Only successfully opened source descriptors matter here.
+      }
+      return fd
+    }
+    fs.closeSync = function mutateSourceAfterFinalSupportHash(fd) {
+      const wasSource = sourceFds.delete(fd)
+      const result = originalClose.call(fs, fd)
+      if (
+        !modified &&
+        wasSource &&
+        new Error().stack?.includes('verifyAuditSupportSnapshot')
+      ) {
+        fs.writeFileSync(sourcePath, 'export const a = 2\n')
+        modified = true
+      }
+      return result
+    }
+
+    const portfolio = loadReviewCoverage(root, portfolios)
+    assert.equal(modified, true)
+    assert.notEqual(
+      portfolio.state,
+      'current',
+      'supporting source bytes must remain sealed through the transaction linearization point',
+    )
+  } finally {
+    fs.openSync = originalOpen
+    fs.closeSync = originalClose
+    cleanup(root)
+  }
+})
+
+test('coverage reader seals an empty audits directory through final listing cleanup', () => {
+  const root = makeRepo()
+  const auditsPath = path.join(root, '.atlas/audits')
+  const originalOpendir = fs.opendirSync
+  let added = false
+  try {
+    write(root, 'src/a.ts', 'export const a = 1\n')
+    commitAll(root)
+    write(
+      root,
+      '.atlas/review-policy.json',
+      `${JSON.stringify(fixtureReviewPolicy(), null, 2)}\n`,
+    )
+    fs.mkdirSync(auditsPath, { recursive: true })
+    const generated = updateAuditCoverage(root, { allowIncomplete: true })
+    assert.equal(generated.current, true)
+    const portfolios = loadAuditPortfolios(root)
+    const baseline = loadReviewCoverage(root, portfolios)
+    assert.equal(
+      baseline.state,
+      'current',
+      JSON.stringify(baseline.errors),
+    )
+
+    fs.opendirSync = function mutateAfterFinalAuditsListing(file, ...rest) {
+      const directory = originalOpendir.call(fs, file, ...rest)
+      let isAudits = false
+      try {
+        isAudits = fs.realpathSync(String(file)) === auditsPath
+      } catch {
+        // Only the retained fixture audits directory matters here.
+      }
+      if (isAudits) {
+        const close = directory.closeSync.bind(directory)
+        directory.closeSync = function closeThenAddLedger() {
+          const result = close()
+          if (
+            !added &&
+            new Error().stack?.includes('verifyAuditSupportSnapshot')
+          ) {
+            fs.writeFileSync(
+              path.join(auditsPath, 'late.json'),
+              '{malformed late ledger\n',
+            )
+            added = true
+          }
+          return result
+        }
+      }
+      return directory
+    }
+
+    const portfolio = loadReviewCoverage(root, portfolios)
+    assert.equal(added, true)
+    assert.notEqual(
+      portfolio.state,
+      'current',
+      'directory membership must remain sealed through final listing cleanup',
+    )
+  } finally {
+    fs.opendirSync = originalOpendir
+    cleanup(root)
+  }
+})
+
+test('coverage reader revalidates audits membership after final support file cleanup', () => {
+  const root = makeRepo()
+  const auditsPath = path.join(root, '.atlas/audits')
+  const sourcePath = path.join(root, 'src/a.ts')
+  const originalOpen = fs.openSync
+  const originalClose = fs.closeSync
+  const sourceFds = new Set()
+  let added = false
+  try {
+    write(root, 'src/a.ts', 'export const a = 1\n')
+    commitAll(root)
+    write(
+      root,
+      '.atlas/review-policy.json',
+      `${JSON.stringify(fixtureReviewPolicy(), null, 2)}\n`,
+    )
+    fs.mkdirSync(auditsPath, { recursive: true })
+    const generated = updateAuditCoverage(root, { allowIncomplete: true })
+    assert.equal(generated.current, true)
+    const portfolios = loadAuditPortfolios(root)
+    const baseline = loadReviewCoverage(root, portfolios)
+    assert.equal(
+      baseline.state,
+      'current',
+      JSON.stringify(baseline.errors),
+    )
+
+    fs.openSync = function trackSourceOpen(file, flags, ...rest) {
+      const fd = originalOpen.call(fs, file, flags, ...rest)
+      try {
+        if (fs.realpathSync(`/proc/self/fd/${fd}`) === sourcePath) {
+          sourceFds.add(fd)
+        }
+      } catch {
+        // Only successfully opened source descriptors matter here.
+      }
+      return fd
+    }
+    fs.closeSync = function addLedgerAfterFinalSupportHash(fd) {
+      const wasSource = sourceFds.delete(fd)
+      const result = originalClose.call(fs, fd)
+      if (
+        !added &&
+        wasSource &&
+        new Error().stack?.includes('verifyAuditSupportSnapshot')
+      ) {
+        fs.writeFileSync(
+          path.join(auditsPath, 'late.json'),
+          '{malformed late ledger\n',
+        )
+        added = true
+      }
+      return result
+    }
+
+    const portfolio = loadReviewCoverage(root, portfolios)
+    assert.equal(added, true)
+    assert.notEqual(
+      portfolio.state,
+      'current',
+      'directory membership must be checked after support file cleanup',
+    )
+  } finally {
+    fs.openSync = originalOpen
+    fs.closeSync = originalClose
+    cleanup(root)
+  }
+})
+
+test('coverage reader never certifies bytes from an atlas directory replaced after the report snapshot closes', () => {
+  const root = prepareFixtureRepo()
+  const atlas = path.join(root, '.atlas')
+  const parkedAtlas = path.join(root, '.atlas-original')
+  const replacementAtlas = path.join(root, '.atlas-replacement')
+  const originalOpen = fs.openSync
+  const originalClose = fs.closeSync
+  let reportFd = null
+  let swapped = false
+  try {
+    writeCoverage(root, buildReport(root, { verdict: 'incomplete' }))
+    const baseline = load(root)
+    assert.equal(
+      baseline.state,
+      'current',
+      JSON.stringify(baseline.errors),
+    )
+
+    fs.cpSync(atlas, replacementAtlas, { recursive: true })
+    fs.writeFileSync(
+      path.join(replacementAtlas, 'review-coverage.json'),
+      '{malformed replacement\n',
+    )
+
+    fs.openSync = function trackCoverageOpen(file, flags, ...rest) {
+      const fd = originalOpen.call(fs, file, flags, ...rest)
+      try {
+        if (
+          fs.realpathSync(`/proc/self/fd/${fd}`) ===
+          path.join(atlas, 'review-coverage.json')
+        ) {
+          reportFd = fd
+        }
+      } catch {
+        // Only the retained original coverage descriptor matters here.
+      }
+      return fd
+    }
+    fs.closeSync = function replaceAtlasAfterReportClose(fd) {
+      const result = originalClose.call(fs, fd)
+      if (!swapped && fd === reportFd) {
+        fs.renameSync(atlas, parkedAtlas)
+        fs.renameSync(replacementAtlas, atlas)
+        swapped = true
+      }
+      return result
+    }
+
+    const portfolio = load(root)
+    assert.equal(swapped, true)
+    assert.notEqual(
+      portfolio.state,
+      'current',
+      'a report snapshot cannot remain current after its containing .atlas identity changes',
+    )
+  } finally {
+    fs.openSync = originalOpen
+    fs.closeSync = originalClose
+    cleanup(root)
+  }
+})
+
+test('coverage reader never certifies through a transient atlas ABA replacement', () => {
+  const root = prepareFixtureRepo()
+  const atlas = path.join(root, '.atlas')
+  const parkedAtlas = path.join(root, '.atlas-original')
+  const replacementAtlas = path.join(root, '.atlas-replacement')
+  const reportPath = path.join(atlas, 'review-coverage.json')
+  const originalOpen = fs.openSync
+  const originalClose = fs.closeSync
+  const originalFstat = fs.fstatSync
+  const reportFds = new Set()
+  let retainedReportFd = null
+  let swapped = false
+  let restored = false
+  try {
+    writeCoverage(root, buildReport(root, { verdict: 'incomplete' }))
+    const baseline = load(root)
+    assert.equal(
+      baseline.state,
+      'current',
+      JSON.stringify(baseline.errors),
+    )
+    fs.cpSync(atlas, replacementAtlas, { recursive: true })
+
+    fs.openSync = function trackCoverageOpen(file, flags, ...rest) {
+      const fd = originalOpen.call(fs, file, flags, ...rest)
+      try {
+        if (
+          fs.realpathSync(`/proc/self/fd/${fd}`) === reportPath
+        ) {
+          reportFds.add(fd)
+          if (retainedReportFd === null) retainedReportFd = fd
+        }
+      } catch {
+        // Only the first retained report descriptor matters here.
+      }
+      return fd
+    }
+    fs.closeSync = function swapAtlasAfterInnerReportClose(fd) {
+      const result = originalClose.call(fs, fd)
+      if (
+        !swapped &&
+        retainedReportFd !== null &&
+        reportFds.has(fd) &&
+        fd !== retainedReportFd
+      ) {
+        let real = ''
+        try {
+          real = fs.realpathSync(`/proc/self/fd/${retainedReportFd}`)
+        } catch {
+          // The retained descriptor must stay live for the transaction.
+        }
+        if (real === reportPath) {
+          fs.renameSync(atlas, parkedAtlas)
+          fs.renameSync(replacementAtlas, atlas)
+          swapped = true
+        }
+      }
+      return result
+    }
+    fs.fstatSync = function restoreAtlasBeforeFinalIdentityCheck(fd) {
+      if (
+        swapped &&
+        !restored &&
+        fd === retainedReportFd
+      ) {
+        fs.renameSync(atlas, replacementAtlas)
+        fs.renameSync(parkedAtlas, atlas)
+        restored = true
+      }
+      return originalFstat.call(fs, fd)
+    }
+
+    const portfolio = load(root)
+    assert.equal(swapped, true)
+    assert.equal(restored, true)
+    assert.notEqual(
+      portfolio.state,
+      'current',
+      'all repository revalidation must remain bound to the retained .atlas capability',
+    )
+  } finally {
+    fs.openSync = originalOpen
+    fs.closeSync = originalClose
+    fs.fstatSync = originalFstat
+    if (fs.existsSync(parkedAtlas)) {
+      if (fs.existsSync(atlas) && !fs.existsSync(replacementAtlas)) {
+        fs.renameSync(atlas, replacementAtlas)
+      }
+      if (!fs.existsSync(atlas)) fs.renameSync(parkedAtlas, atlas)
+    }
+    cleanup(root)
+  }
+})
+
+test('coverage reader never certifies a report modified in place after its snapshot closes', () => {
+  const root = prepareFixtureRepo()
+  const reportPath = path.join(root, COVERAGE_REL)
+  const originalOpen = fs.openSync
+  const originalClose = fs.closeSync
+  let reportFd = null
+  let modified = false
+  try {
+    writeCoverage(root, buildReport(root, { verdict: 'incomplete' }))
+    assert.equal(load(root).state, 'current')
+
+    fs.openSync = function trackCoverageOpen(file, flags, ...rest) {
+      const fd = originalOpen.call(fs, file, flags, ...rest)
+      try {
+        if (fs.realpathSync(`/proc/self/fd/${fd}`) === reportPath) {
+          reportFd = fd
+        }
+      } catch {
+        // Only the retained coverage descriptor matters here.
+      }
+      return fd
+    }
+    fs.closeSync = function mutateCoverageAfterRead(fd) {
+      const result = originalClose.call(fs, fd)
+      if (!modified && fd === reportFd) {
+        modified = true
+        fs.writeFileSync(reportPath, '{malformed in-place replacement\n')
+      }
+      return result
+    }
+
+    const portfolio = load(root)
+    assert.equal(modified, true)
+    assert.notEqual(
+      portfolio.state,
+      'current',
+      'a report snapshot cannot remain current after its retained inode changes bytes',
+    )
+  } finally {
+    fs.openSync = originalOpen
+    fs.closeSync = originalClose
+    cleanup(root)
+  }
+})
+
+test('oversized coverage keeps the report-too-large diagnostic through identity retention', () => {
+  const root = prepareFixtureRepo()
+  try {
+    fs.writeFileSync(
+      path.join(root, COVERAGE_REL),
+      Buffer.alloc(AUDIT_LIMITS.jsonBytes + 1, 0x20),
+    )
+    const portfolio = load(root)
+    assert.equal(portfolio.state, 'invalid')
+    assert.ok(portfolio.errors.some((error) =>
+      error.code === 'report-too-large'))
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('current atlas policy strictly recomputes rule IDs, classification, and unit assignment', () => {
+  const root = prepareFixtureRepo()
+  try {
+    const base = buildReport(root, { verdict: 'complete' })
+    const sourceIndex = base.entries.findIndex((entry) =>
+      entry.path === 'src/a.ts')
+    assert.notEqual(sourceIndex, -1)
+
+    const forgedRuleIds = structuredClone(base)
+    forgedRuleIds.entries[sourceIndex].ruleIds = ['fixture-config']
+
+    const forgedExtraRuleId = structuredClone(base)
+    forgedExtraRuleId.entries[sourceIndex].ruleIds = [
+      'source',
+      'fixture-config',
+    ]
+
+    const forgedClassification = structuredClone(base)
+    forgedClassification.entries[sourceIndex] = {
+      ...forgedClassification.entries[sourceIndex],
+      ruleIds: ['source'],
+      classification: {
+        kind: 'excluded',
+        ruleId: 'source',
+        category: 'forged',
+        reason: 'forged policy interpretation',
+      },
+      evidence: {},
+    }
+    forgedClassification.units = []
+    forgedClassification.summary = summaryFrom(
+      forgedClassification.entries,
+    )
+
+    const forgedUnit = structuredClone(base)
+    forgedUnit.verdict = 'incomplete'
+    forgedUnit.entries[sourceIndex] = {
+      ...forgedUnit.entries[sourceIndex],
+      classification: {
+        kind: 'review',
+        domains: {
+          security: { unit: 'security-other' },
+        },
+      },
+      evidence: {
+        security: { status: 'missing', ledgers: [] },
+      },
+    }
+    forgedUnit.units = [{
+      domain: 'security',
+      slug: 'security-other',
+      title: 'Forged owner',
+    }]
+    forgedUnit.summary = summaryFrom(forgedUnit.entries)
+
+    for (const report of [
+      forgedRuleIds,
+      forgedExtraRuleId,
+      forgedClassification,
+      forgedUnit,
+    ]) {
+      writeCoverage(root, report)
+      const portfolio = load(root)
+      assert.equal(portfolio.state, 'invalid')
+      assert.ok(portfolio.errors.some((error) =>
+        error.code === 'policy-classification-mismatch'))
+    }
+
+    const reorderedPolicy = fixtureReviewPolicy()
+    reorderedPolicy.rules.push({
+      id: 'source-secondary',
+      include: ['src/**'],
+      except: [],
+      rationale: 'A second equivalent source review rule.',
+      domains: ['security'],
+    })
+    write(
+      root,
+      '.atlas/review-policy.json',
+      `${JSON.stringify(reorderedPolicy, null, 2)}\n`,
+    )
+    const reordered = buildReport(root, { verdict: 'complete' })
+    reordered.entries[sourceIndex].ruleIds = [
+      'source-secondary',
+      'source',
+    ]
+    writeCoverage(root, reordered)
+    assert.equal(load(root).state, 'current')
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('arbitrary non-atlas policy formats cannot become trusted-current', () => {
+  const root = prepareFixtureRepo()
+  try {
+    const report = buildReport(root, { verdict: 'complete' })
+    const sourceIndex = report.entries.findIndex((entry) =>
+      entry.path === 'src/a.ts')
+    report.entries[sourceIndex] = {
+      ...report.entries[sourceIndex],
+      ruleIds: ['forged-exclusion'],
+      classification: {
+        kind: 'excluded',
+        ruleId: 'forged-exclusion',
+        category: 'forged',
+        reason: 'unverified legacy interpretation',
+      },
+      evidence: {},
+    }
+    report.units = []
+    report.summary = summaryFrom(report.entries)
+    report.policy = {
+      format: 'forged-policy-v1',
+      hash: 'f'.repeat(64),
+    }
+
+    writeCoverage(root, report)
+    const portfolio = load(root)
+    assert.equal(portfolio.state, 'invalid')
+    assert.ok(portfolio.errors.some((error) =>
+      error.code === 'unsupported-policy-format'))
+  } finally {
+    cleanup(root)
+  }
+})
+
 test('invalid report ignores every embedded fresh claim', () => {
   const root = prepareFixtureRepo()
   try {
@@ -315,7 +1209,7 @@ test('invalid report ignores every embedded fresh claim', () => {
     assert.equal(portfolio.report, null)
     assert.ok(portfolio.errors.length >= 1)
     assert.ok(portfolio.errors.some((error) =>
-      /policy-error|reportErrors|invalid/i.test(`${error.code} ${error.message}`),
+      /summary|mismatch/i.test(`${error.code} ${error.message}`),
     ))
     // No trusted report projection — embedded fresh claims are unusable.
     assert.equal(portfolio.report?.summary?.securityFresh, undefined)
@@ -360,6 +1254,231 @@ test('coverage report rejects malformed JSON and future versions', () => {
   }
 })
 
+test('coverage reader uses strict bounded JSON while accepting pretty atlas V1 reports', () => {
+  const root = prepareFixtureRepo()
+  try {
+    const report = buildReport(root, { verdict: 'complete' })
+    const pretty = `${JSON.stringify(report, null, 2)}\n`
+    const invalidUtf8 = Buffer.from(pretty)
+    const titleOffset = invalidUtf8.indexOf(Buffer.from('"title": "Source"'))
+    assert.ok(titleOffset >= 0)
+    invalidUtf8[titleOffset + '"title": "'.length] = 0xff
+
+    const duplicateKey = pretty.replace(
+      '{',
+      '{"formatVersion":1,',
+    )
+    const excessiveDepth =
+      `${'['.repeat(258)}0${']'.repeat(258)}`
+    const excessiveMembers =
+      `[${'0,'.repeat(AUDIT_LIMITS.collectionItems)}0]`
+    const excessiveString = JSON.stringify({
+      ...report,
+      policy: {
+        ...report.policy,
+        format: 'x'.repeat(AUDIT_LIMITS.textCodeUnits + 1),
+      },
+    })
+    const cases = [
+      [invalidUtf8, /UTF-8/i],
+      [duplicateKey, /duplicate.*key/i],
+      [excessiveDepth, /depth|nesting/i],
+      [excessiveMembers, /collection|member|item.*limit/i],
+      [excessiveString, /string|code unit|text.*limit/i],
+    ]
+    for (const [bytes, errorPattern] of cases) {
+      fs.writeFileSync(reviewCoveragePath(root), bytes)
+      const portfolio = load(root)
+      assert.equal(portfolio.state, 'invalid')
+      assert.ok(portfolio.errors.some((error) =>
+        errorPattern.test(`${error.code} ${error.message}`)))
+    }
+
+    writeCoverage(root, report)
+    const current = load(root)
+    assert.equal(current.state, 'current')
+    assert.deepEqual(current.errors, [])
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('coverage validation uses indexed ownership, evidence-unit, and receipt joins', () => {
+  const roots = []
+  const originalFind = Array.prototype.find
+  let joinFindCalls = 0
+  const countJoinFind = function (...args) {
+    const first = this[0]
+    if (
+      first !== null &&
+      typeof first === 'object' &&
+      (
+        (
+          Object.hasOwn(first, 'path') &&
+          Object.hasOwn(first, 'reviewed') &&
+          Object.hasOwn(first, 'fullRead')
+        ) ||
+        (
+          Object.hasOwn(first, 'domain') &&
+          Object.hasOwn(first, 'slug') &&
+          (
+            Object.hasOwn(first, 'receipts') ||
+            Object.hasOwn(first, 'title')
+          )
+        )
+      )
+    ) {
+      joinFindCalls += 1
+    }
+    return Reflect.apply(originalFind, this, args)
+  }
+
+  try {
+    const root = makeRepo()
+    roots.push(root)
+    const sourcePaths = Array.from(
+      { length: 128 },
+      (_, index) => `src/file-${String(index).padStart(3, '0')}.ts`,
+    )
+    for (const sourcePath of sourcePaths) {
+      write(root, sourcePath, `export const value${sourcePath.length} = 1\n`)
+    }
+    writeV2(root, 'security', 'security-src', sourcePaths, [], {
+      hashes: Object.fromEntries(sourcePaths.map((sourcePath) =>
+        [sourcePath, gitBlob(root, sourcePath)])),
+    })
+    commitAll(root)
+    write(
+      root,
+      '.atlas/review-policy.json',
+      `${JSON.stringify(fixtureReviewPolicy(), null, 2)}\n`,
+    )
+    const entries = [
+      ...sourcePaths.map((sourcePath) => ({
+        path: sourcePath,
+        blob: gitBlob(root, sourcePath),
+        ruleIds: ['source'],
+        classification: {
+          kind: 'review',
+          domains: { security: { unit: 'security-src' } },
+        },
+        evidence: {
+          security: { status: 'fresh', ledgers: ['security-src'] },
+        },
+      })),
+      {
+        path: SELF_PATH,
+        ruleIds: ['generated-proof'],
+        classification: {
+          kind: 'excluded',
+          ruleId: 'generated-proof',
+          category: 'generated-proof',
+          reason: 'canonical report validates its own bytes',
+          owner: 'repo-atlas-tests',
+        },
+        evidence: {},
+      },
+      {
+        path: '.atlas/config.json',
+        blob: gitBlob(root, '.atlas/config.json'),
+        ruleIds: ['fixture-config'],
+        classification: {
+          kind: 'excluded',
+          ruleId: 'fixture-config',
+          category: 'fixture',
+          reason: 'fixture configuration is outside this parser test',
+          owner: 'repo-atlas-tests',
+        },
+        evidence: {},
+      },
+      {
+        path: '.atlas/audits/security-src.json',
+        blob: gitBlob(root, '.atlas/audits/security-src.json'),
+        ruleIds: ['generated-ledger'],
+        classification: {
+          kind: 'excluded',
+          ruleId: 'generated-ledger',
+          category: 'generated',
+          reason: 'strict fixture builder output',
+        },
+        evidence: {},
+      },
+    ]
+    writeCoverage(root, buildReport(root, { entries }))
+    const portfolios = loadAuditPortfolios(root)
+
+    const crossEvidenceRoot = makeRepo()
+    roots.push(crossEvidenceRoot)
+    write(crossEvidenceRoot, 'src/a.ts', 'export const a = 1\n')
+    writeV2(
+      crossEvidenceRoot,
+      'test',
+      'security-src',
+      ['src/a.ts'],
+      [],
+      { hashes: { 'src/a.ts': gitBlob(crossEvidenceRoot, 'src/a.ts') } },
+    )
+    commitAll(crossEvidenceRoot)
+    write(
+      crossEvidenceRoot,
+      '.atlas/review-policy.json',
+      `${JSON.stringify(fixtureReviewPolicy(), null, 2)}\n`,
+    )
+    writeCoverage(
+      crossEvidenceRoot,
+      buildReport(crossEvidenceRoot, { verdict: 'complete' }),
+    )
+    const crossEvidencePortfolios = loadAuditPortfolios(crossEvidenceRoot)
+
+    const ownershipRoot = prepareFixtureRepo()
+    roots.push(ownershipRoot)
+    const ownershipReport = buildReport(ownershipRoot, {
+      verdict: 'complete',
+    })
+    const source = ownershipReport.entries.find((entry) =>
+      entry.path === 'src/a.ts')
+    source.classification.domains.security.unit = 'test-owner'
+    source.evidence.security.ledgers = ['test-owner']
+    ownershipReport.units = [{
+      domain: 'test',
+      slug: 'test-owner',
+      title: 'Test owner',
+    }]
+    writeCoverage(ownershipRoot, ownershipReport)
+    const ownershipPortfolios = loadAuditPortfolios(ownershipRoot)
+
+    Array.prototype.find = countJoinFind
+    let fresh
+    let crossEvidence
+    let crossOwnership
+    try {
+      fresh = loadReviewCoverage(root, portfolios)
+      crossEvidence = loadReviewCoverage(
+        crossEvidenceRoot,
+        crossEvidencePortfolios,
+      )
+      crossOwnership = loadReviewCoverage(
+        ownershipRoot,
+        ownershipPortfolios,
+      )
+    } finally {
+      Array.prototype.find = originalFind
+    }
+
+    assert.equal(fresh.state, 'current')
+    assert.equal(crossEvidence.state, 'invalid')
+    assert.ok(crossEvidence.errors.some((error) =>
+      error.code === 'cross-domain-ledger'))
+    assert.equal(crossOwnership.state, 'invalid')
+    assert.ok(crossOwnership.errors.some((error) =>
+      error.code === 'unit-ownership'))
+    assert.equal(joinFindCalls, 0)
+  } finally {
+    Array.prototype.find = originalFind
+    for (const root of roots) cleanup(root)
+  }
+})
+
 test('coverage report rejects duplicate paths, units, and unsafe aliases', () => {
   const root = prepareFixtureRepo()
   try {
@@ -401,7 +1520,7 @@ test('coverage report rejects duplicate paths, units, and unsafe aliases', () =>
           : entry,
       )
       unsafe.summary = summaryFrom(unsafe.entries)
-      unsafe.inventoryHash = inventoryHashFor(unsafe.entries)
+      unsafe.inventoryHash = '0'.repeat(64)
       writeCoverage(root, unsafe)
       const portfolio = load(root)
       assert.equal(portfolio.state, 'invalid')
@@ -419,7 +1538,7 @@ test('coverage report rejects duplicate paths, units, and unsafe aliases', () =>
           : entry,
       )
       alias.summary = summaryFrom(alias.entries)
-      alias.inventoryHash = inventoryHashFor(alias.entries)
+      alias.inventoryHash = '0'.repeat(64)
       writeCoverage(root, alias)
       const portfolio = load(root)
       assert.equal(portfolio.state, 'invalid')
@@ -540,7 +1659,14 @@ test('coverage report recomputes summary identities and unit ownership', () => {
   }
 })
 
-function excludedEntry(root, repoPath, ruleId, category, reason) {
+function excludedEntry(
+  root,
+  repoPath,
+  ruleId,
+  category,
+  reason,
+  owner,
+) {
   return {
     path: repoPath,
     blob: gitBlob(root, repoPath),
@@ -550,42 +1676,16 @@ function excludedEntry(root, repoPath, ruleId, category, reason) {
       ruleId,
       category,
       reason,
+      ...(owner === undefined ? {} : { owner }),
     },
     evidence: {},
   }
 }
 
 function rebuildCanonicalAfterMutation(root, { securityStatus = 'fresh', securityLedgers = ['security-src'] } = {}) {
-  // Inventory must match after ledger/source mutations: re-read every tracked
-  // blob while preserving the security claim under test.
-  const reviewEvidence = securityStatus === 'missing'
-    ? { security: { status: 'missing', ledgers: [] } }
-    : { security: { status: securityStatus, ledgers: securityLedgers } }
-  return [
-    {
-      path: 'src/a.ts',
-      blob: gitBlob(root, 'src/a.ts'),
-      ruleIds: ['source'],
-      classification: {
-        kind: 'review',
-        domains: { security: { unit: 'security-src' } },
-      },
-      evidence: reviewEvidence,
-    },
-    {
-      path: SELF_PATH,
-      ruleIds: ['generated-proof'],
-      classification: {
-        kind: 'excluded',
-        ruleId: 'generated-proof',
-        category: 'generated-proof',
-        reason: 'canonical report validates its own bytes',
-      },
-      evidence: {},
-    },
-    excludedEntry(root, '.atlas/config.json', 'fixture-config', 'fixture', 'fixture configuration'),
-    excludedEntry(root, '.atlas/audits/security-src.json', 'generated-ledger', 'generated', 'ledger under test'),
-  ]
+  // Re-read every tracked blob while preserving the exact policy-owned
+  // classification metadata and the security claim under test.
+  return canonicalEntries(root, { securityStatus, securityLedgers })
 }
 
 test('coverage inventory detects added removed and changed tracked paths', () => {
@@ -691,11 +1791,56 @@ test('coverage inventory is NUL-safe for newline and option-like paths', () => {
     write(root, newlinePath, 'export const lineBreak = 1\n')
     write(root, optionPath, 'export const option = 1\n')
     commitAll(root, 'add NUL-hostile paths')
+    const policy = fixtureReviewPolicy()
+    policy.rules[0].except = [newlinePath]
+    policy.rules.push(
+      {
+        id: 'newline-path',
+        include: [newlinePath],
+        except: [],
+        rationale: 'Exercise NUL-delimited Git inventory parsing.',
+        excluded: {
+          category: 'fixture',
+          reason: 'newline in path',
+          owner: 'repo-atlas-tests',
+        },
+      },
+      {
+        id: 'option-path',
+        include: [optionPath],
+        except: [],
+        rationale: 'Exercise option-like Git inventory paths.',
+        excluded: {
+          category: 'fixture',
+          reason: 'option-like path',
+          owner: 'repo-atlas-tests',
+        },
+      },
+    )
+    write(
+      root,
+      '.atlas/review-policy.json',
+      `${JSON.stringify(policy, null, 2)}\n`,
+    )
 
     const entries = [
       ...canonicalEntries(root),
-      excludedEntry(root, newlinePath, 'newline-path', 'fixture', 'newline in path'),
-      excludedEntry(root, optionPath, 'option-path', 'fixture', 'option-like path'),
+      excludedEntry(
+        root,
+        newlinePath,
+        'newline-path',
+        'fixture',
+        'newline in path',
+        'repo-atlas-tests',
+      ),
+      excludedEntry(
+        root,
+        optionPath,
+        'option-path',
+        'fixture',
+        'option-like path',
+        'repo-atlas-tests',
+      ),
     ]
     const report = buildReport(root, { verdict: 'complete', entries })
     writeCoverage(root, report)
@@ -947,7 +2092,18 @@ test('fresh evidence requires a current v2 same-domain ledger containing the exa
       const entries = rebuildCanonicalAfterMutation(root)
       // Scope mutation tracks an extra file that must appear in inventory.
       if (mutation.name === 'scope') {
-        entries.push(excludedEntry(root, 'src/other.ts', 'other-source', 'fixture', 'scope mutation helper'))
+        entries.push({
+          path: 'src/other.ts',
+          blob: gitBlob(root, 'src/other.ts'),
+          ruleIds: ['source'],
+          classification: {
+            kind: 'review',
+            domains: { security: { unit: 'security-src' } },
+          },
+          evidence: {
+            security: { status: 'fresh', ledgers: ['security-src'] },
+          },
+        })
       }
       const report = buildReport(root, {
         verdict: 'complete',
@@ -956,6 +2112,14 @@ test('fresh evidence requires a current v2 same-domain ledger containing the exa
       })
       writeCoverage(root, report)
       const portfolio = load(root)
+      if (mutation.name === 'staleness') {
+        // Coverage freshness is receipt-local. A unit-level scope hash drift
+        // cannot poison a complete V2 exact hash receipt whose path/blob still
+        // matches the current inventory.
+        assert.equal(portfolio.state, 'current')
+        assert.equal(portfolio.report?.verdict, 'complete')
+        continue
+      }
       assert.equal(
         portfolio.state,
         'invalid',

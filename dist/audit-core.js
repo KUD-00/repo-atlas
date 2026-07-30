@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { TextDecoder } from 'node:util';
+import { TextDecoder, types as utilTypes } from 'node:util';
 export const AUDIT_LIMITS = {
     jsonBytes: 32 * 1024 * 1024,
     collectionItems: 1_000_000,
@@ -18,6 +19,7 @@ const UTF8 = new TextDecoder('utf-8', { fatal: true });
 const PROCESS_STARTED_AT = new Date(Date.now() - process.uptime() * 1_000).toISOString();
 const PROTOTYPE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const AUDIT_ID_PREFIXES = new Set(['aobs', 'atocc', 'adev', 'amig', 'acmp']);
+const anchoredRootIdentity = new AsyncLocalStorage();
 function errnoCode(error) {
     return error && typeof error === 'object' && 'code' in error
         ? String(error.code)
@@ -46,6 +48,16 @@ function safeRoot(root) {
         throw new Error('audit repository root must be a nonempty path');
     }
     const absolute = path.resolve(root);
+    const retained = anchoredRootIdentity.getStore();
+    if (retained !== undefined) {
+        const retainedReal = retainedSafeRoot(retained.root);
+        if (absolute !== retained.root.repository.absolute &&
+            absolute !== retained.root.procPath &&
+            absolute !== retainedReal.real) {
+            throw new Error('audit repository root differs from the retained operation root identity');
+        }
+        return retainedReal;
+    }
     let stat;
     try {
         stat = fs.lstatSync(absolute);
@@ -73,6 +85,47 @@ function safeRoot(root) {
         device: confirmed.dev,
         inode: confirmed.ino,
     };
+}
+function retainedSafeRoot(root) {
+    const opened = fs.fstatSync(root.fd);
+    let real;
+    let visible;
+    try {
+        real = fs.realpathSync(root.procPath);
+        visible = fs.lstatSync(real);
+    }
+    catch {
+        throw new Error('retained audit repository root is no longer a safe directory');
+    }
+    if (!opened.isDirectory() ||
+        opened.dev !== root.device ||
+        opened.ino !== root.inode ||
+        visible.isSymbolicLink() ||
+        !visible.isDirectory() ||
+        visible.dev !== root.device ||
+        visible.ino !== root.inode ||
+        fs.realpathSync(real) !== real) {
+        throw new Error('retained audit repository root changed identity');
+    }
+    return {
+        absolute: real,
+        real,
+        device: root.device,
+        inode: root.inode,
+    };
+}
+export function anchoredAuditRootPath(root) {
+    const retained = anchoredRootIdentity.getStore();
+    if (retained === undefined)
+        return root;
+    const absolute = path.resolve(root);
+    const retainedReal = retainedSafeRoot(retained.root);
+    if (absolute !== retained.root.repository.absolute &&
+        absolute !== retained.root.procPath &&
+        absolute !== retainedReal.real) {
+        throw new Error('audit repository root differs from the retained operation root identity');
+    }
+    return retained.root.procPath;
 }
 function verifySafeRootIdentity(repository) {
     let current;
@@ -357,6 +410,442 @@ class BoundedJsonParser {
         }
     }
 }
+function auditSupportParentSeal(parent, repoPath) {
+    const stat = fs.fstatSync(parent.fd, { bigint: true });
+    if (!stat.isDirectory()) {
+        throw new Error('retained audit support parent is no longer a directory');
+    }
+    const parentPath = path.posix.dirname(repoPath);
+    return {
+        relativePath: parentPath === '.' ? '' : parentPath,
+        device: stat.dev,
+        inode: stat.ino,
+        mode: stat.mode,
+        ctimeNs: stat.ctimeNs,
+        mtimeNs: stat.mtimeNs,
+    };
+}
+function sameAuditSupportParent(left, right) {
+    return left.relativePath === right.relativePath &&
+        left.device === right.device &&
+        left.inode === right.inode &&
+        left.mode === right.mode &&
+        left.ctimeNs === right.ctimeNs &&
+        left.mtimeNs === right.mtimeNs;
+}
+function registerAuditSupportFileSeal(repoPath, parent, fd, blobSha256) {
+    const context = anchoredRootIdentity.getStore();
+    const seals = context?.auditSupportFiles;
+    if (seals === undefined)
+        return;
+    if (context?.auditSupportAbsences?.has(repoPath)) {
+        throw new Error(`audit support path appeared during the retained transaction: ${repoPath}`);
+    }
+    const parentSeal = auditSupportParentSeal(parent, repoPath);
+    if (parentSeal === null)
+        return;
+    const stat = fs.fstatSync(fd, { bigint: true });
+    if (!stat.isFile()) {
+        throw new Error(`retained audit support file is no longer regular: ${repoPath}`);
+    }
+    const candidate = {
+        repoPath,
+        blobSha256,
+        size: stat.size,
+        device: stat.dev,
+        inode: stat.ino,
+        mode: stat.mode,
+        ctimeNs: stat.ctimeNs,
+        mtimeNs: stat.mtimeNs,
+        parent: parentSeal,
+    };
+    const existing = seals.get(repoPath);
+    if (existing === undefined) {
+        if (context?.verifyingAuditSupport) {
+            throw new Error(`audit support verification encountered an unsealed file: ${repoPath}`);
+        }
+        if (seals.size >= AUDIT_LIMITS.collectionItems) {
+            throw new Error(`audit support file seals exceed the ${AUDIT_LIMITS.collectionItems}-file limit`);
+        }
+        seals.set(repoPath, candidate);
+        return;
+    }
+    if (existing.blobSha256 !== candidate.blobSha256 ||
+        existing.size !== candidate.size ||
+        existing.device !== candidate.device ||
+        existing.inode !== candidate.inode ||
+        existing.mode !== candidate.mode ||
+        existing.ctimeNs !== candidate.ctimeNs ||
+        existing.mtimeNs !== candidate.mtimeNs ||
+        !sameAuditSupportParent(existing.parent, candidate.parent)) {
+        throw new Error(`audit support file changed during the retained transaction: ${repoPath}`);
+    }
+}
+function registerAuditSupportAbsenceSeal(repoPath, parent, parentRelativePath, maxBytes) {
+    const context = anchoredRootIdentity.getStore();
+    const seals = context?.auditSupportAbsences;
+    if (seals === undefined)
+        return;
+    if (context?.auditSupportFiles?.has(repoPath)) {
+        throw new Error(`audit support path disappeared during the retained transaction: ${repoPath}`);
+    }
+    const stat = fs.fstatSync(parent.fd, { bigint: true });
+    if (!stat.isDirectory()) {
+        throw new Error(`retained audit support absence parent is no longer a directory: ${repoPath}`);
+    }
+    const candidate = {
+        repoPath,
+        maxBytes,
+        parent: {
+            relativePath: parentRelativePath,
+            device: stat.dev,
+            inode: stat.ino,
+            mode: stat.mode,
+            ctimeNs: stat.ctimeNs,
+            mtimeNs: stat.mtimeNs,
+        },
+    };
+    const existing = seals.get(repoPath);
+    if (existing === undefined) {
+        if (context?.verifyingAuditSupport) {
+            throw new Error(`audit support verification encountered an unsealed absence: ${repoPath}`);
+        }
+        if (seals.size >= AUDIT_LIMITS.collectionItems) {
+            throw new Error(`audit support absence seals exceed the ${AUDIT_LIMITS.collectionItems}-path limit`);
+        }
+        seals.set(repoPath, candidate);
+        return;
+    }
+    if (existing.maxBytes !== candidate.maxBytes ||
+        !sameAuditSupportParent(existing.parent, candidate.parent)) {
+        throw new Error(`audit support absence changed during the retained transaction: ${repoPath}`);
+    }
+}
+function auditDirectoryEntriesDigest(entries) {
+    const digest = createHash('sha256')
+        .update('repo-atlas/audit-support-directory/v1\0', 'utf8');
+    for (const entry of entries) {
+        const bytes = Buffer.from(entry, 'utf8');
+        digest
+            .update(String(bytes.byteLength), 'ascii')
+            .update(':', 'ascii')
+            .update(bytes);
+    }
+    return digest.digest('hex');
+}
+function registerAuditSupportDirectorySeal(repoPath, directory, entries) {
+    const context = anchoredRootIdentity.getStore();
+    const seals = context?.auditSupportDirectories;
+    if (seals === undefined ||
+        repoPath.length === 0) {
+        return;
+    }
+    const stat = fs.fstatSync(directory.fd, { bigint: true });
+    if (!stat.isDirectory()) {
+        throw new Error(`retained audit support directory is no longer safe: ${repoPath}`);
+    }
+    const candidate = {
+        repoPath,
+        entriesDigest: auditDirectoryEntriesDigest(entries),
+        device: stat.dev,
+        inode: stat.ino,
+        mode: stat.mode,
+        ctimeNs: stat.ctimeNs,
+        mtimeNs: stat.mtimeNs,
+    };
+    const existing = seals.get(repoPath);
+    if (existing === undefined) {
+        if (context?.verifyingAuditSupport) {
+            throw new Error(`audit support verification encountered an unsealed directory: ${repoPath}`);
+        }
+        if (seals.size >= AUDIT_LIMITS.collectionItems) {
+            throw new Error(`audit support directory seals exceed the ${AUDIT_LIMITS.collectionItems}-directory limit`);
+        }
+        seals.set(repoPath, candidate);
+        return;
+    }
+    if (existing.entriesDigest !== candidate.entriesDigest ||
+        existing.device !== candidate.device ||
+        existing.inode !== candidate.inode ||
+        existing.mode !== candidate.mode ||
+        existing.ctimeNs !== candidate.ctimeNs ||
+        existing.mtimeNs !== candidate.mtimeNs) {
+        throw new Error(`audit support directory changed during the retained transaction: ${repoPath}`);
+    }
+}
+function auditSupportGitQueryKey(arguments_, maxBytes) {
+    const digest = createHash('sha256')
+        .update('repo-atlas/audit-support-git-query/v1\0', 'utf8')
+        .update(String(maxBytes), 'ascii')
+        .update('\0', 'ascii');
+    for (const argument of arguments_) {
+        const bytes = Buffer.from(argument, 'utf8');
+        digest
+            .update(String(bytes.byteLength), 'ascii')
+            .update(':', 'ascii')
+            .update(bytes);
+    }
+    return digest.digest('hex');
+}
+function registerAuditSupportGitQuerySeal(arguments_, maxBytes, output) {
+    const context = anchoredRootIdentity.getStore();
+    const seals = context?.auditSupportGitQueries;
+    if (seals === undefined)
+        return;
+    if (arguments_.length > AUDIT_LIMITS.collectionItems ||
+        arguments_.some((argument) => argument.length > AUDIT_LIMITS.textCodeUnits ||
+            argument.includes('\0') ||
+            hasLoneSurrogate(argument))) {
+        throw new Error('audit support Git query arguments exceed their safe bounds');
+    }
+    const key = auditSupportGitQueryKey(arguments_, maxBytes);
+    const candidate = {
+        arguments: [...arguments_],
+        maxBytes,
+        byteLength: output.byteLength,
+        sha256: createHash('sha256').update(output).digest('hex'),
+    };
+    const existing = seals.get(key);
+    if (existing === undefined) {
+        if (context?.verifyingAuditSupport) {
+            throw new Error('audit support verification encountered an unsealed Git query');
+        }
+        if (seals.size >= AUDIT_LIMITS.collectionItems) {
+            throw new Error(`audit support Git query seals exceed the ${AUDIT_LIMITS.collectionItems}-query limit`);
+        }
+        seals.set(key, candidate);
+        return;
+    }
+    if (existing.maxBytes !== candidate.maxBytes ||
+        existing.byteLength !== candidate.byteLength ||
+        existing.sha256 !== candidate.sha256 ||
+        existing.arguments.length !== candidate.arguments.length ||
+        existing.arguments.some((argument, index) => argument !== candidate.arguments[index])) {
+        throw new Error(`audit support Git query changed during the retained transaction: ${arguments_.join(' ')}`);
+    }
+}
+function verifyVisibleAuditSupportFileSeal(rootPath, seal) {
+    const anchored = openAnchoredAuditParent(rootPath, seal.repoPath, false);
+    const cleanupFailures = [];
+    let primaryFailed = false;
+    let primaryFailure;
+    try {
+        verifyAnchoredAuditParent(anchored, seal.repoPath);
+        const parent = auditSupportParentSeal(anchored.parent, seal.repoPath);
+        const visible = fs.lstatSync(anchoredChildPath(anchored.parent, path.posix.basename(seal.repoPath)), { bigint: true, throwIfNoEntry: false });
+        if (parent === null ||
+            !sameAuditSupportParent(parent, seal.parent) ||
+            visible === undefined ||
+            !visible.isFile() ||
+            visible.isSymbolicLink() ||
+            visible.dev !== seal.device ||
+            visible.ino !== seal.inode ||
+            visible.mode !== seal.mode ||
+            visible.size !== seal.size ||
+            visible.ctimeNs !== seal.ctimeNs ||
+            visible.mtimeNs !== seal.mtimeNs) {
+            throw new Error(`audit support file changed after final hashing: ${seal.repoPath}`);
+        }
+        verifyAnchoredAuditParent(anchored, seal.repoPath);
+    }
+    catch (error) {
+        primaryFailed = true;
+        primaryFailure = error;
+    }
+    closeAnchoredAuditParent(anchored, cleanupFailures);
+    throwCombinedFailures(primaryFailed, primaryFailure, cleanupFailures, 'audit support final visibility verification failed and cleanup also failed');
+}
+function verifyVisibleAuditSupportDirectorySeal(rootPath, seal) {
+    const anchored = openAnchoredAuditParent(rootPath, seal.repoPath, false);
+    const cleanupFailures = [];
+    let primaryFailed = false;
+    let primaryFailure;
+    try {
+        verifyAnchoredAuditParent(anchored, seal.repoPath);
+        const visible = fs.lstatSync(anchoredChildPath(anchored.parent, path.posix.basename(seal.repoPath)), { bigint: true, throwIfNoEntry: false });
+        if (visible === undefined ||
+            !visible.isDirectory() ||
+            visible.isSymbolicLink() ||
+            visible.dev !== seal.device ||
+            visible.ino !== seal.inode ||
+            visible.mode !== seal.mode ||
+            visible.ctimeNs !== seal.ctimeNs ||
+            visible.mtimeNs !== seal.mtimeNs) {
+            throw new Error(`audit support directory changed after final listing: ${seal.repoPath}`);
+        }
+        verifyAnchoredAuditParent(anchored, seal.repoPath);
+    }
+    catch (error) {
+        primaryFailed = true;
+        primaryFailure = error;
+    }
+    closeAnchoredAuditParent(anchored, cleanupFailures);
+    throwCombinedFailures(primaryFailed, primaryFailure, cleanupFailures, 'audit support directory final visibility verification failed and cleanup also failed');
+}
+function verifyVisibleAuditSupportAbsenceSeal(rootPath, seal) {
+    const parentProbePath = seal.parent.relativePath.length === 0
+        ? '.audit-absence-probe'
+        : `${seal.parent.relativePath}/.audit-absence-probe`;
+    const anchored = openAnchoredAuditParent(rootPath, parentProbePath, false);
+    const cleanupFailures = [];
+    let primaryFailed = false;
+    let primaryFailure;
+    try {
+        verifyAnchoredAuditParent(anchored, seal.repoPath);
+        const parent = auditSupportParentSeal(anchored.parent, parentProbePath);
+        const pathSegments = seal.repoPath.split('/');
+        const parentSegmentCount = seal.parent.relativePath.length === 0
+            ? 0
+            : seal.parent.relativePath.split('/').length;
+        const firstMissingSegment = pathSegments[parentSegmentCount];
+        const visible = firstMissingSegment === undefined
+            ? undefined
+            : fs.lstatSync(path.join(anchored.parent.procPath, firstMissingSegment), { throwIfNoEntry: false });
+        const parentAfterVisibilityProbe = auditSupportParentSeal(anchored.parent, parentProbePath);
+        if (parent === null ||
+            !sameAuditSupportParent(parent, seal.parent) ||
+            firstMissingSegment === undefined ||
+            visible !== undefined ||
+            parentAfterVisibilityProbe === null ||
+            !sameAuditSupportParent(parentAfterVisibilityProbe, seal.parent)) {
+            throw new Error(`audit support path appeared after final absence hashing: ${seal.repoPath}`);
+        }
+        verifyAnchoredAuditParent(anchored, seal.repoPath);
+    }
+    catch (error) {
+        primaryFailed = true;
+        primaryFailure = error;
+    }
+    closeAnchoredAuditParent(anchored, cleanupFailures);
+    throwCombinedFailures(primaryFailed, primaryFailure, cleanupFailures, 'audit support absence final visibility verification failed and cleanup also failed');
+}
+function verifyAuditSupportSnapshot(context) {
+    const fileSeals = context.auditSupportFiles;
+    const directorySeals = context.auditSupportDirectories;
+    const gitQuerySeals = context.auditSupportGitQueries;
+    const absenceSeals = context.auditSupportAbsences;
+    if ((fileSeals === undefined || fileSeals.size === 0) &&
+        (directorySeals === undefined || directorySeals.size === 0) &&
+        (gitQuerySeals === undefined || gitQuerySeals.size === 0) &&
+        (absenceSeals === undefined || absenceSeals.size === 0)) {
+        return;
+    }
+    const verificationContext = {
+        ...context,
+        verifyingAuditSupport: true,
+    };
+    anchoredRootIdentity.run(verificationContext, () => {
+        for (const repoPath of [...(directorySeals?.keys() ?? [])].sort()) {
+            listBoundedAuditDirectory(context.root.procPath, repoPath, AUDIT_LIMITS.collectionItems);
+        }
+        if ((fileSeals !== undefined && fileSeals.size > 0) ||
+            (gitQuerySeals !== undefined && gitQuerySeals.size > 0) ||
+            (absenceSeals !== undefined && absenceSeals.size > 0)) {
+            withAnchoredAuditGitCapability(context.root.procPath, (capability) => {
+                for (const repoPath of [...(absenceSeals?.keys() ?? [])].sort()) {
+                    const seal = absenceSeals.get(repoPath);
+                    if (capability.hashWorktreeFile(repoPath, 'sha256', seal.maxBytes) !== null) {
+                        throw new Error(`audit support path appeared during the retained transaction: ${repoPath}`);
+                    }
+                }
+                for (const repoPath of [...(fileSeals?.keys() ?? [])].sort()) {
+                    const seal = fileSeals.get(repoPath);
+                    const maxBytes = Number(seal.size);
+                    if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+                        throw new Error(`audit support file size is outside the safe integer range: ${repoPath}`);
+                    }
+                    if (capability.hashWorktreeFile(repoPath, 'sha256', maxBytes) === null) {
+                        throw new Error(`audit support file disappeared during the retained transaction: ${repoPath}`);
+                    }
+                }
+                for (const key of [...(gitQuerySeals?.keys() ?? [])].sort()) {
+                    const seal = gitQuerySeals.get(key);
+                    capability.gitBytes(seal.arguments, seal.maxBytes);
+                }
+            });
+        }
+        for (const repoPath of [...(fileSeals?.keys() ?? [])].sort()) {
+            verifyVisibleAuditSupportFileSeal(context.root.procPath, fileSeals.get(repoPath));
+        }
+        for (const repoPath of [...(directorySeals?.keys() ?? [])].sort()) {
+            verifyVisibleAuditSupportDirectorySeal(context.root.procPath, directorySeals.get(repoPath));
+        }
+        for (const repoPath of [...(absenceSeals?.keys() ?? [])].sort()) {
+            verifyVisibleAuditSupportAbsenceSeal(context.root.procPath, absenceSeals.get(repoPath));
+        }
+    });
+}
+/**
+ * Records every bounded repository input read by one operation and revalidates
+ * the complete support set before allowing the operation result to escape.
+ * When an anchored root already exists (for example under withAuditLock), the
+ * retained root identity is reused instead of reopening the repository name.
+ */
+export function withAnchoredAuditSupportSnapshot(rootPath, operation) {
+    if (typeof operation !== 'function') {
+        throw new Error('anchored audit support operation must be a function');
+    }
+    const inheritedContext = anchoredRootIdentity.getStore();
+    if (inheritedContext === undefined) {
+        return withAnchoredAuditRootIdentity(rootPath, (anchoredRootPath) => withAnchoredAuditSupportSnapshot(anchoredRootPath, operation));
+    }
+    safeRoot(rootPath);
+    const operationContext = {
+        ...inheritedContext,
+        auditSupportFiles: inheritedContext.auditSupportFiles ??
+            new Map(),
+        auditSupportDirectories: inheritedContext.auditSupportDirectories ??
+            new Map(),
+        auditSupportGitQueries: inheritedContext.auditSupportGitQueries ??
+            new Map(),
+        auditSupportAbsences: inheritedContext.auditSupportAbsences ??
+            new Map(),
+    };
+    const finish = (primaryFailed, primaryFailure, value) => {
+        const verificationFailures = [];
+        try {
+            verifyAuditSupportSnapshot(operationContext);
+        }
+        catch (error) {
+            verificationFailures.push(error);
+        }
+        throwCombinedFailures(primaryFailed, primaryFailure, verificationFailures, 'anchored audit support operation failed and snapshot verification also failed');
+        return value;
+    };
+    return anchoredRootIdentity.run(operationContext, () => {
+        let result;
+        try {
+            result = operation();
+        }
+        catch (error) {
+            return finish(true, error);
+        }
+        if (result !== null &&
+            (typeof result === 'object' || typeof result === 'function')) {
+            let then;
+            try {
+                then = result.then;
+            }
+            catch (error) {
+                return finish(true, error);
+            }
+            if (typeof then === 'function') {
+                const pending = new Promise((resolve, reject) => {
+                    queueMicrotask(() => {
+                        try {
+                            Reflect.apply(then, result, [resolve, reject]);
+                        }
+                        catch (error) {
+                            reject(error);
+                        }
+                    });
+                });
+                return pending.then((value) => finish(false, undefined, value), (error) => finish(true, error));
+            }
+        }
+        return finish(false, undefined, result);
+    });
+}
 function readExactFile(fd, stat, repoPath, subject) {
     const buffer = Buffer.allocUnsafe(stat.size);
     let offset = 0;
@@ -422,6 +911,10 @@ function readAnchoredAuditFile(root, repoPath, maxBytes, subject, transform) {
         const bytes = readExactFile(fd, opened, normalized, subject);
         verifyAnchoredAuditParent(anchored, normalized);
         verifyAnchoredRegularFile(parent, fileName, opened, normalized);
+        registerAuditSupportFileSeal(normalized, parent, fd, createHash('sha256')
+            .update(`blob ${bytes.byteLength}\0`, 'utf8')
+            .update(bytes)
+            .digest('hex'));
         result = transform(bytes, normalized);
         verifyAnchoredAuditParent(anchored, normalized);
         verifyAnchoredRegularFile(parent, fileName, opened, normalized);
@@ -498,7 +991,18 @@ export function listBoundedAuditDirectory(root, repoDirectory, maxEntries = 100_
         let current = rootDirectory;
         let namedPath = repository.real;
         let missing = null;
-        for (const segment of normalized.split('/')) {
+        for (const [segmentIndex, segment] of normalized
+            .split('/')
+            .entries()) {
+            if (segmentIndex === 0 && segment === '.atlas') {
+                const retainedAuditDirectory = openRetainedAuditDirectory(repository, normalized);
+                if (retainedAuditDirectory !== null) {
+                    owned.push(retainedAuditDirectory);
+                    current = retainedAuditDirectory;
+                    namedPath = retainedAuditDirectory.namedPath;
+                    continue;
+                }
+            }
             const childPath = path.join(current.procPath, segment);
             const child = fs.lstatSync(childPath, { throwIfNoEntry: false });
             if (!child) {
@@ -520,6 +1024,13 @@ export function listBoundedAuditDirectory(root, repoDirectory, maxEntries = 100_
                     repository,
                     device: opened.dev,
                     inode: opened.ino,
+                    ...(current.auditRelativePath === undefined
+                        ? {}
+                        : {
+                            auditRelativePath: current.auditRelativePath.length === 0
+                                ? segment
+                                : `${current.auditRelativePath}/${segment}`,
+                        }),
                 };
                 owned.push(next);
                 adopted = true;
@@ -595,6 +1106,7 @@ export function listBoundedAuditDirectory(root, repoDirectory, maxEntries = 100_
                 verifyAnchoredDirectory(directory, normalized);
             }
             result = entries.sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+            registerAuditSupportDirectorySeal(normalized, current, result);
         }
         else {
             for (const directory of owned) {
@@ -633,6 +1145,216 @@ export function listBoundedAuditDirectory(root, repoDirectory, maxEntries = 100_
     throwCombinedFailures(primaryFailed, primaryFailure, cleanupFailures, 'audit directory listing failed and descriptor cleanup also failed');
     return result;
 }
+function retainedAuditFileDigest(fd, expected, repoPath) {
+    if (!Number.isSafeInteger(expected.size) ||
+        expected.size < 0 ||
+        expected.size > AUDIT_LIMITS.jsonBytes) {
+        throw new Error(`retained audit file exceeds its byte bound: ${repoPath}`);
+    }
+    const hash = createHash('sha256');
+    const buffer = Buffer.allocUnsafe(Math.max(1, Math.min(64 * 1024, expected.size)));
+    let position = 0;
+    while (position < expected.size) {
+        const count = fs.readSync(fd, buffer, 0, Math.min(buffer.length, expected.size - position), position);
+        if (count <= 0) {
+            throw new Error(`retained audit file changed while being sealed: ${repoPath}`);
+        }
+        hash.update(buffer.subarray(0, count));
+        position += count;
+    }
+    if (fs.readSync(fd, buffer, 0, 1, position) !== 0) {
+        throw new Error(`retained audit file grew while being sealed: ${repoPath}`);
+    }
+    const after = fs.fstatSync(fd);
+    if (!after.isFile() ||
+        after.dev !== expected.dev ||
+        after.ino !== expected.ino ||
+        after.size !== expected.size ||
+        after.mode !== expected.mode ||
+        after.mtimeMs !== expected.mtimeMs ||
+        after.ctimeMs !== expected.ctimeMs) {
+        throw new Error(`retained audit file changed while being sealed: ${repoPath}`);
+    }
+    return hash.digest('hex');
+}
+/**
+ * Retains one safe audit file and its parent directories for an entire
+ * transaction. The callback may perform additional repository reads; before
+ * any result is returned, the original file must still be the visible named
+ * file beneath the same retained parent identity.
+ */
+export function withAnchoredAuditFileIdentity(rootPath, repoPath, operation) {
+    if (typeof operation !== 'function') {
+        throw new Error('anchored audit file operation must be a function');
+    }
+    const normalized = normalizeAuditRepoPath(repoPath);
+    const inheritedContext = anchoredRootIdentity.getStore();
+    const name = path.posix.basename(normalized);
+    const anchored = openAnchoredAuditParent(rootPath, normalized, false);
+    const target = anchoredChildPath(anchored.parent, name);
+    const noFollow = fs.constants.O_NOFOLLOW ?? 0;
+    const nonBlocking = fs.constants.O_NONBLOCK ?? 0;
+    let fd = null;
+    let opened = null;
+    let initialDigest = null;
+    let parentChangeTimeNs = null;
+    let parentModifyTimeNs = null;
+    const normalizedSegments = normalized.split('/');
+    const directAtlasFile = normalizedSegments.length === 2 &&
+        normalizedSegments[0] === '.atlas';
+    const ownsAuditSupportSnapshot = directAtlasFile &&
+        inheritedContext?.auditSupportFiles === undefined &&
+        inheritedContext?.auditSupportDirectories === undefined &&
+        inheritedContext?.auditSupportGitQueries === undefined &&
+        inheritedContext?.auditSupportAbsences === undefined;
+    const auditSupportFiles = inheritedContext?.auditSupportFiles ??
+        (directAtlasFile ? new Map() : undefined);
+    const auditSupportDirectories = inheritedContext?.auditSupportDirectories ??
+        (directAtlasFile
+            ? new Map()
+            : undefined);
+    const auditSupportGitQueries = inheritedContext?.auditSupportGitQueries ??
+        (directAtlasFile
+            ? new Map()
+            : undefined);
+    const auditSupportAbsences = inheritedContext?.auditSupportAbsences ??
+        (directAtlasFile
+            ? new Map()
+            : undefined);
+    try {
+        verifyAnchoredAuditParent(anchored, normalized);
+        const parentTimes = fs.fstatSync(anchored.parent.fd, { bigint: true });
+        parentChangeTimeNs = parentTimes.ctimeNs;
+        parentModifyTimeNs = parentTimes.mtimeNs;
+        fd = fs.openSync(target, fs.constants.O_RDONLY | noFollow | nonBlocking);
+        opened = fs.fstatSync(fd);
+        if (!opened.isFile()) {
+            throw new Error(`anchored audit file is not a safe regular file: ${normalized}`);
+        }
+        verifyAnchoredRegularFile(anchored.parent, name, opened, normalized);
+        initialDigest = retainedAuditFileDigest(fd, opened, normalized);
+        verifyAnchoredAuditParent(anchored, normalized);
+    }
+    catch (error) {
+        const cleanupFailures = [];
+        if (fd !== null) {
+            try {
+                closeDescriptorReliably(fd);
+            }
+            catch (cleanupError) {
+                cleanupFailures.push(cleanupError);
+            }
+        }
+        closeAnchoredAuditParent(anchored, cleanupFailures);
+        throwCombinedFailures(true, error, cleanupFailures, 'anchored audit file open failed and descriptor cleanup also failed');
+        throw new Error('unreachable anchored audit file open');
+    }
+    const operationContext = {
+        ...(inheritedContext ?? { root: anchored.root }),
+        ...(directAtlasFile
+            ? {
+                auditDirectory: anchored.parent,
+                auditSupportFiles,
+                auditSupportDirectories,
+                auditSupportGitQueries,
+                auditSupportAbsences,
+            }
+            : {}),
+    };
+    const finalVerificationContext = inheritedContext === undefined
+        ? undefined
+        : {
+            ...inheritedContext,
+            auditDirectory: undefined,
+        };
+    const verifyParentTimes = () => {
+        const parentTimes = fs.fstatSync(anchored.parent.fd, { bigint: true });
+        if (parentTimes.ctimeNs !== parentChangeTimeNs ||
+            parentTimes.mtimeNs !== parentModifyTimeNs) {
+            throw new Error(`retained audit parent changed during the transaction: ${normalized}`);
+        }
+    };
+    const finish = (primaryFailed, primaryFailure, value) => {
+        const cleanupFailures = [];
+        if (ownsAuditSupportSnapshot) {
+            try {
+                verifyAuditSupportSnapshot(operationContext);
+            }
+            catch (error) {
+                cleanupFailures.push(error);
+            }
+        }
+        try {
+            verifyParentTimes();
+            const retained = fs.fstatSync(fd);
+            if (!retained.isFile() ||
+                retained.dev !== opened.dev ||
+                retained.ino !== opened.ino ||
+                retainedAuditFileDigest(fd, opened, normalized) !== initialDigest) {
+                throw new Error(`retained audit file changed identity: ${normalized}`);
+            }
+            anchoredRootIdentity.run(finalVerificationContext, () => {
+                verifyAnchoredAuditParent(anchored, normalized);
+                verifyAnchoredRegularFile(anchored.parent, name, opened, normalized);
+            });
+        }
+        catch (error) {
+            cleanupFailures.push(error);
+        }
+        try {
+            closeDescriptorReliably(fd);
+        }
+        catch (error) {
+            cleanupFailures.push(error);
+        }
+        try {
+            anchoredRootIdentity.run(finalVerificationContext, () => {
+                verifyParentTimes();
+                verifyAnchoredAuditParent(anchored, normalized);
+                verifyAnchoredRegularFile(anchored.parent, name, opened, normalized);
+            });
+        }
+        catch (error) {
+            cleanupFailures.push(error);
+        }
+        closeAnchoredAuditParent(anchored, cleanupFailures);
+        throwCombinedFailures(primaryFailed, primaryFailure, cleanupFailures, 'anchored audit file operation failed and descriptor cleanup also failed');
+        return value;
+    };
+    return anchoredRootIdentity.run(operationContext, () => {
+        let result;
+        try {
+            result = operation();
+        }
+        catch (error) {
+            return finish(true, error);
+        }
+        if (result !== null &&
+            (typeof result === 'object' || typeof result === 'function')) {
+            let then;
+            try {
+                then = result.then;
+            }
+            catch (error) {
+                return finish(true, error);
+            }
+            if (typeof then === 'function') {
+                const pending = new Promise((resolve, reject) => {
+                    queueMicrotask(() => {
+                        try {
+                            Reflect.apply(then, result, [resolve, reject]);
+                        }
+                        catch (error) {
+                            reject(error);
+                        }
+                    });
+                });
+                return pending.then((value) => finish(false, undefined, value), (error) => finish(true, error));
+            }
+        }
+        return finish(false, undefined, result);
+    });
+}
 function canonicalize(value) {
     const ancestors = new Set();
     let collectionItems = 0;
@@ -669,6 +1391,9 @@ function canonicalize(value) {
         }
         if (!current || typeof current !== 'object') {
             throw new Error('canonical JSON contains an unsupported value');
+        }
+        if (utilTypes.isProxy(current)) {
+            throw new Error('canonical JSON contains an unsupported Proxy value');
         }
         if (ancestors.has(current))
             throw new Error('canonical JSON contains a cyclic value');
@@ -951,7 +1676,66 @@ function fsyncDirectoryFd(fd) {
         throw error;
     }
 }
+function verifyRetainedDirectoryDescriptor(fd, procPath, device, inode, message) {
+    const opened = fs.fstatSync(fd);
+    let real;
+    let visible;
+    try {
+        real = fs.realpathSync(procPath);
+        visible = fs.lstatSync(real);
+    }
+    catch {
+        throw new Error(message);
+    }
+    if (!opened.isDirectory() ||
+        opened.dev !== device ||
+        opened.ino !== inode ||
+        visible.isSymbolicLink() ||
+        !visible.isDirectory() ||
+        visible.dev !== device ||
+        visible.ino !== inode ||
+        fs.realpathSync(real) !== real) {
+        throw new Error(message);
+    }
+}
 function verifyAnchoredDirectory(directory, repoPath) {
+    const retained = anchoredRootIdentity.getStore();
+    if (retained !== undefined && directory.fd === retained.root.fd) {
+        verifyRetainedDirectoryDescriptor(directory.fd, directory.procPath, directory.device, directory.inode, `retained audit repository root changed while operating on: ${repoPath}`);
+        return;
+    }
+    if (retained?.auditDirectory !== undefined &&
+        directory.auditRelativePath !== undefined) {
+        verifyRetainedDirectoryDescriptor(retained.auditDirectory.fd, retained.auditDirectory.procPath, retained.auditDirectory.device, retained.auditDirectory.inode, `retained .atlas directory changed while operating on: ${repoPath}`);
+        const expectedPath = directory.auditRelativePath.length === 0
+            ? retained.auditDirectory.procPath
+            : path.join(retained.auditDirectory.procPath, ...directory.auditRelativePath.split('/'));
+        const opened = fs.fstatSync(directory.fd);
+        let expected;
+        let expectedReal;
+        let openedReal;
+        try {
+            expected = directory.auditRelativePath.length === 0
+                ? fs.statSync(expectedPath)
+                : fs.lstatSync(expectedPath);
+            expectedReal = fs.realpathSync(expectedPath);
+            openedReal = fs.realpathSync(directory.procPath);
+        }
+        catch {
+            throw new Error(`retained .atlas subtree changed while operating on: ${repoPath}`);
+        }
+        if (!opened.isDirectory() ||
+            opened.dev !== directory.device ||
+            opened.ino !== directory.inode ||
+            expected.isSymbolicLink() ||
+            !expected.isDirectory() ||
+            expected.dev !== directory.device ||
+            expected.ino !== directory.inode ||
+            openedReal !== expectedReal) {
+            throw new Error(`retained .atlas subtree changed while operating on: ${repoPath}`);
+        }
+        return;
+    }
     verifySafeRootIdentity(directory.repository);
     const opened = fs.fstatSync(directory.fd);
     if (!opened.isDirectory() ||
@@ -981,6 +1765,47 @@ function verifyAnchoredDirectory(directory, repoPath) {
         throw new Error(`audit parent directory changed, is symlinked, or is outside the safe repository: ${repoPath}`);
     }
 }
+function openRetainedAuditDirectory(repository, repoPath) {
+    const retained = anchoredRootIdentity.getStore()?.auditDirectory;
+    if (retained === undefined)
+        return null;
+    if (retained.repository.device !== repository.device ||
+        retained.repository.inode !== repository.inode) {
+        throw new Error(`retained .atlas directory belongs to a different repository: ${repoPath}`);
+    }
+    verifyRetainedDirectoryDescriptor(retained.fd, retained.procPath, retained.device, retained.inode, `retained .atlas directory changed while operating on: ${repoPath}`);
+    const fd = fs.openSync(retained.procPath, fs.constants.O_RDONLY | (fs.constants.O_DIRECTORY ?? 0));
+    try {
+        const opened = fs.fstatSync(fd);
+        const directory = {
+            fd,
+            namedPath: retained.namedPath,
+            procPath: procFdPath(fd),
+            repository,
+            device: opened.dev,
+            inode: opened.ino,
+            auditRelativePath: '',
+        };
+        if (!opened.isDirectory() ||
+            opened.dev !== retained.device ||
+            opened.ino !== retained.inode) {
+            throw new Error(`retained .atlas directory changed while opening: ${repoPath}`);
+        }
+        verifyAnchoredDirectory(directory, repoPath);
+        return directory;
+    }
+    catch (error) {
+        const cleanupFailures = [];
+        try {
+            closeDescriptorReliably(fd);
+        }
+        catch (cleanupError) {
+            cleanupFailures.push(cleanupError);
+        }
+        throwCombinedFailures(true, error, cleanupFailures, 'retained .atlas directory open failed and cleanup also failed');
+        throw new Error('unreachable retained .atlas directory open');
+    }
+}
 function openAnchoredAuditParent(root, repoPath, create) {
     const normalized = normalizeAuditRepoPath(repoPath);
     const repository = safeRoot(root);
@@ -991,7 +1816,16 @@ function openAnchoredAuditParent(root, repoPath, create) {
         owned.push(rootDirectory);
         let current = rootDirectory;
         let namedPath = repository.real;
-        for (const segment of parentSegments) {
+        for (const [segmentIndex, segment] of parentSegments.entries()) {
+            if (segmentIndex === 0 && segment === '.atlas') {
+                const retainedAuditDirectory = openRetainedAuditDirectory(repository, normalized);
+                if (retainedAuditDirectory !== null) {
+                    owned.push(retainedAuditDirectory);
+                    current = retainedAuditDirectory;
+                    namedPath = retainedAuditDirectory.namedPath;
+                    continue;
+                }
+            }
             const childPath = path.join(current.procPath, segment);
             let child = fs.lstatSync(childPath, { throwIfNoEntry: false });
             if (!child && create) {
@@ -1005,7 +1839,12 @@ function openAnchoredAuditParent(root, repoPath, create) {
                 }
                 child = fs.lstatSync(childPath, { throwIfNoEntry: false });
             }
-            if (!child || child.isSymbolicLink() || !child.isDirectory()) {
+            if (!child) {
+                const missing = new Error(`audit parent is missing: ${normalized}`);
+                missing.code = 'ENOENT';
+                throw missing;
+            }
+            if (child.isSymbolicLink() || !child.isDirectory()) {
                 throw new Error(`audit parent is missing or not a safe directory: ${normalized}`);
             }
             const childFd = fs.openSync(childPath, directoryOpenFlags());
@@ -1020,6 +1859,13 @@ function openAnchoredAuditParent(root, repoPath, create) {
                     repository,
                     device: childOpened.dev,
                     inode: childOpened.ino,
+                    ...(current.auditRelativePath === undefined
+                        ? {}
+                        : {
+                            auditRelativePath: current.auditRelativePath.length === 0
+                                ? segment
+                                : `${current.auditRelativePath}/${segment}`,
+                        }),
                 };
                 owned.push(next);
                 if (child.dev !== childOpened.dev ||
@@ -1063,7 +1909,12 @@ function openAnchoredAuditParent(root, repoPath, create) {
             }
         }
         const code = errnoCode(error);
-        if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'ELOOP') {
+        if (code === 'ENOENT') {
+            const missing = new Error(`audit parent is missing: ${normalized}`);
+            missing.code = 'ENOENT';
+            throwCombinedFailures(true, missing, cleanupFailures, 'audit parent validation failed and descriptor cleanup also failed');
+        }
+        if (code === 'ENOTDIR' || code === 'ELOOP') {
             throwCombinedFailures(true, new Error(`audit parent is missing or not a safe directory: ${normalized}`), cleanupFailures, 'audit parent validation failed and descriptor cleanup also failed');
         }
         throwCombinedFailures(true, error, cleanupFailures, 'audit parent open failed and descriptor cleanup also failed');
@@ -1250,6 +2101,12 @@ function checkedGitPath(output, description) {
     return value;
 }
 function verifyAnchoredGitAdmin(gitAdmin) {
+    const retained = anchoredRootIdentity.getStore();
+    if (retained?.gitAdmin !== undefined &&
+        gitAdmin.fd === retained.gitAdmin.fd) {
+        verifyRetainedDirectoryDescriptor(gitAdmin.fd, gitAdmin.procPath, gitAdmin.device, gitAdmin.inode, 'retained Git audit administration directory changed identity');
+        return;
+    }
     const opened = fs.fstatSync(gitAdmin.fd);
     let named;
     let namedReal;
@@ -1439,6 +2296,326 @@ function gitAdminBytes(root, gitAdmin, arguments_, maxBytes) {
     verifyAnchoredGitAdmin(gitAdmin);
     return { ok, output };
 }
+function boundedAnchoredGitBytes(context, arguments_, maxBytes) {
+    if (!Number.isSafeInteger(maxBytes) ||
+        maxBytes < 0 ||
+        !Array.isArray(arguments_) ||
+        arguments_.some((argument) => typeof argument !== 'string')) {
+        throw new Error('anchored Git byte request is invalid');
+    }
+    const result = gitAdminBytes(context.root, context.gitAdmin, arguments_, maxBytes);
+    if (!result.ok) {
+        throw new Error(`anchored Git command failed: ${arguments_.join(' ')}`);
+    }
+    if (result.output.byteLength > maxBytes) {
+        throw new Error(`anchored Git output exceeds the ${maxBytes}-byte limit`);
+    }
+    const output = new Uint8Array(result.output);
+    registerAuditSupportGitQuerySeal(arguments_, maxBytes, output);
+    return output;
+}
+function hashAnchoredGitWorktreeFileDigests(context, repoPath, maxBytes) {
+    const normalized = normalizeAuditRepoPath(repoPath);
+    if (!Number.isSafeInteger(maxBytes) ||
+        maxBytes < 0) {
+        throw new Error('anchored worktree hash request is invalid');
+    }
+    const segments = normalized.split('/');
+    const leaf = segments.at(-1);
+    let parentSegments = segments.slice(0, -1);
+    const ownedDirectories = [];
+    let current = context.root;
+    let currentRelativePath = '';
+    let fileFd = null;
+    let missingParent = false;
+    let result = null;
+    let primaryFailed = false;
+    let primaryFailure;
+    const cleanupFailures = [];
+    try {
+        verifyAnchoredDirectory(context.root, normalized);
+        verifyAnchoredGitAdmin(context.gitAdmin);
+        if (segments.length > 1 && segments[0] === '.atlas') {
+            const retainedAuditDirectory = openRetainedAuditDirectory(context.root.repository, normalized);
+            if (retainedAuditDirectory !== null) {
+                ownedDirectories.push(retainedAuditDirectory);
+                current = retainedAuditDirectory;
+                currentRelativePath = '.atlas';
+                parentSegments = segments.slice(1, -1);
+            }
+        }
+        for (const segment of parentSegments) {
+            const childPath = path.join(current.procPath, segment);
+            const child = fs.lstatSync(childPath, { throwIfNoEntry: false });
+            if (!child) {
+                registerAuditSupportAbsenceSeal(normalized, current, currentRelativePath, maxBytes);
+                missingParent = true;
+                break;
+            }
+            if (child.isSymbolicLink() || !child.isDirectory()) {
+                throw new Error(`tracked worktree path has an unsafe parent: ${normalized}`);
+            }
+            const childFd = fs.openSync(childPath, directoryOpenFlags());
+            let adopted = false;
+            try {
+                const opened = fs.fstatSync(childFd);
+                const next = {
+                    fd: childFd,
+                    namedPath: path.join(current.namedPath, segment),
+                    procPath: procFdPath(childFd),
+                    repository: context.root.repository,
+                    device: opened.dev,
+                    inode: opened.ino,
+                    ...(current.auditRelativePath === undefined
+                        ? {}
+                        : {
+                            auditRelativePath: current.auditRelativePath.length === 0
+                                ? segment
+                                : `${current.auditRelativePath}/${segment}`,
+                        }),
+                };
+                ownedDirectories.push(next);
+                adopted = true;
+                if (!opened.isDirectory() ||
+                    opened.dev !== child.dev ||
+                    opened.ino !== child.ino) {
+                    throw new Error(`tracked worktree parent changed while opening: ${normalized}`);
+                }
+                verifyAnchoredDirectory(next, normalized);
+                current = next;
+                currentRelativePath = currentRelativePath.length === 0
+                    ? segment
+                    : `${currentRelativePath}/${segment}`;
+            }
+            catch (error) {
+                if (!adopted) {
+                    try {
+                        closeDescriptorReliably(childFd);
+                    }
+                    catch (cleanupError) {
+                        throw new AggregateError([error, cleanupError], 'tracked worktree parent open failed and cleanup also failed');
+                    }
+                }
+                throw error;
+            }
+        }
+        if (missingParent) {
+            // A missing parent already established an ordinary tracked deletion.
+        }
+        else {
+            const leafPath = path.join(current.procPath, leaf);
+            const visible = fs.lstatSync(leafPath, { throwIfNoEntry: false });
+            if (!visible) {
+                registerAuditSupportAbsenceSeal(normalized, current, currentRelativePath, maxBytes);
+                result = null;
+            }
+            else {
+                if (visible.isSymbolicLink() || !visible.isFile()) {
+                    throw new Error(`tracked worktree path is not a safe regular file: ${normalized}`);
+                }
+                fileFd = fs.openSync(leafPath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+                const before = fs.fstatSync(fileFd);
+                if (!before.isFile() ||
+                    before.dev !== visible.dev ||
+                    before.ino !== visible.ino) {
+                    throw new Error(`tracked worktree path changed while opening: ${normalized}`);
+                }
+                if (before.size > maxBytes) {
+                    throw new Error(`tracked worktree file exceeds the ${maxBytes}-byte limit: ${normalized}`);
+                }
+                verifyAnchoredRegularFile(current, leaf, before, normalized);
+                const blobHeader = `blob ${before.size}\0`;
+                const sha1 = createHash('sha1').update(blobHeader);
+                const sha256 = createHash('sha256').update(blobHeader);
+                const buffer = Buffer.allocUnsafe(64 * 1024);
+                let total = 0;
+                while (total < before.size) {
+                    const count = fs.readSync(fileFd, buffer, 0, Math.min(buffer.length, before.size - total), null);
+                    if (count === 0) {
+                        throw new Error(`tracked worktree file changed while hashing: ${normalized}`);
+                    }
+                    sha1.update(buffer.subarray(0, count));
+                    sha256.update(buffer.subarray(0, count));
+                    total += count;
+                }
+                const extra = fs.readSync(fileFd, buffer, 0, 1, null);
+                const after = fs.fstatSync(fileFd);
+                if (extra !== 0 ||
+                    after.dev !== before.dev ||
+                    after.ino !== before.ino ||
+                    after.size !== before.size ||
+                    after.mtimeMs !== before.mtimeMs ||
+                    after.ctimeMs !== before.ctimeMs) {
+                    throw new Error(`tracked worktree file changed while hashing: ${normalized}`);
+                }
+                verifyAnchoredDirectory(context.root, normalized);
+                verifyAnchoredGitAdmin(context.gitAdmin);
+                for (const directory of ownedDirectories) {
+                    verifyAnchoredDirectory(directory, normalized);
+                }
+                verifyAnchoredRegularFile(current, leaf, before, normalized);
+                const sha1Digest = sha1.digest('hex');
+                const sha256Digest = sha256.digest('hex');
+                registerAuditSupportFileSeal(normalized, current, fileFd, sha256Digest);
+                result = {
+                    sha1: sha1Digest,
+                    sha256: sha256Digest,
+                    mode: (before.mode & 0o111) === 0 ? '100644' : '100755',
+                };
+            }
+        }
+        verifyAnchoredDirectory(context.root, normalized);
+        verifyAnchoredGitAdmin(context.gitAdmin);
+    }
+    catch (error) {
+        primaryFailed = true;
+        primaryFailure = error;
+    }
+    if (fileFd !== null) {
+        try {
+            closeDescriptorReliably(fileFd);
+        }
+        catch (error) {
+            cleanupFailures.push(error);
+        }
+    }
+    for (const directory of ownedDirectories.reverse()) {
+        try {
+            closeDescriptorReliably(directory.fd);
+        }
+        catch (error) {
+            cleanupFailures.push(error);
+        }
+    }
+    throwCombinedFailures(primaryFailed, primaryFailure, cleanupFailures, 'tracked worktree hash failed and descriptor cleanup also failed');
+    return result;
+}
+function hashAnchoredGitWorktreeFile(context, repoPath, algorithm, maxBytes) {
+    if (algorithm !== 'sha1' && algorithm !== 'sha256') {
+        throw new Error('anchored worktree hash request is invalid');
+    }
+    const file = hashAnchoredGitWorktreeFileDigests(context, repoPath, maxBytes);
+    return file === null
+        ? null
+        : {
+            blob: file[algorithm],
+            mode: file.mode,
+        };
+}
+export function withAnchoredAuditGitCapability(rootPath, operation) {
+    if (typeof operation !== 'function') {
+        throw new Error('anchored Git operation must be a function');
+    }
+    const context = openAnchoredGitContext(rootPath, 'anchored audit Git capability');
+    const capability = {
+        gitBytes: (arguments_, maxBytes) => boundedAnchoredGitBytes(context, arguments_, maxBytes),
+        hashWorktreeFile: (repoPath, algorithm, maxBytes) => hashAnchoredGitWorktreeFile(context, repoPath, algorithm, maxBytes),
+        hashWorktreeFileDigests: (repoPath, maxBytes) => hashAnchoredGitWorktreeFileDigests(context, repoPath, maxBytes),
+    };
+    const finish = (primaryFailed, primaryFailure, value) => {
+        const cleanupFailures = [];
+        try {
+            verifyAnchoredDirectory(context.root, 'anchored audit Git capability completion');
+            verifyAnchoredGitAdmin(context.gitAdmin);
+        }
+        catch (error) {
+            cleanupFailures.push(error);
+        }
+        closeAnchoredGitContext(context, cleanupFailures);
+        throwCombinedFailures(primaryFailed, primaryFailure, cleanupFailures, 'anchored audit Git operation failed and descriptor cleanup also failed');
+        return value;
+    };
+    let result;
+    try {
+        result = operation(capability);
+    }
+    catch (error) {
+        return finish(true, error);
+    }
+    if (result !== null &&
+        (typeof result === 'object' || typeof result === 'function')) {
+        let then;
+        try {
+            then = result.then;
+        }
+        catch (error) {
+            return finish(true, error);
+        }
+        if (typeof then === 'function') {
+            const pending = new Promise((resolve, reject) => {
+                queueMicrotask(() => {
+                    try {
+                        Reflect.apply(then, result, [resolve, reject]);
+                    }
+                    catch (error) {
+                        reject(error);
+                    }
+                });
+            });
+            return pending.then((value) => finish(false, undefined, value), (error) => finish(true, error));
+        }
+    }
+    return finish(false, undefined, result);
+}
+export function withAnchoredAuditRootIdentity(rootPath, operation) {
+    if (typeof operation !== 'function') {
+        throw new Error('anchored root operation must be a function');
+    }
+    const repository = anchoredRootIdentity.run(undefined, () => safeRoot(rootPath));
+    const root = openVerifiedRepositoryRoot(repository, 'anchored audit root identity');
+    const context = { root };
+    const finish = (primaryFailed, primaryFailure, value) => {
+        const cleanupFailures = [];
+        try {
+            verifySafeRootIdentity(root.repository);
+            verifyAnchoredDirectory(root, 'anchored audit root identity completion');
+        }
+        catch (error) {
+            cleanupFailures.push(error);
+        }
+        try {
+            closeDescriptorReliably(root.fd);
+        }
+        catch (error) {
+            cleanupFailures.push(error);
+        }
+        throwCombinedFailures(primaryFailed, primaryFailure, cleanupFailures, 'anchored audit root operation failed and cleanup also failed');
+        return value;
+    };
+    return anchoredRootIdentity.run(context, () => {
+        let result;
+        try {
+            result = operation(root.procPath);
+        }
+        catch (error) {
+            return finish(true, error);
+        }
+        if (result !== null &&
+            (typeof result === 'object' || typeof result === 'function')) {
+            let then;
+            try {
+                then = result.then;
+            }
+            catch (error) {
+                return finish(true, error);
+            }
+            if (typeof then === 'function') {
+                const pending = new Promise((resolve, reject) => {
+                    queueMicrotask(() => {
+                        try {
+                            Reflect.apply(then, result, [resolve, reject]);
+                        }
+                        catch (error) {
+                            reject(error);
+                        }
+                    });
+                });
+                return pending.then((value) => finish(false, undefined, value), (error) => finish(true, error));
+            }
+        }
+        return finish(false, undefined, result);
+    });
+}
 export function readBoundedAuditGitBlob(rootPath, blob, maxBytes = AUDIT_LIMITS.jsonBytes) {
     if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
         throw new Error('audit Git blob byte limit must be a nonnegative safe integer');
@@ -1514,6 +2691,12 @@ export function readBoundedAuditGitBlob(rootPath, blob, maxBytes = AUDIT_LIMITS.
     return result;
 }
 function verifyAnchoredLockParent(parent) {
+    const retained = anchoredRootIdentity.getStore();
+    if (retained?.lockParent !== undefined &&
+        parent.fd === retained.lockParent.fd) {
+        verifyRetainedDirectoryDescriptor(parent.fd, parent.procPath, parent.device, parent.inode, 'retained audit lock parent changed identity');
+        return;
+    }
     const opened = fs.fstatSync(parent.fd);
     let named;
     let namedReal;
@@ -1835,7 +3018,7 @@ function releaseAuditLock(lock) {
     const failures = [];
     let parentWasValid = true;
     try {
-        verifyAuditLockContext(lock.root, lock.gitAdmin, lock.parent, 'audit lock release');
+        anchoredRootIdentity.run(undefined, () => verifyAuditLockContext(lock.root, lock.gitAdmin, lock.parent, 'audit lock release'));
     }
     catch (error) {
         parentWasValid = false;
@@ -1855,7 +3038,7 @@ function releaseAuditLock(lock) {
     }
     if (parentWasValid) {
         try {
-            verifyAuditLockContext(lock.root, lock.gitAdmin, lock.parent, 'audit lock release');
+            anchoredRootIdentity.run(undefined, () => verifyAuditLockContext(lock.root, lock.gitAdmin, lock.parent, 'audit lock release'));
         }
         catch (error) {
             failures.push(error);
@@ -1879,40 +3062,47 @@ function releaseAfterOperationFailure(lock, error) {
 export function withAuditLock(root, operation) {
     if (typeof operation !== 'function')
         throw new Error('audit lock operation must be a function');
-    const lock = acquireAuditLock(root, operation);
-    let result;
-    try {
-        result = operation();
-    }
-    catch (error) {
-        return releaseAfterOperationFailure(lock, error);
-    }
-    if (result !== null &&
-        (typeof result === 'object' || typeof result === 'function')) {
-        let then;
+    const lock = anchoredRootIdentity.run(undefined, () => acquireAuditLock(root, operation));
+    const context = {
+        root: lock.root,
+        gitAdmin: lock.gitAdmin,
+        lockParent: lock.parent,
+    };
+    return anchoredRootIdentity.run(context, () => {
+        let result;
         try {
-            then = result.then;
+            result = operation();
         }
         catch (error) {
             return releaseAfterOperationFailure(lock, error);
         }
-        if (typeof then === 'function') {
-            const pending = new Promise((resolve, reject) => {
-                queueMicrotask(() => {
-                    try {
-                        Reflect.apply(then, result, [resolve, reject]);
-                    }
-                    catch (error) {
-                        reject(error);
-                    }
+        if (result !== null &&
+            (typeof result === 'object' || typeof result === 'function')) {
+            let then;
+            try {
+                then = result.then;
+            }
+            catch (error) {
+                return releaseAfterOperationFailure(lock, error);
+            }
+            if (typeof then === 'function') {
+                const pending = new Promise((resolve, reject) => {
+                    queueMicrotask(() => {
+                        try {
+                            Reflect.apply(then, result, [resolve, reject]);
+                        }
+                        catch (error) {
+                            reject(error);
+                        }
+                    });
                 });
-            });
-            return pending.then((value) => {
-                releaseAuditLock(lock);
-                return value;
-            }, (error) => releaseAfterOperationFailure(lock, error));
+                return pending.then((value) => {
+                    releaseAuditLock(lock);
+                    return value;
+                }, (error) => releaseAfterOperationFailure(lock, error));
+            }
         }
-    }
-    releaseAuditLock(lock);
-    return result;
+        releaseAuditLock(lock);
+        return result;
+    });
 }
