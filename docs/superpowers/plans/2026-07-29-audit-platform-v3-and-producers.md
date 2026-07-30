@@ -1198,7 +1198,7 @@ git commit -m "feat(audit): add relayos-root-audits-v1 migrator"
 - Create: `test/audit-provider-grok.test.mjs`
 - Modify: `src/audit-v3-types.ts`
 
-- [ ] **Step 1: Write failing fake-Grok tests**
+- [x] **Step 1: Write failing fake-Grok tests**
 
 Create an executable fixture that records argv/env/cwd/stdin and emits controlled JSON. Assert:
 
@@ -1213,13 +1213,13 @@ Create an executable fixture that records argv/env/cwd/stdin and emits controlle
 - resume reuses only verified snapshot/phase outputs and reruns corrupt/missing work;
 - original repository files are never modified.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 ```bash
 pnpm build:cli && node --test test/audit-provider-grok.test.mjs
 ```
 
-- [ ] **Step 3: Implement provider abstraction**
+- [x] **Step 3: Implement provider abstraction**
 
 ```ts
 export interface AuditProvider {
@@ -1240,16 +1240,17 @@ export interface AuditProviderContext {
 
 Snapshot all selected exact bytes into a temp directory, mark files read-only, write a canonical manifest, and validate it before and after every phase. Store clone-local resume/transcript state under `.atlas/.runtime/audit-runs/<invocationId>/`, which is ignored and never coverage evidence.
 
-- [ ] **Step 4: Implement Grok invocation**
+- [x] **Step 4: Implement Grok invocation**
 
 Spawn `grok` with an explicit command/model/output mode from provider policy, `shell: false`, exact argv, sanitized allowlisted environment, isolated HOME/XDG variables, bounded stdout/stderr, abort controller timeout, and no network-related flags beyond what the explicit Grok binary itself requires. Prompts tell the orchestrator to dispatch bounded parallel sub-reviews and require one receipt for every target file.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 pnpm build:cli
 node --test test/audit-provider-grok.test.mjs test/audit-v3.test.mjs
-git add src/audit-providers.ts src/audit-provider-grok.ts src/audit-v3-types.ts test/audit-provider-grok.test.mjs
+pnpm test
+git add src/audit-providers.ts src/audit-provider-grok.ts src/audit-v3-types.ts test/audit-provider-grok.test.mjs test/fixtures/fake-grok .gitignore dist/audit-providers.js dist/audit-provider-grok.js
 git commit -m "feat(audit): add isolated explicit Grok producer"
 ```
 
