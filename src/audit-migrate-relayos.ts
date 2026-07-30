@@ -542,7 +542,7 @@ function normalizeRulePart(value: string): string {
   return normalized.length === 0 ? 'legacy-finding' : normalized
 }
 
-function gitText(bytes: Uint8Array, pointer: string): string {
+export function gitText(bytes: Uint8Array, pointer: string): string {
   const text = Buffer.from(bytes).toString('utf8').trim()
   if (text.length === 0) fail(pointer, 'Git returned an empty value')
   return text
@@ -1565,7 +1565,7 @@ function validateCrossSource(source: ParsedSource): void {
   }
 }
 
-function parseRepositoryId(root: string): string {
+export function parseRepositoryId(root: string): string {
   const config = recordAt(
     readBoundedAuditJson(root, '.atlas/config.json', 1024 * 1024),
     '/.atlas/config.json',
@@ -1610,7 +1610,7 @@ function semanticSourceValue(source: ParsedSource): unknown {
   }
 }
 
-function verifyRevisionCommit(
+export function verifyRevisionCommit(
   git: AnchoredAuditGitCapability,
   revision: string,
   role: 'sourceRevision' | 'validationRevision',
@@ -1629,7 +1629,7 @@ function verifyRevisionCommit(
   }
 }
 
-function readVerifiedGitBlob(
+export function readVerifiedGitBlob(
   git: AnchoredAuditGitCapability,
   objectId: string,
   maxBytes: number,
@@ -1673,11 +1673,11 @@ function readVerifiedGitBlob(
   return bytes
 }
 
-interface RevisionTreeFile {
+export interface RevisionTreeFile {
   gitBlob: string
 }
 
-function resolveRevisionTreeFiles(
+export function resolveRevisionTreeFiles(
   git: AnchoredAuditGitCapability,
   revision: string,
   repoPaths: readonly string[],
@@ -1755,7 +1755,7 @@ function resolveRevisionTreeFiles(
   return resolved
 }
 
-function readRevisionFile(
+export function readRevisionFile(
   git: AnchoredAuditGitCapability,
   revision: string,
   repoPath: string,

@@ -150,7 +150,7 @@ function normalizeRulePart(value) {
         .replace(/^[-./]+|[-./]+$/gu, '');
     return normalized.length === 0 ? 'legacy-finding' : normalized;
 }
-function gitText(bytes, pointer) {
+export function gitText(bytes, pointer) {
     const text = Buffer.from(bytes).toString('utf8').trim();
     if (text.length === 0)
         fail(pointer, 'Git returned an empty value');
@@ -838,7 +838,7 @@ function validateCrossSource(source) {
         }
     }
 }
-function parseRepositoryId(root) {
+export function parseRepositoryId(root) {
     const config = recordAt(readBoundedAuditJson(root, '.atlas/config.json', 1024 * 1024), '/.atlas/config.json');
     const repositoryId = stringAt(config.repositoryId, '/.atlas/config.json/repositoryId');
     if (!/^repo_[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$/u.test(repositoryId)) {
@@ -867,7 +867,7 @@ function semanticSourceValue(source) {
         policy: source.policy,
     };
 }
-function verifyRevisionCommit(git, revision, role) {
+export function verifyRevisionCommit(git, revision, role) {
     let resolved;
     try {
         resolved = gitText(git.gitBytes(['rev-parse', '--verify', `${revision}^{commit}`], 1024), `/git/${role}`);
@@ -879,7 +879,7 @@ function verifyRevisionCommit(git, revision, role) {
         fail(`/options/${role}`, 'does not resolve to the exact named commit');
     }
 }
-function readVerifiedGitBlob(git, objectId, maxBytes, pointer) {
+export function readVerifiedGitBlob(git, objectId, maxBytes, pointer) {
     if (!SHA1_RE.test(objectId)) {
         fail(pointer, 'expected a lowercase Git SHA-1 object identity');
     }
@@ -916,7 +916,7 @@ function readVerifiedGitBlob(git, objectId, maxBytes, pointer) {
     }
     return bytes;
 }
-function resolveRevisionTreeFiles(git, revision, repoPaths, pointer) {
+export function resolveRevisionTreeFiles(git, revision, repoPaths, pointer) {
     const requested = [...new Set(repoPaths)].sort(compareText);
     const resolved = new Map();
     if (requested.length === 0)
@@ -981,7 +981,7 @@ function resolveRevisionTreeFiles(git, revision, repoPaths, pointer) {
     }
     return resolved;
 }
-function readRevisionFile(git, revision, repoPath, maxBytes, pointer) {
+export function readRevisionFile(git, revision, repoPath, maxBytes, pointer) {
     const entry = resolveRevisionTreeFiles(git, revision, [repoPath], pointer).get(repoPath);
     if (entry === undefined || entry === null)
         return null;

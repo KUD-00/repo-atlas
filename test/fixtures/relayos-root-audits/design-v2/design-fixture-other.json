@@ -1,0 +1,23 @@
+{
+  "formatVersion": 2,
+  "format": "atlas-audit-v2",
+  "domain": "design",
+  "reviewState": "complete",
+  "slug": "design-fixture-other",
+  "title": "Fixture other layer design review (round 2, Atlas-native)",
+  "ruleset": "atlas-designscan-v1",
+  "scanned_at": "2026-07-20",
+  "scope_hash": "67e09368f371e2dcb17a0a41a487e3fa75133807",
+  "file_count": 1,
+  "files": [
+    "packages/example/other/src/index.ts"
+  ],
+  "hashes": {
+    "packages/example/other/src/index.ts": "4e9de3f8c0b57a2db6c3f9a4b8d27e053c6fb094"
+  },
+  "evidenceRefs": [
+    "audits/fixture-other-scan/ledger.json"
+  ],
+  "findings": [],
+  "dropped": []
+}
