@@ -852,7 +852,7 @@ git commit -m "feat(audit): own closed-world coverage generation"
 - Modify: `src/audit-v3.ts`
 - Modify: `test/audit-v3.test.mjs`
 
-- [ ] **Step 1: Write failing adapter fixtures**
+- [x] **Step 1: Write failing adapter fixtures**
 
 Construct the real three-document Codex Security 1.0 directory bundle:
 `scan-manifest.json`, `findings.json`, and `coverage.json`, plus every artifact
@@ -880,13 +880,13 @@ external path is actually listed.
 belongs to Task 2 V3 parser tests. Missing full-read proof is an honest
 semantic import, not an import failure.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 ```bash
 pnpm build:cli && node --test test/audit-import-codex.test.mjs
 ```
 
-- [ ] **Step 3: Implement offline-only import**
+- [x] **Step 3: Implement offline-only import**
 
 Export:
 
@@ -945,7 +945,7 @@ provider producers all use it; only `publishAuditObservation` performs the
 locked history-first mutation. Dry-run and apply therefore build identical
 bytes and no producer reimplements chain logic.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```bash
 pnpm build:cli

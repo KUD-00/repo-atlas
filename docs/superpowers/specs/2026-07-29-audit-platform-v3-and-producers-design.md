@@ -45,10 +45,13 @@ This design was checked against:
   security scan records, 82 canonical findings, 82 current dispositions, the
   security-scan enforcement gate, and the generic review-coverage
   implementation currently living under `scripts/checks`;
-- OpenAI `codex-security` at `f22d4a36f26d16287bcdfd707b369116e02a08c3`,
-  SDK 0.1.1 and bundled plugin 0.1.14, including the three sealed 1.0 JSON
+- OpenAI `codex-security` at `ab3b91c8b1fc0403d7fd6ae35a3a46f7fb2a470f`,
+  SDK 0.1.4 and bundled plugin 0.1.14, including the three sealed 1.0 JSON
   contracts, workbench history, comparison, append-only decisions, and
-  false-positive feedback; and
+  false-positive feedback. The three schemas, completed-scan examples, and
+  stable identity formulas were also byte/semantic-diffed against the earlier
+  `f22d4a36f26d16287bcdfd707b369116e02a08c3` research pin and remain
+  unchanged; and
 - local Grok CLI 0.2.82, including its headless flags, configuration discovery,
   session transcript, read-tool records, hooks, plugins, permissions, MCP
   configuration, and session storage.
@@ -419,6 +422,14 @@ targets omit all `source*` members. Target kinds that cannot be joined to
 current exact blobs may still carry semantic evidence, but exact coverage
 remains `unknown`.
 
+The upstream schema treats revision, base, and head as opaque strings. Empty
+optional values, whitespace, and JSON-escaped control characters therefore
+remain present byte-for-byte in the corresponding `source*` member and, on the
+revision-coordinate branch, in its canonical-object identity preimage. Only
+the required `git_revision.revision` must contain a non-whitespace code point,
+matching the pinned finalizer. Source coordinates are bounded, never passed to
+Git, and never promoted into verified first-party revision members.
+
 The pinned Codex Security 1.0 schema requires `revision` for `git_revision`
 and `snapshotDigest` for `git_worktree`, `git_diff`, and
 `directory_snapshot`. It permits `baseRevision` and `headRevision`
@@ -730,6 +741,9 @@ producer authentication, or a self-sealed manifest. The Codex manifest itself
 is `adapter-bundle`; canonical findings, coverage, and sealed coverage receipts
 are `producer-manifest`. A write-up or hardening artifact is
 `producer-manifest` only when the manifest actually listed its exact path.
+Manifest-listed external artifacts retain the producer's exact nonempty
+`mediaType`; `text/markdown` is only the adapter fallback for an unlisted
+write-up or hardening path whose `.md` contract path supplies that type.
 
 Codex Security's stable scan-level hardening association is first-class rather
 than hidden in an extension or attached to an arbitrary finding:
@@ -2474,12 +2488,15 @@ Parsing and canonical reserialization never stand in for a producer byte seal,
 and the adapter never reopens a pathname after a safety check.
 
 Atlas intentionally applies a stricter resource policy than Codex Security's
-maximum wire allowances: each imported canonical JSON document is limited to
-the core 32 MiB byte cap, each preserved extension value to 64 KiB, and the
-canonical V3 ledger to 1 MiB unless repository policy explicitly raises that
-output bound. Codex permits a findings document up to 128 MiB; an otherwise
-valid bundle above Atlas's configured limit fails with an explicit limit
-diagnostic. No input, extension, snippet, or finding is silently truncated.
+maximum wire allowances: all uniquely read canonical documents, manifest
+artifacts, write-ups, and hardening files share one aggregate 32 MiB retained
+byte budget; each individual read is also bounded by its remaining budget.
+Each preserved extension value is limited to 64 KiB, and the canonical V3
+ledger to 1 MiB unless repository policy explicitly raises that output bound.
+Codex permits a findings document up to 128 MiB; an otherwise valid bundle
+above Atlas's configured limit fails before the over-budget member is
+allocated, with an explicit aggregate-limit diagnostic. No input, extension,
+snippet, or finding is silently truncated.
 
 All completed Codex target/mode combinations can be represented. A diff,
 directory snapshot, branch, working-tree, deep-repository, or custom inventory

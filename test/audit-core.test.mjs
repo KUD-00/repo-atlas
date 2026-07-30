@@ -2862,6 +2862,22 @@ test('bounded audit directory listing enforces aggregate name bounds while strea
   }
 })
 
+test('audit support snapshots revalidate regular files outside Git repositories', () => {
+  const root = makeRoot()
+  try {
+    write(root, 'bundle/manifest.json', '{"sealed":true}\n')
+    const bytes = auditCore.withAnchoredAuditSupportSnapshot(root, () =>
+      auditCore.readBoundedAuditBytes(
+        root,
+        'bundle/manifest.json',
+        1024,
+      ))
+    assert.equal(Buffer.from(bytes).toString('utf8'), '{"sealed":true}\n')
+  } finally {
+    cleanup(root)
+  }
+})
+
 test('audit support snapshots seal a missing tracked leaf until verification completes', () => {
   const root = makeRoot()
   try {

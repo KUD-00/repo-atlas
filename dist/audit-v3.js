@@ -15,9 +15,11 @@ const CODEX_SLUG_RE = /^[a-z0-9][a-z0-9._/-]*$/u;
 const REPOSITORY_ID_RE = /^repo_[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$/u;
 const FULL_GIT_REVISION_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
+const SOURCE_TIMESTAMP_RE = /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[Zz]|[+-](\d{2}):(\d{2}))$/u;
 const RAW_SHA256_RE = /^[0-9a-f]{64}$/u;
 const JSON_POINTER_RE = /^(?:\/(?:[^~\u0000-\u001f\u007f]|~[01])*)+$/u;
 const EXTENSION_NAMESPACE_RE = /^[a-z0-9](?:[a-z0-9._/-]*[a-z0-9])?$/u;
+const PYTHON_WHITESPACE_RE = /^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*$/u;
 const TEXT_LIMIT = 256 * 1024;
 const LEDGER_BYTE_LIMIT = 1024 * 1024;
 const EXTENSION_BYTE_LIMIT = 64 * 1024;
@@ -25,6 +27,50 @@ const EXTENSION_DEPTH_LIMIT = 16;
 const EXTENSION_MEMBER_LIMIT = 1_000;
 const UTF8 = new TextDecoder('utf-8', { fatal: true });
 export const AUDIT_V3_UNIQUE_BLOB_BYTE_LIMIT = 256 * 1024 * 1024;
+export function isStrictRfc3339Timestamp(value) {
+    if (typeof value !== 'string')
+        return false;
+    const match = SOURCE_TIMESTAMP_RE.exec(value);
+    if (!match)
+        return false;
+    const [, yearText, monthText, dayText, hourText, minuteText, secondText, offsetHourText, offsetMinuteText,] = match;
+    const year = Number(yearText);
+    const month = Number(monthText);
+    const day = Number(dayText);
+    const hour = Number(hourText);
+    const minute = Number(minuteText);
+    const second = Number(secondText);
+    if (year < 1 ||
+        month < 1 ||
+        month > 12 ||
+        hour > 23 ||
+        minute > 59 ||
+        second > 59) {
+        return false;
+    }
+    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const daysInMonth = [
+        31,
+        leapYear ? 29 : 28,
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ][month - 1];
+    if (day < 1 || day > daysInMonth)
+        return false;
+    if (offsetHourText !== undefined &&
+        (Number(offsetHourText) > 23 || Number(offsetMinuteText) > 59)) {
+        return false;
+    }
+    return Number.isFinite(Date.parse(value));
+}
 function createAuditValidationContext() {
     return {
         blobBytes: new Map(),
@@ -377,6 +423,14 @@ function stringAt(value, pointer, nonempty = true) {
     }
     return value;
 }
+function sourceCoordinateAt(value, pointer, nonempty = false) {
+    if (typeof value !== 'string' ||
+        (nonempty && PYTHON_WHITESPACE_RE.test(value)) ||
+        value.length > TEXT_LIMIT) {
+        invalid('invalid-source-coordinate', pointer, 'must be a bounded opaque source coordinate');
+    }
+    return value;
+}
 function enumAt(value, allowed, pointer) {
     if (typeof value !== 'string' || !allowed.includes(value)) {
         invalid('invalid-enum', pointer, `must be one of ${allowed.join(', ')}`);
@@ -458,7 +512,6 @@ function remoteAt(value, pointer) {
         invalid('invalid-remote', pointer, 'remote must be a canonical absolute URL');
     }
     if (!text.includes('://') ||
-        !['https:', 'http:', 'ssh:', 'git:'].includes(parsed.protocol) ||
         parsed.username !== '' ||
         parsed.password !== '' ||
         parsed.search !== '' ||
@@ -660,8 +713,8 @@ function parseProducer(value, pointer) {
             ['completedAt', completedAt],
             ['sealedAt', sealedAt],
         ]) {
-            if (!Number.isFinite(Date.parse(timestamp))) {
-                invalid('invalid-timestamp', `${pointer}/sourceContract/${key}`, 'must be a valid source timestamp');
+            if (!isStrictRfc3339Timestamp(timestamp)) {
+                invalid('invalid-timestamp', `${pointer}/sourceContract/${key}`, 'must be a valid RFC 3339 source timestamp');
             }
         }
         if (sealedAt !== completedAt) {
@@ -807,8 +860,9 @@ function parseTarget(root, producerKind, value, pointer) {
             invalid('variant-mismatch', `${pointer}/kind`, 'does not match sourceKind');
         }
         for (const key of ['sourceRevision', 'sourceBaseRevision', 'sourceHeadRevision']) {
-            if (target[key] !== undefined)
-                stringAt(target[key], `${pointer}/${key}`);
+            if (target[key] !== undefined) {
+                sourceCoordinateAt(target[key], `${pointer}/${key}`, key === 'sourceRevision' && kind === 'git-revision');
+            }
         }
         const basis = enumAt(target.identityBasis, ['revision-coordinate', 'snapshot'], `${pointer}/identityBasis`);
         if (kind !== 'git-revision' && basis !== 'snapshot') {
@@ -1141,6 +1195,15 @@ function validateCodexArtifactJoins(observation, artifacts) {
             mediaType: 'application/json',
         },
     ];
+    const hardening = observation.hardening;
+    if (hardening !== undefined) {
+        required.push({
+            path: hardening.portfolio.sourceArtifactPath,
+            pointer: '/hardening/portfolio/sourceArtifactPath',
+            integrityKind: hardening.portfolio.integrityKind,
+            mediaType: hardening.portfolio.mediaType,
+        });
+    }
     const coverage = observation.semanticCoverage;
     for (const [surfaceIndex, candidate] of coverage.surfaces.entries()) {
         for (const [refIndex, value] of candidate.receiptRefs.entries()) {
@@ -1525,7 +1588,6 @@ function parseFinding(root, findingIndex, observationId, repositoryId, targetId,
     const locations = arrayAt(finding.locations, `${pointer}/locations`);
     if (locations.length === 0)
         invalid('missing-location', `${pointer}/locations`, 'must contain at least one location');
-    const locationKeys = new Set();
     for (const [index, candidate] of locations.entries()) {
         const location = recordAt(candidate, `${pointer}/locations/${index}`);
         exactKeys(location, ['path', 'startLine'], ['endLine', 'role'], `${pointer}/locations/${index}`);
@@ -1550,10 +1612,6 @@ function parseFinding(root, findingIndex, observationId, repositoryId, targetId,
                 invalid('location-receipt-mismatch', `${pointer}/locations/${index}/path`, 'exact authoritative location receipt must bind this occurrence');
             }
         }
-        const key = `${locationPath}\0${startLine}\0${endLine}`;
-        if (locationKeys.has(key))
-            invalid('duplicate', `${pointer}/locations/${index}`, 'duplicate location');
-        locationKeys.add(key);
     }
     const evidenceIds = new Set();
     if (finding.codeEvidence !== undefined) {
@@ -1749,7 +1807,7 @@ function parseObservation(root, slug, value, pointer, context) {
         'evidenceRefs',
         'sourceArtifacts',
         'producerExtensions',
-    ], ['threatModel'], pointer);
+    ], ['threatModel', 'hardening'], pointer);
     const observationId = stringAt(observation.observationId, `${pointer}/observationId`);
     if (!OBSERVATION_ID_RE.test(observationId)) {
         invalid('invalid-observation-id', `${pointer}/observationId`, 'must be an Atlas observation ID');
@@ -1957,6 +2015,33 @@ function parseObservation(root, slug, value, pointer, context) {
         parseThreatModel(observation.threatModel, `${pointer}/threatModel`);
     }
     const sourceArtifacts = parseSourceArtifacts(observation.sourceArtifacts, `${pointer}/sourceArtifacts`);
+    if (observation.hardening !== undefined) {
+        const hardening = recordAt(observation.hardening, `${pointer}/hardening`);
+        exactKeys(hardening, ['portfolio'], [], `${pointer}/hardening`);
+        const portfolio = recordAt(hardening.portfolio, `${pointer}/hardening/portfolio`);
+        exactKeys(portfolio, [
+            'kind',
+            'sourceArtifactPath',
+            'integrityKind',
+            'sha256',
+            'mediaType',
+            'retainedInAtlas',
+        ], [], `${pointer}/hardening/portfolio`);
+        enumAt(portfolio.kind, ['external'], `${pointer}/hardening/portfolio/kind`);
+        const artifactPath = repoPathAt(portfolio.sourceArtifactPath, `${pointer}/hardening/portfolio/sourceArtifactPath`);
+        const integrityKind = enumAt(portfolio.integrityKind, ['producer-manifest', 'adapter-bundle'], `${pointer}/hardening/portfolio/integrityKind`);
+        const sha256 = rawSha256At(portfolio.sha256, `${pointer}/hardening/portfolio/sha256`);
+        const mediaType = stringAt(portfolio.mediaType, `${pointer}/hardening/portfolio/mediaType`);
+        const retainedInAtlas = booleanAt(portfolio.retainedInAtlas, `${pointer}/hardening/portfolio/retainedInAtlas`);
+        const artifact = sourceArtifacts.get(artifactPath);
+        if (!artifact ||
+            artifact.integrityKind !== integrityKind ||
+            artifact.sha256 !== sha256 ||
+            artifact.mediaType !== mediaType ||
+            artifact.retainedInAtlas !== retainedInAtlas) {
+            invalid('artifact-reference-mismatch', `${pointer}/hardening/portfolio`, 'does not match sourceArtifacts');
+        }
+    }
     const extensionKeys = new Set();
     parseExtensions(observation.producerExtensions, `${pointer}/producerExtensions`, producer.kind === 'codex-security', extensionKeys);
     const findings = arrayAt(observation.findings, `${pointer}/findings`);

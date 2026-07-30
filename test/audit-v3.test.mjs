@@ -17,6 +17,7 @@ import {
   computeAtlasOccurrenceId,
   computeExactScopeIdentityDigest,
   computeSemanticScopeIdentityDigest,
+  isStrictRfc3339Timestamp,
   AUDIT_V3_UNIQUE_BLOB_BYTE_LIMIT,
   loadAuditObservationHistory,
   loadAuditObservations,
@@ -62,6 +63,27 @@ const ARTIFACT_SHA256 = 'f'.repeat(64)
 const COVERAGE_ARTIFACT_SHA256 = 'c'.repeat(64)
 const MANIFEST_ARTIFACT_SHA256 = 'a'.repeat(64)
 const RECEIPT_ARTIFACT_SHA256 = 'b'.repeat(64)
+const HARDENING_ARTIFACT_SHA256 = 'd'.repeat(64)
+
+test('source timestamp validation follows the RFC 3339 calendar', () => {
+  for (const timestamp of [
+    '2024-02-29T12:34:56Z',
+    '2024-02-29t12:34:56.123z',
+    '2024-02-29T12:34:56.123+05:30',
+  ]) {
+    assert.equal(isStrictRfc3339Timestamp(timestamp), true, timestamp)
+  }
+  for (const timestamp of [
+    '0000-01-01T00:00:00Z',
+    '2026-02-29T12:34:56Z',
+    '2026-04-31T12:34:56Z',
+    '2026-05-31T24:00:00Z',
+    '2026-05-31T23:59:60Z',
+    '2026-05-31T23:59:59+24:00',
+  ]) {
+    assert.equal(isStrictRfc3339Timestamp(timestamp), false, timestamp)
+  }
+})
 
 function canonical(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value)
@@ -1283,6 +1305,107 @@ test('Codex source-contract artifacts and every source reference are bidirection
   }
 })
 
+test('Codex hardening portfolios are first-class and bidirectionally sealed', () => {
+  const root = makeV3Repo()
+  const withHardening = (integrityKind = 'adapter-bundle') => {
+    const ledger = buildSemanticFixture().ledger
+    ledger.current.hardening = {
+      portfolio: {
+        kind: 'external',
+        sourceArtifactPath: 'hardening/hardening.md',
+        integrityKind,
+        sha256: HARDENING_ARTIFACT_SHA256,
+        mediaType: 'text/markdown',
+        retainedInAtlas: false,
+      },
+    }
+    ledger.current.sourceArtifacts.push({
+      path: 'hardening/hardening.md',
+      sha256: HARDENING_ARTIFACT_SHA256,
+      mediaType: 'text/markdown',
+      integrityKind,
+      ...(integrityKind === 'producer-manifest'
+        ? { integrityIndex: 'scan-manifest.json' }
+        : {}),
+      referencedBy: ['/hardening/portfolio/sourceArtifactPath'],
+      retainedInAtlas: false,
+    })
+    ledger.current.sourceArtifacts.sort((left, right) =>
+      left.path < right.path ? -1 : left.path > right.path ? 1 : 0
+    )
+    resealCurrent(ledger)
+    return ledger
+  }
+  try {
+    for (const integrityKind of ['adapter-bundle', 'producer-manifest']) {
+      assert.equal(
+        parseAuditCurrentLedger(
+          root,
+          '.atlas/audits/security-runtime.json',
+          withHardening(integrityKind),
+        ).ok,
+        true,
+        integrityKind,
+      )
+    }
+
+    const cases = [
+      {
+        label: 'hardening digest differs from source artifact',
+        mutate(current) {
+          current.hardening.portfolio.sha256 = 'e'.repeat(64)
+        },
+      },
+      {
+        label: 'hardening media type differs from source artifact',
+        mutate(current) {
+          current.hardening.portfolio.mediaType = 'text/plain'
+        },
+      },
+      {
+        label: 'hardening backlink is missing',
+        mutate(current) {
+          current.sourceArtifacts
+            .find(({ path: artifactPath }) =>
+              artifactPath === 'hardening/hardening.md'
+            )
+            .referencedBy = []
+        },
+      },
+      {
+        label: 'hardening source artifact is missing',
+        mutate(current) {
+          current.sourceArtifacts = current.sourceArtifacts
+            .filter(({ path: artifactPath }) =>
+              artifactPath !== 'hardening/hardening.md'
+            )
+        },
+      },
+      {
+        label: 'hardening reference has an unknown field',
+        mutate(current) {
+          current.hardening.portfolio.body = '# untrusted copy'
+        },
+      },
+    ]
+    for (const { label, mutate } of cases) {
+      const candidate = withHardening()
+      mutate(candidate.current)
+      resealCurrent(candidate)
+      assertInvalid(
+        parseAuditCurrentLedger(
+          root,
+          '.atlas/audits/security-runtime.json',
+          candidate,
+        ),
+        /hardening|artifact|reference|backlink|digest|media|unknown/i,
+      )
+    }
+  } finally {
+    cleanup(root)
+  }
+})
+
 test('ruleset file joins and exact authoritative locations close over reviewed receipts', () => {
   const root = makeV3Repo()
   try {
@@ -1736,6 +1859,23 @@ test('strict unions reject forbidden cross-variant members and missing common sc
       },
       {
         mutate(ledger) {
+          ledger.current.producer.sourceContract.startedAt =
+            '2026-02-29T12:00:00Z'
+        },
+        pattern: /startedAt|timestamp|calendar|RFC/i,
+      },
+      {
+        mutate(ledger) {
+          ledger.current.producer.sourceContract.completedAt =
+            '2026-04-31T12:34:56Z'
+          ledger.current.producer.sourceContract.sealedAt =
+            '2026-04-31T12:34:56Z'
+          ledger.current.observedAt = '2026-05-01T12:34:56.000Z'
+        },
+        pattern: /completedAt|timestamp|calendar|RFC/i,
+      },
+      {
+        mutate(ledger) {
           ledger.current.target.dirty = false
         },
         pattern: /target|dirty|unknown|forbid/i,
@@ -1886,20 +2026,28 @@ test('strict parsing enforces explicit UTF-16 ordering for semantic sets', () =>
   }
 })
 
-test('Codex remote metadata accepts only canonical absolute URLs without ambient authority', () => {
+test('Codex remote metadata accepts canonical hierarchical URLs without ambient authority', () => {
   const root = makeV3Repo()
   try {
-    const accepted = buildSemanticFixture()
-    accepted.ledger.current.target.remote = 'https://example.invalid/repository.git'
-    resealCurrent(accepted.ledger)
-    assert.equal(
-      parseAuditCurrentLedger(
-        root,
-        '.atlas/audits/security-runtime.json',
-        accepted.ledger,
-      ).ok,
-      true,
-    )
+    for (const remote of [
+      'https://example.invalid/repository.git',
+      'git+ssh://example.invalid/repository.git',
+      'ftp://example.invalid/repository.git',
+      'javascript://example.invalid/repository',
+    ]) {
+      const accepted = buildSemanticFixture()
+      accepted.ledger.current.target.remote = remote
+      resealCurrent(accepted.ledger)
+      assert.equal(
+        parseAuditCurrentLedger(
+          root,
+          '.atlas/audits/security-runtime.json',
+          accepted.ledger,
+        ).ok,
+        true,
+        remote,
+      )
+    }
 
     for (const remote of [
       '../repository',
@@ -1909,8 +2057,7 @@ test('Codex remote metadata accepts only canonical absolute URLs without ambient
       'https://example.invalid/repository#fragment',
       'https:\\\\example.invalid\\repository',
       'https://example.invalid/\u0001repository',
-      'javascript://example.invalid/repository',
-      'ftp://example.invalid/repository',
+      'HTTPS://Example.Invalid:443/repository',
     ]) {
       const fixture = buildSemanticFixture()
       fixture.ledger.current.target.remote = remote

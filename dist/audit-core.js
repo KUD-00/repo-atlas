@@ -738,24 +738,21 @@ function verifyAuditSupportSnapshot(context) {
         for (const repoPath of [...(directorySeals?.keys() ?? [])].sort()) {
             listBoundedAuditDirectory(context.root.procPath, repoPath, AUDIT_LIMITS.collectionItems);
         }
-        if ((fileSeals !== undefined && fileSeals.size > 0) ||
-            (gitQuerySeals !== undefined && gitQuerySeals.size > 0) ||
+        for (const repoPath of [...(fileSeals?.keys() ?? [])].sort()) {
+            const seal = fileSeals.get(repoPath);
+            const maxBytes = Number(seal.size);
+            if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+                throw new Error(`audit support file size is outside the safe integer range: ${repoPath}`);
+            }
+            readBoundedAuditBytes(context.root.procPath, repoPath, maxBytes);
+        }
+        if ((gitQuerySeals !== undefined && gitQuerySeals.size > 0) ||
             (absenceSeals !== undefined && absenceSeals.size > 0)) {
             withAnchoredAuditGitCapability(context.root.procPath, (capability) => {
                 for (const repoPath of [...(absenceSeals?.keys() ?? [])].sort()) {
                     const seal = absenceSeals.get(repoPath);
                     if (capability.hashWorktreeFile(repoPath, 'sha256', seal.maxBytes) !== null) {
                         throw new Error(`audit support path appeared during the retained transaction: ${repoPath}`);
-                    }
-                }
-                for (const repoPath of [...(fileSeals?.keys() ?? [])].sort()) {
-                    const seal = fileSeals.get(repoPath);
-                    const maxBytes = Number(seal.size);
-                    if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
-                        throw new Error(`audit support file size is outside the safe integer range: ${repoPath}`);
-                    }
-                    if (capability.hashWorktreeFile(repoPath, 'sha256', maxBytes) === null) {
-                        throw new Error(`audit support file disappeared during the retained transaction: ${repoPath}`);
                     }
                 }
                 for (const key of [...(gitQuerySeals?.keys() ?? [])].sort()) {

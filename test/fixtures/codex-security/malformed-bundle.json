@@ -1,0 +1,11 @@
+{
+  "base": "clean-bundle.json",
+  "mutation": {
+    "document": "coverage",
+    "path": [
+      "scanId"
+    ],
+    "value": "scan_different"
+  },
+  "expectedError": "scan IDs"
+}

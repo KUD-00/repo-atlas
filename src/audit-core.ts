@@ -982,8 +982,21 @@ function verifyAuditSupportSnapshot(
         AUDIT_LIMITS.collectionItems,
       )
     }
+    for (const repoPath of [...(fileSeals?.keys() ?? [])].sort()) {
+      const seal = fileSeals!.get(repoPath)!
+      const maxBytes = Number(seal.size)
+      if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+        throw new Error(
+          `audit support file size is outside the safe integer range: ${repoPath}`,
+        )
+      }
+      readBoundedAuditBytes(
+        context.root.procPath,
+        repoPath,
+        maxBytes,
+      )
+    }
     if (
-      (fileSeals !== undefined && fileSeals.size > 0) ||
       (gitQuerySeals !== undefined && gitQuerySeals.size > 0) ||
       (absenceSeals !== undefined && absenceSeals.size > 0)
     ) {
@@ -999,26 +1012,6 @@ function verifyAuditSupportSnapshot(
           ) {
             throw new Error(
               `audit support path appeared during the retained transaction: ${repoPath}`,
-            )
-          }
-        }
-        for (const repoPath of [...(fileSeals?.keys() ?? [])].sort()) {
-          const seal = fileSeals!.get(repoPath)!
-          const maxBytes = Number(seal.size)
-          if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
-            throw new Error(
-              `audit support file size is outside the safe integer range: ${repoPath}`,
-            )
-          }
-          if (
-            capability.hashWorktreeFile(
-              repoPath,
-              'sha256',
-              maxBytes,
-            ) === null
-          ) {
-            throw new Error(
-              `audit support file disappeared during the retained transaction: ${repoPath}`,
             )
           }
         }

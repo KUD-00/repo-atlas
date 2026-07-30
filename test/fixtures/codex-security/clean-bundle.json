@@ -1,0 +1,64 @@
+{
+  "manifest": {
+    "documentType": "codex-security.scan-manifest",
+    "schemaVersion": "1.0",
+    "scan": {
+      "id": "scan_clean_001",
+      "producer": {
+        "name": "codex-security-plugin",
+        "version": "0.1.0"
+      },
+      "status": "completed",
+      "startedAt": "2026-05-31T18:00:00Z",
+      "completedAt": "2026-05-31T18:09:00Z",
+      "sealedAt": "2026-05-31T18:09:00Z",
+      "target": {
+        "kind": "git_revision",
+        "targetId": "target_clean_example",
+        "displayName": "example/clean",
+        "remote": "https://github.com/example/clean",
+        "revision": "deadbeef"
+      },
+      "scope": {
+        "includePaths": [
+          "."
+        ],
+        "excludePaths": []
+      },
+      "coverageRef": "coverage.json",
+      "findingsRef": "findings.json",
+      "artifacts": [
+        {
+          "path": "findings.json",
+          "mediaType": "application/json"
+        },
+        {
+          "path": "coverage.json",
+          "mediaType": "application/json"
+        }
+      ]
+    }
+  },
+  "findings": {
+    "documentType": "codex-security.findings",
+    "schemaVersion": "1.0",
+    "scanId": "scan_clean_001",
+    "findings": []
+  },
+  "coverage": {
+    "documentType": "codex-security.coverage",
+    "schemaVersion": "1.0",
+    "scanId": "scan_clean_001",
+    "mode": "repository",
+    "completeness": "complete",
+    "inventoryStrategy": "repository",
+    "includePaths": [
+      "."
+    ],
+    "excludePaths": [],
+    "surfaces": [],
+    "explicitExclusions": [],
+    "deferred": []
+  },
+  "files": {}
+}

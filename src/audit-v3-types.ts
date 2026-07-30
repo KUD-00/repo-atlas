@@ -580,6 +580,10 @@ export interface AuditExternalArtifactRefV3 {
   retainedInAtlas: boolean
 }
 
+export interface AuditHardeningV3 {
+  portfolio: AuditExternalArtifactRefV3
+}
+
 export interface AtlasSecurityFindingV3 {
   findingId: AtlasFindingId
   occurrenceId: AtlasOccurrenceId
@@ -615,6 +619,7 @@ export interface AtlasSecurityObservationV3 {
   exactCoverage: AuditExactCoverageV3
   semanticCoverage: AuditSemanticCoverageV3
   threatModel?: AuditThreatModelV3
+  hardening?: AuditHardeningV3
   findings: AtlasSecurityFindingV3[]
   evidenceRefs: string[]
   sourceArtifacts: AuditSourceArtifactV3[]
