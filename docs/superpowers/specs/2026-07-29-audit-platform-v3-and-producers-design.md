@@ -26,9 +26,10 @@ floor is the semantic union of:
 - Repo Atlas V2's exact-scope ledger and viewer portfolio;
 - RelayOS's exact-blob, per-file scan history, candidate reconciliation,
   disposition, remediation, regression, expiry, and retirement controls; and
-- Codex Security 1.0's sealed target/scope manifest, threat model, semantic
-  coverage, stable identities, structured code evidence, root cause,
-  validation, attack path, severity rationale, and remediation guidance.
+- the documented stable Codex Security completed-scan contract 1.0's sealed
+  target/scope manifest, threat model, semantic coverage, stable identities,
+  structured code evidence, root cause, validation, attack path, severity
+  rationale, hardening association, and remediation guidance.
 
 Every durable fact from those three inputs must have a first-class V3 mapping
 or an explicit, documented exclusion. Importers and migrators never silently
@@ -119,6 +120,11 @@ committed Atlas and are never added to `.atlas`.
 
 - Reimplementing the Codex Security scanner or private prompts.
 - Claiming that Grok and Codex produce identical findings.
+- Treating mutable Codex Security workbench state—raw false-positive feedback,
+  scan comparison projections, remediation attempts, external tracking, or
+  execution/replay state—as part of an immutable completed-scan observation.
+  Those capabilities require separate journals if Repo Atlas later adopts
+  them.
 - Running an LLM from `status`, `check`, `build`, `serve`, coverage validation,
   localization, or pre-commit unless the user explicitly invokes
   `audit run`.
@@ -245,6 +251,7 @@ the current/history/decision filename stem.
   "exactCoverage": {},
   "semanticCoverage": {},
   "threatModel": {},
+  "hardening": {},
   "findings": [],
   "evidenceRefs": [],
   "sourceArtifacts": [],
@@ -724,6 +731,33 @@ is `adapter-bundle`; canonical findings, coverage, and sealed coverage receipts
 are `producer-manifest`. A write-up or hardening artifact is
 `producer-manifest` only when the manifest actually listed its exact path.
 
+Codex Security's stable scan-level hardening association is first-class rather
+than hidden in an extension or attached to an arbitrary finding:
+
+```json
+{
+  "hardening": {
+    "portfolio": {
+      "kind": "external",
+      "sourceArtifactPath": "hardening/hardening.md",
+      "integrityKind": "adapter-bundle",
+      "sha256": "<hex>",
+      "mediaType": "text/markdown",
+      "retainedInAtlas": false
+    }
+  }
+}
+```
+
+`hardening` is omitted when the source manifest omits it. The importer safely
+opens and hashes the exact raw portfolio bytes. The normal Codex workflow does
+not list this derived guidance in `scan.artifacts`, so its integrity kind is
+`adapter-bundle`; if a public-contract-valid producer does list the exact path,
+the normal manifest seal rules make it `producer-manifest`. In both cases the
+matching `sourceArtifacts` row has
+`referencedBy: ["/hardening/portfolio/sourceArtifactPath"]`. The body is not
+copied into Atlas and the reference is not remediation or fix proof.
+
 ## V3 security finding
 
 ```json
@@ -1055,9 +1089,10 @@ highest unrecognized pointer without duplicating recognized descendants.
 original Codex value instead of overwriting it. Additional source provenance
 properties remain namespaced extensions at their exact JSON pointers.
 
-`artifactRefs` retain bounded integrity metadata for a detailed write-up,
-hardening portfolio, validation artifact, or coverage receipt without copying
-sensitive content:
+Finding-level `artifactRefs` retain bounded integrity metadata for a detailed
+write-up, validation artifact, or finding-specific supporting artifact without
+copying sensitive content. Scan-level hardening uses
+`hardening.portfolio` instead:
 
 ```json
 {
@@ -2178,6 +2213,50 @@ Inventory rejects index/worktree executable-bit drift and uses the
 locale-independent collision key `NFC(path).toLowerCase()` after requiring the
 stored path itself to be NFC.
 
+The V1 inventory hash remains byte-compatible with the established sorted
+`<blob-or-GENERATED-PROOF>  <path>` lines plus final newline for every path
+without CR or LF. That preserves every existing safely representable V1
+report. If any legal Git path contains CR or LF, the old delimiter encoding is
+ambiguous; Repo Atlas uses a separately domain-prefixed, length-framed tuple
+encoding for that inventory only. Generator and reader share this helper, so
+the extension cannot collide with the legacy preimage and does not rewrite
+ordinary V1 hashes.
+
+### Transaction-wide coverage snapshot
+
+Coverage policy loading, Git inventory, ledger projection, report validation,
+generation, check, and update share one retained root capability and one
+transaction-wide support snapshot. The snapshot seals:
+
+- every support file's exact Git-blob digest, size, device, inode, mode,
+  nanosecond timestamps, and immediate parent identity;
+- every enumerated directory's sorted entry digest, identity, mode, and
+  nanosecond timestamps;
+- every path observed absent, including the deepest existing parent and first
+  missing segment; and
+- each bounded Git query's exact arguments, output length, and SHA-256 digest.
+
+Verification re-lists sealed directories, re-hashes absences and files, reruns
+all Git queries after file cleanup, and finally rechecks visible file,
+directory, and absence metadata. A mutation or replacement in any interval,
+including a final descriptor-cleanup hook, invalidates the whole snapshot.
+No public result may certify a mixture of repository states.
+
+V1, V2, and V3 exact-evidence normalization shares one per-path worktree-byte
+cache. One bounded read derives both Git SHA-1 and SHA-256 blob identities, so
+mixed ledger versions cannot multiply I/O or observe different bytes for the
+same path. The aggregate cache is bounded at 512 MiB. Public structured inputs
+reject proxies before reflective traversal, and canonical serialization never
+executes getters or proxy traps.
+
+`update` does not equate an atomic rename with a current report. After each
+write it prepares a fresh complete snapshot and succeeds only when the bytes
+just committed equal that snapshot's canonical bytes. It performs at most
+three atomic writes; continuing churn returns
+`coverage-update-did-not-converge` and `current: false`. `check` and reader
+paths use the same snapshot verification and cannot return a trusted result
+after support state changes.
+
 ## First-party Grok producer
 
 ### Explicit invocation only
@@ -2367,12 +2446,26 @@ canonical documents use schema 1.0. It:
 10. sets exact coverage only when Atlas independently possesses exact per-file
     blob receipts.
 
-Every imported source path is a safe repository-relative path. A finding must
-have at least one location matched by the declared Codex scope, as required by
-the upstream scan workflow; additional supporting locations and code evidence
-may be elsewhere in the same repository and are retained. Supporting evidence
-outside the requested scope is not rejected merely for being supporting
-context.
+Every imported source path is a safe repository-relative path. Findings retain
+all safe locations and code evidence, including supporting context outside the
+declared scope. The public 1.0 schema and SDK contract loader require at least
+one location but do not require a location-to-scope membership join, so the
+default importer does not invent that rejection. A future explicitly selected
+`standard-repository-workflow` profile may enforce the stronger upstream
+discovery-workflow invariant; it cannot be inferred reliably from the three
+documents or described as a schema rule.
+
+The adapter keeps four validity layers distinct:
+
+1. JSON-schema-valid 1.0 documents;
+2. public SDK `loadContract`-valid bundles, including required external
+   finding write-ups and an optional hardening portfolio;
+3. official-finalizer-valid bundles, including identity and collision rules;
+4. bundles emitted by the narrower standard repository/scoped-path workflow.
+
+Atlas may add explicit safety, resource, or lossless-representation
+restrictions, but diagnostics identify those as adapter restrictions rather
+than rewriting a narrower workflow invariant into the public 1.0 contract.
 
 Artifact seals are checked against the exact bounded raw bytes returned by the
 same descriptor-anchored core reader used for audit state. For JSON documents,
@@ -2399,7 +2492,7 @@ semantic evidence remains useful and is labeled honestly.
 | --- | --- |
 | producer, timestamps, target, scope | first-class receipts; exact source timestamps/refs retained in `sourceContract` |
 | threat model | first-class threat model |
-| hardening portfolio | producer-manifest artifact only when listed; otherwise adapter-bundle metadata; content not copied |
+| hardening portfolio | first-class observation-level external ref; producer-manifest only when listed, otherwise adapter-bundle; content not copied |
 | manifest artifacts/seals | integrity-kind-aware observation inventory; content not copied by default |
 | finding/occurrence IDs | verified provider aliases in provenance |
 | rule, anchor, instance, fingerprint | first-class identity + producer alias |

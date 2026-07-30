@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Every behavior change follows RED-GREEN-REFACTOR; do not write production code before the named failing test exists and has been observed failing.
 
-**Goal:** Turn Repo Atlas into the owner of a closed-world, exact-byte audit platform whose V3 model preserves Atlas V2, RelayOS legacy security evidence, and Codex Security 1.0 semantics; add deterministic policy/coverage, decisions, history, migration, Codex import, and an explicitly invoked isolated Grok producer.
+**Goal:** Turn Repo Atlas into the owner of a closed-world, exact-byte audit platform whose V3 model preserves Atlas V2, RelayOS legacy security evidence, and the documented stable Codex Security completed-scan contract 1.0; add deterministic policy/coverage, decisions, history, migration, Codex import, and an explicitly invoked isolated Grok producer.
 
 **Architecture:** Keep V1/V2 as compatibility readers and make V3 the only current write format. New small modules own canonical JSON and identifiers, strict V3 parsing, current/history storage, append-only decisions and reconciliation, review-policy classification, deterministic coverage generation, import/migration adapters, and producer orchestration. `src/audits.ts` projects verified V3 observations into the existing viewer portfolio while richer V3 state is exposed directly. `src/cli.ts` delegates the hierarchical `audit ...` surface to `src/audit-cli.ts`. All repository reads and writes reject symlink escapes and all state-changing commands use an audit lock plus atomic replacement.
 
@@ -684,7 +684,7 @@ git commit -m "feat(audit): add append-only finding lifecycle"
 - Modify: `src/review-coverage.ts`
 - Modify: `src/types.ts`
 
-- [ ] **Step 1: Write failing policy and exact-coverage tests**
+- [x] **Step 1: Write failing policy and exact-coverage tests**
 
 Port the proven RelayOS fixture matrix into temporary Git repositories. Assert:
 
@@ -724,6 +724,14 @@ module layout:
   valid legacy pretty reports; and
 - `allowIncomplete` changes success only for honest missing/stale evidence,
   never policy, conflict, invalid-ledger, self-proof, or byte-drift failures.
+- the retained root, `.atlas`, report, policy, source ledgers, audit-directory
+  membership, missing paths, and exact Git query outputs stay sealed until the
+  transaction returns, including mutations attempted during final cleanup;
+- V1/V2/V3 exact-evidence joins hash each unique worktree path once, derive
+  both Git SHA-1 and SHA-256 blob identities from those bytes, and enforce the
+  shared 512 MiB aggregate bound; and
+- public structured inputs reject proxies before invoking traps, and canonical
+  JSON never executes accessors or proxy behavior.
 
 The generic policy header and embedded decision policy are:
 
@@ -747,13 +755,13 @@ bound by the decision review context. Codex Security's
 as one. A semantic Codex finding therefore needs a later exact Atlas validation
 observation before closure or lifecycle carry.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 ```bash
 pnpm build:cli && node --test test/audit-policy-generator.test.mjs
 ```
 
-- [ ] **Step 3: Implement strict policy, inventory, and unit assignment**
+- [x] **Step 3: Implement strict policy, inventory, and unit assignment**
 
 Export:
 
@@ -780,7 +788,15 @@ ruleset, stale state, exact path/blob/full-read receipts, and invalid claimed
 paths. The generator and hostile report reader consume this seam; neither
 re-parses audit ledgers.
 
-- [ ] **Step 4: Generate and enforce canonical coverage**
+All policy, inventory, ledger, and report reads run inside one retained,
+transaction-wide support snapshot. It seals regular-file bytes and identity,
+directory membership and identity, missing path state through the deepest
+existing parent, and the exact bounded Git query arguments and output. Final
+verification re-lists directories, re-hashes absences and files, reruns Git
+queries, then performs visible metadata passes for files, directories, and
+absences. Any disagreement fails closed without returning a trusted result.
+
+- [x] **Step 4: Generate and enforce canonical coverage**
 
 Export:
 
@@ -809,7 +825,13 @@ still uses `GENERATED-PROOF`; an untracked first-generation report is outside
 inventory, and the next update after it is tracked adds the reserved self
 entry.
 
-- [ ] **Step 5: Verify and commit**
+After each atomic coverage write, `update` prepares a completely new sealed
+snapshot and compares the committed bytes with that snapshot's canonical
+bytes. It retries for at most three writes. Persistent source churn returns
+`coverage-update-did-not-converge` with `current: false`; it never reports
+success for bytes that were already stale when the transaction returned.
+
+- [x] **Step 5: Verify and commit**
 
 ```bash
 pnpm build:cli
@@ -826,15 +848,20 @@ git commit -m "feat(audit): own closed-world coverage generation"
 - Create: `test/fixtures/codex-security/clean-bundle.json`
 - Create: `test/fixtures/codex-security/finding-bundle.json`
 - Create: `test/fixtures/codex-security/malformed-bundle.json`
+- Modify: `src/audit-v3-types.ts`
+- Modify: `src/audit-v3.ts`
+- Modify: `test/audit-v3.test.mjs`
 
 - [ ] **Step 1: Write failing adapter fixtures**
 
 Construct the real three-document Codex Security 1.0 directory bundle:
-`scan-manifest.json`, `findings.json`, and `coverage.json`, plus only the
-artifacts referenced by the manifest. Assert rich finding fields, normalized
-locations, sealed-producer code evidence, exact source IDs in
-provenance/extensions, canonical Atlas target/source-kind coordinates,
-semantic-declaration scope, semantic coverage, and
+`scan-manifest.json`, `findings.json`, and `coverage.json`, plus every artifact
+referenced by the manifest, every finding write-up required by the public
+loader, and the optional scan-level hardening portfolio. Assert rich finding
+fields, normalized locations, sealed-producer code evidence, exact source IDs
+in provenance/extensions, a first-class hardening external reference,
+canonical Atlas target/source-kind coordinates, semantic-declaration scope,
+semantic coverage, and
 `exactCoverage: { completeness: "unknown", basis: "unavailable", ... }`.
 Codex 1.0 supplies no ruleset and no exact per-file/full-read receipts, so the
 adapter must not invent either.
@@ -842,10 +869,13 @@ adapter must not invent either.
 Reject URL-like bundle inputs, non-local or symlinked bundle members, missing
 canonical documents, scan-ID/reference/timestamp mismatch, digest mismatch,
 unsafe or duplicate artifact paths, duplicate/colliding findings, unsupported
-document types/versions, invalid Codex identity formulas, findings with no
-location in the declared scope, and unknown fields that cannot be preserved
-within V3 bounds. Require at least one finding location in the declared scope,
-but preserve safe same-repository supporting locations/evidence outside it.
+document types/versions, invalid Codex identity formulas, and unknown fields
+that cannot be preserved within V3 bounds. Preserve safe same-repository
+locations/evidence outside declared scope: the public schema and SDK loader do
+not require a location-to-scope membership join. Separately reject missing,
+symlinked, escaping, or changed write-up/hardening paths; cover both
+`adapter-bundle` raw digests and the `producer-manifest` case when the exact
+external path is actually listed.
 `sourceSeal` is adapter-derived; malformed source-seal pointer rejection
 belongs to Task 2 V3 parser tests. Missing full-read proof is an honest
 semantic import, not an import failure.
@@ -894,8 +924,13 @@ manifest's actual seal relationships against exact raw bytes from
 `readBoundedAuditJsonDocument` (and `readBoundedAuditBytes` for non-JSON
 artifacts) before mapping, and describe the
 unsealed manifest itself as `adapter-bundle`, never producer-manifest. Preserve
-every schema-permitted unmapped source field as a bounded namespaced extension
-at its exact JSON pointer or reject the import. Use distinct
+required finding write-ups and optional hardening portfolio as bounded external
+references without copying their bodies; normal unlisted files use
+`adapter-bundle`, while exact manifest-listed files use `producer-manifest`.
+Preserve the hardening association at observation level rather than hiding it
+in a producer extension or a finding. Every schema-permitted unmapped source
+field is preserved as a bounded namespaced extension at its exact JSON pointer
+or the import is rejected. Use distinct
 `codex-security.scan-manifest/1.0`, `codex-security.findings/1.0`, and
 `codex-security.coverage/1.0` namespaces so identical pointers in different
 documents cannot collide. Import code evidence as
@@ -915,7 +950,7 @@ bytes and no producer reimplements chain logic.
 ```bash
 pnpm build:cli
 node --test test/audit-import-codex.test.mjs test/audit-v3.test.mjs
-git add src/audit-import-codex.ts test/audit-import-codex.test.mjs test/fixtures/codex-security
+git add src/audit-import-codex.ts src/audit-v3-types.ts src/audit-v3.ts test/audit-import-codex.test.mjs test/audit-v3.test.mjs test/fixtures/codex-security
 git commit -m "feat(audit): import sealed Codex Security bundles"
 ```
 
@@ -1212,10 +1247,10 @@ git push origin feat/codex-security-atlas-adapter
 
 - [ ] V1/V2 remain readable but every new write is V3.
 - [ ] Exact coverage, semantic coverage, finding lifecycle, and producer integrity are independently represented.
-- [ ] V3 semantically covers Atlas V2, RelayOS legacy, and Codex Security 1.0 without inventing unsupported legacy facts.
+- [ ] V3 semantically covers Atlas V2, RelayOS legacy, and the documented stable Codex Security completed-scan contract 1.0 without inventing unsupported source facts.
 - [ ] Every reviewed file has an exact blob and explicit reviewed/not-reviewed plus clean/findings/unknown outcome.
 - [ ] Decisions and retirements are append-only, self-contained, expiry-aware, and regression-aware.
-- [ ] Policy and deterministic coverage generation are Repo Atlas capabilities.
+- [x] Policy and deterministic coverage generation are Repo Atlas capabilities.
 - [ ] Grok runs only through an explicit command in an isolated snapshot with transcript proof.
 - [ ] Codex Security import is offline, sealed, digest-checked, and loss-preserving.
 - [ ] RelayOS migration is deterministic, idempotent, non-destructive, and emits a canonical receipt.
