@@ -1372,7 +1372,7 @@ git commit -m "feat(audit): present V3 assurance and lifecycle"
 - Modify: `package.json`
 - Modify: existing relevant tests
 
-- [ ] **Step 1: Add copy-boundary and package tests**
+- [x] **Step 1: Add copy-boundary and package tests**
 
 Extend `test/audit-copy-boundary.test.mjs` and CLI tests to assert:
 
@@ -1382,18 +1382,18 @@ Extend `test/audit-copy-boundary.test.mjs` and CLI tests to assert:
 - default commands never invoke Grok;
 - all deprecated commands point to V3 replacements.
 
-- [ ] **Step 2: Document the complete workflow**
+- [x] **Step 2: Document the complete workflow**
 
 README sections must include current layout, V1/V2 compatibility, V3 guarantees, policy ownership, exact versus semantic coverage, decisions/retirement, explicit Grok execution, sealed Codex import, RelayOS migration dry-run/apply, lock/recovery, and CI examples.
 
-- [ ] **Step 3: Run focused security and hostile-input verification**
+- [x] **Step 3: Run focused security and hostile-input verification**
 
 ```bash
 pnpm build
 node --test test/audit-core.test.mjs test/audit-v3.test.mjs test/audit-decisions.test.mjs test/audit-policy-generator.test.mjs test/audit-import-codex.test.mjs test/audit-migrate-relayos.test.mjs test/audit-migrate-relayos-root-audits.test.mjs test/audit-provider-grok.test.mjs test/audit-cli.test.mjs test/audit-copy-boundary.test.mjs
 ```
 
-- [ ] **Step 4: Run the full project verification**
+- [x] **Step 4: Run the full project verification**
 
 ```bash
 pnpm test
@@ -1414,16 +1414,16 @@ git push origin feat/codex-security-atlas-adapter
 
 ## Final requirement review
 
-- [ ] V1/V2 remain readable but every new write is V3.
-- [ ] Exact coverage, semantic coverage, finding lifecycle, and producer integrity are independently represented.
-- [ ] V3 semantically covers Atlas V2, RelayOS legacy, and the documented stable Codex Security completed-scan contract 1.0 without inventing unsupported source facts.
-- [ ] Every reviewed file has an exact blob and explicit reviewed/not-reviewed plus clean/findings/unknown outcome.
-- [ ] Decisions and retirements are append-only, self-contained, expiry-aware, and regression-aware.
+- [x] V1/V2 remain readable but every new write is V3.
+- [x] Exact coverage, semantic coverage, finding lifecycle, and producer integrity are independently represented.
+- [x] V3 semantically covers Atlas V2, RelayOS legacy, and the documented stable Codex Security completed-scan contract 1.0 without inventing unsupported source facts.
+- [x] Every reviewed file has an exact blob and explicit reviewed/not-reviewed plus clean/findings/unknown outcome.
+- [x] Decisions and retirements are append-only, self-contained, expiry-aware, and regression-aware.
 - [x] Policy and deterministic coverage generation are Repo Atlas capabilities.
-- [ ] Grok runs only through an explicit command in an isolated snapshot with transcript proof.
-- [ ] Codex Security import is offline, sealed, digest-checked, and loss-preserving.
-- [ ] RelayOS migration is deterministic, idempotent, non-destructive, and emits a canonical receipt.
-- [ ] The RelayOS migration seam splits into a pure builder and a locked apply under the two-revision source/validation contract; the receipt identity covers both full revisions, repository identity, the exact policy seal, the historical-assignment digest, converter name/version/commit, and sorted raw input seals.
-- [ ] `relayos-root-audits-v1` is a real migrator with its own build/apply APIs, fixtures, raw input/output seals, and deterministic receipt.
-- [ ] Viewer/localization distinguish unknown from clean and exact from semantic.
+- [x] Grok runs only through an explicit command in an isolated snapshot with transcript proof.
+- [x] Codex Security import is offline, sealed, digest-checked, and loss-preserving.
+- [x] RelayOS migration is deterministic, idempotent, non-destructive, and emits a canonical receipt.
+- [x] The RelayOS migration seam splits into a pure builder and a locked apply under the two-revision source/validation contract; the receipt identity covers both full revisions, repository identity, the exact policy seal, the historical-assignment digest, converter name/version/commit, and sorted raw input seals.
+- [x] `relayos-root-audits-v1` is a real migrator with its own build/apply APIs, fixtures, raw input/output seals, and deterministic receipt.
+- [x] Viewer/localization distinguish unknown from clean and exact from semantic.
 - [ ] Full tests, typechecks, packaging, and Git status are freshly verified.
