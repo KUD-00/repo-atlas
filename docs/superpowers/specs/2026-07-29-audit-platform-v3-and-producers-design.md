@@ -1631,8 +1631,13 @@ receipts exist. Reject reviews remain auditable but never satisfy closure.
 Derived state is the latest valid event in chain order, not the latest
 timestamp. A current occurrence with no disposition event derives to implicit
 `open`; policy may require an explicit closing decision, and an implicit open
-is always blocking when `requireDisposition` is enabled. Producers do not
-forge a human `open` event merely to make the chain nonempty.
+is always blocking when `requireDisposition` is enabled. Only the
+authoritative current observation's occurrences derive that implicit state:
+an occurrence published solely in earlier historical entries stays honestly
+`open` with lifecycle `unknown` — mere absence never resolves — but never
+derives implicit blocking state, so undisposed historical evidence does not
+gate. Producers do not forge a human `open` event merely to make the chain
+nonempty.
 
 Reduction never validates against one current observation alone. Loaders first
 build a fail-closed global history/decision index:

@@ -1496,6 +1496,76 @@ git commit -m "fix(audit): accept migration validation context in lifecycle redu
 git push origin feat/codex-security-atlas-adapter
 ```
 
+### Task 12: Scope implicit-open gating to current occurrences
+
+**Files:**
+- Modify: `src/audit-decisions.ts`
+- Modify: `test/audit-decisions.test.mjs`
+- Modify: `test/audit-migrate-relayos-seam.test.mjs`
+- Modify: `docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`
+
+- [x] **Step 1: Add failing reducer and seam assertions**
+
+Reducer level (`test/audit-decisions.test.mjs`): rewrite the historical
+unclosed-finding case so a finding whose only occurrence sits in a published
+historical entry (current observation clean) derives `open` /
+`implicit-open` / lifecycle `unknown` / zero current occurrences **without
+blocking**, and add the genesis history-ahead case proving an unpublished
+occurrence drives no implicit blocking state either.
+
+End to end (`test/audit-migrate-relayos-seam.test.mjs`): pin the honest
+migrated occurrence population (161 occurrences: 60 opaque baseline receipts
++ 82 candidate + 19 synthesized current across 142 distinct findings;
+historical 142 / current 19 by publication state), assert the full applied
+corpus under `requireDisposition: true` reduces with zero blocking findings
+while all 82 governed findings keep their honest non-blocking closure, and
+prove the gating rule by re-reduction: dropping one disposition whose finding
+holds a current occurrence blocks through the open stable-identity carry,
+while dropping one whose finding lives only in history layers stays
+non-blocking `implicit-open`.
+
+```bash
+pnpm build:cli
+node --test test/audit-decisions.test.mjs test/audit-migrate-relayos-seam.test.mjs
+```
+
+- [x] **Step 2: Confirm RED**
+
+The flipped reducer case fails with `true !== false` on the blocking flag and
+the seam test fails with `60 !== 0` blocking findings; the new 161/142
+population assertions already hold against the unmodified migrator output.
+
+- [x] **Step 3: Scope implicit-open blocking to authoritative occurrences**
+
+In `reduceAuditDecisionState`, the per-occurrence implicit-open state blocks
+only when the occurrence is authoritative (published by the current wrapper's
+referenced observation) and policy requires a disposition or blocks `open`.
+Historical and history-ahead occurrences keep `disposition: "open"` with
+lifecycle `unknown` — mere absence never resolves — but no longer feed
+blocking state into the published-frontier adoption path. The migration
+validation context, carry basis bindings, and every explicit-event path stay
+untouched.
+
+- [x] **Step 4: Align the spec decision-lifecycle text**
+
+Extend the implicit-open paragraph in
+`docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`
+to state that only the authoritative current observation's occurrences derive
+implicit blocking state, and that occurrences published solely in historical
+entries stay honestly open with lifecycle `unknown` without gating.
+
+- [x] **Step 5: Verify and commit**
+
+```bash
+pnpm build:cli
+node --test test/audit-decisions.test.mjs test/audit-migrate-relayos-seam.test.mjs
+pnpm test
+pnpm typecheck
+git add src/audit-decisions.ts test/audit-decisions.test.mjs test/audit-migrate-relayos-seam.test.mjs docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md docs/superpowers/plans/2026-07-29-audit-platform-v3-and-producers.md
+git commit -m "fix(audit): scope implicit-open gating to current occurrences"
+git push origin feat/codex-security-atlas-adapter
+```
+
 ## Final requirement review
 
 - [x] V1/V2 remain readable but every new write is V3.
