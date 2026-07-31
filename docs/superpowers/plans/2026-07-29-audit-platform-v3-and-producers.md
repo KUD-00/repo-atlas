@@ -1404,7 +1404,7 @@ git status --short
 
 Expected: every test passes, both typecheck projects pass, package creation succeeds, and only intentional documentation/source/test/bundle changes remain.
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit and push**
 
 ```bash
 git add README.md package.json test/audit-copy-boundary.test.mjs
