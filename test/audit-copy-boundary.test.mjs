@@ -1,13 +1,21 @@
 /**
- * Source-boundary + catalog-completeness gate for audit assurance i18n.
+ * Source-boundary + catalog-completeness gate for audit assurance i18n, plus
+ * the platform product/package boundary.
  *
  * Model-owned English labels (coverage statements, suffix text, coverage/risk
  * labels, action labels, outcome/acceptance labels, file status labels) must
  * never be rendered directly by viewer consumers. Localization goes through
  * compile-time Lingui msgids in viewer/audit-copy.ts only — never by feeding
  * a model English string into a dynamic i18n lookup.
+ *
+ * The second suite pins the ownership contract: Repo Atlas ships generic
+ * audit machinery only — no consumer (RelayOS) product policy or prompt
+ * content — adapter fixtures stay bounded non-executable test data, and the
+ * published package carries dist + vendored viewer + qa prompt templates
+ * without test fixtures or runtime worktree state.
  */
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { describe, test } from 'node:test'
@@ -526,6 +534,228 @@ describe('audit copy source boundary', () => {
       hits.length,
       0,
       `obsolete clean/no-findings assurance phrases remain:\n  - ${hits.join('\n  - ')}`,
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// platform product/package boundary
+// ---------------------------------------------------------------------------
+
+/** Repository TypeScript sources, excluding the vendored viewer bundles. */
+function sourceModuleNames() {
+  return fs.readdirSync(path.join(ROOT, 'src'))
+    .filter((name) => name.endsWith('.ts'))
+}
+
+function walkFiles(absolute) {
+  const out = []
+  const stack = [absolute]
+  while (stack.length > 0) {
+    const current = stack.pop()
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const child = path.join(current, entry.name)
+      if (entry.isDirectory()) stack.push(child)
+      else if (entry.isFile()) out.push(child)
+    }
+  }
+  return out.sort()
+}
+
+describe('platform product and package boundary', () => {
+  test('provider prompt and orchestration own no RelayOS product content', () => {
+    // The Grok adapter and the provider runner are product-free: generic
+    // prompt text, generic policy schema, no consumer-specific content.
+    for (const rel of ['src/audit-providers.ts', 'src/audit-provider-grok.ts']) {
+      assert.doesNotMatch(
+        read(rel),
+        /relayos/i,
+        `${rel} must not reference any consumer product`,
+      )
+    }
+    // The shipped consumer-facing prompt templates, schemas, rubric, and
+    // defaults are generic as well. (qa README narrative may mention where
+    // the pipeline was battle-tested; prompt content may not.)
+    const promptSurface = [
+      ...fs.readdirSync(path.join(ROOT, 'qa', 'prompts')).map((name) => `qa/prompts/${name}`),
+      ...fs.readdirSync(path.join(ROOT, 'qa', 'schemas')).map((name) => `qa/schemas/${name}`),
+      ...fs.readdirSync(path.join(ROOT, 'qa', 'defaults')).map((name) => `qa/defaults/${name}`),
+      'qa/rubric.json',
+    ]
+    for (const rel of promptSurface) {
+      assert.doesNotMatch(
+        read(rel),
+        /relayos/i,
+        `${rel} must not embed consumer product content`,
+      )
+    }
+  })
+
+  test('RelayOS source-format strings stay inside the migrator boundary', () => {
+    // Only the two migrators, the audit command surface that names them, the
+    // legacy sourceKind contract, and the top-level usage text may mention
+    // the consumer product at all. Any new module matching /relayos/i fails
+    // here until its content is justified and this list is re-reviewed.
+    const allowedModules = new Set([
+      'audit-cli.ts',
+      'audit-migrate-relayos.ts',
+      'audit-migrate-relayos-root-audits.ts',
+      'audit-policy.ts',
+      'cli.ts',
+      'types.ts',
+    ])
+    const offenders = sourceModuleNames()
+      .filter((name) => !allowedModules.has(name) && /relayos/i.test(read(`src/${name}`)))
+    assert.deepEqual(
+      offenders,
+      [],
+      `RelayOS references escaped the migrator boundary: ${offenders.join(', ')}`,
+    )
+
+    // The legacy ruleset id appears only as an identity rejection when
+    // reading the known source format — Repo Atlas never owns its ruleset
+    // text (rule definitions, prompts, or policy bodies).
+    const migrator = read('src/audit-migrate-relayos.ts')
+    const rulesetMentions = migrator.split('\n')
+      .filter((line) => line.includes('relayos-secscan-v1'))
+    assert.ok(rulesetMentions.length > 0, 'the migrator must validate the legacy ruleset id')
+    for (const line of rulesetMentions) {
+      assert.match(
+        line,
+        /!==\s*'relayos-secscan-v1'/u,
+        `relayos-secscan-v1 may only be an identity check, got: ${line.trim()}`,
+      )
+    }
+
+    // The legacy review-policy schema id is a recognized format string, not
+    // an embedded policy document: exactly one occurrence, the constant.
+    assert.equal(
+      migrator.match(/relayos-review-policy-v1/gu)?.length ?? 0,
+      1,
+      'the legacy policy schema id must be defined exactly once',
+    )
+    assert.match(
+      migrator,
+      /const LEGACY_POLICY_SCHEMA = 'relayos-review-policy-v1'/u,
+    )
+    for (const name of sourceModuleNames()) {
+      const src = read(`src/${name}`)
+      if (name !== 'audit-migrate-relayos.ts') {
+        assert.ok(
+          !src.includes('relayos-review-policy-v1'),
+          `${name} must not reference the legacy policy schema`,
+        )
+      }
+      assert.doesNotMatch(
+        src,
+        /format:\s*['"]relayos-review-policy-v1['"]/u,
+        `${name} must not embed a RelayOS review-policy document`,
+      )
+    }
+  })
+
+  test('adapter fixtures are bounded non-executable test data', () => {
+    // Every fixture is committed as plain non-executable data (mode 100644);
+    // tests copy and chmod the fake grok double themselves.
+    const listing = execFileSync(
+      'git',
+      ['ls-files', '-s', '--', 'test/fixtures'],
+      { cwd: ROOT, encoding: 'utf8' },
+    )
+    const entries = listing.trim().split('\n').filter((line) => line.length > 0)
+    assert.ok(entries.length > 0, 'fixture listing must not be empty')
+    for (const entry of entries) {
+      assert.equal(
+        entry.slice(0, 6),
+        '100644',
+        `fixture must be non-executable data: ${entry}`,
+      )
+    }
+
+    // Fixtures stay bounded: small per file and small in aggregate.
+    const files = walkFiles(path.join(ROOT, 'test', 'fixtures'))
+    let totalBytes = 0
+    for (const file of files) {
+      const size = fs.statSync(file).size
+      assert.ok(
+        size <= 512 * 1024,
+        `${path.relative(ROOT, file)} exceeds the 512 KiB fixture bound`,
+      )
+      totalBytes += size
+    }
+    assert.ok(
+      totalBytes <= 1024 * 1024,
+      `fixtures exceed the 1 MiB aggregate bound (${totalBytes} bytes)`,
+    )
+  })
+
+  test('no runtime path consumes test fixtures', () => {
+    for (const name of sourceModuleNames()) {
+      assert.ok(
+        !read(`src/${name}`).includes('test/fixtures'),
+        `src/${name} must not reference test fixtures`,
+      )
+    }
+    for (const file of walkFiles(path.join(ROOT, 'qa'))) {
+      assert.ok(
+        !fs.readFileSync(file, 'utf8').includes('test/fixtures'),
+        `${path.relative(ROOT, file)} must not reference test fixtures`,
+      )
+    }
+  })
+
+  test('the package ships runtime artifacts and no test or worktree state', () => {
+    const output = execFileSync(
+      'npm',
+      ['pack', '--dry-run', '--json', '--ignore-scripts'],
+      { cwd: ROOT, encoding: 'utf8', timeout: 120_000 },
+    )
+    const files = JSON.parse(output)[0].files.map((entry) => entry.path)
+
+    // dist (compiled CLI + audit platform), the provider prompt template
+    // compiled into the grok adapter bundle, the prebuilt viewer, and the
+    // qa prompt templates must all ship.
+    const required = [
+      'package.json',
+      'README.md',
+      'dist/cli.js',
+      'dist/audit-cli.js',
+      'dist/audit-core.js',
+      'dist/audit-providers.js',
+      'dist/audit-provider-grok.js',
+      'src/vendor/viewer.js',
+      'src/vendor/viewer.css',
+      'qa/prompts/audit.md',
+      'qa/prompts/writer.md',
+      'qa/rubric.json',
+      'docs/readability-audit.md',
+    ]
+    for (const rel of required) {
+      assert.ok(files.includes(rel), `package must ship ${rel}`)
+    }
+    assert.match(
+      read('dist/audit-provider-grok.js'),
+      /atlas-security-prompt-v1/u,
+      'the grok prompt template must ship compiled into dist',
+    )
+
+    // No test material, adapter fixture trees, TypeScript sources, viewer
+    // sources, plan docs, or runtime worktree state (.atlas/.runtime, audit
+    // locks). qa/audit-coverage-fixtures.mjs is shipped qa tooling, not test
+    // data, so the fixture ban is on fixture *directories*, not the word.
+    const forbidden = files.filter((rel) =>
+      rel.startsWith('test/') ||
+      /(^|\/)fixtures?(\/|$)/u.test(rel) ||
+      rel.startsWith('.atlas') ||
+      rel.includes('.runtime') ||
+      rel.endsWith('audit-state.lock') ||
+      rel.startsWith('viewer/') ||
+      rel.startsWith('docs/superpowers') ||
+      (rel.startsWith('src/') && !rel.startsWith('src/vendor/')))
+    assert.deepEqual(
+      forbidden,
+      [],
+      `package must not ship test/runtime state:\n  - ${forbidden.join('\n  - ')}`,
     )
   })
 })

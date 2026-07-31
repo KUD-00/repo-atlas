@@ -1250,3 +1250,106 @@ test('legacy audit-stamp prints deprecation guidance and stamps the same ledgers
   assert.doesNotMatch(hierarchical.stderr, /deprecated/u)
   assert.match(hierarchical.stdout, /stamped: security-legacy-2/u)
 })
+
+
+// ---------------------------------------------------------------------------
+// provider-launch and deprecation completeness gates
+// ---------------------------------------------------------------------------
+
+test('audit run security without --provider grok fails without launching anything', (t) => {
+  const root = makeCoverageRepo(t)
+  const fake = makeFakeGrok(t)
+  writeProviderPolicy(root, fake)
+
+  for (const args of [
+    ['audit', 'run', 'security'],
+    ['audit', 'run', 'security', '--provider', 'bogus'],
+  ]) {
+    const result = runCli(root, args, fake.env)
+    assert.notEqual(result.status, 0, `args ${args.join(' ')} must fail`)
+    assert.match(result.stderr, /usage: repo-atlas audit run/u)
+  }
+  assert.deepEqual(fake.invocations(), [], 'a refused run must not launch a provider')
+})
+
+test('audit stamp and localization commands never launch a provider', (t) => {
+  const root = makeCoverageRepo(t)
+  const fake = makeFakeGrok(t)
+  // localization input requires an available review coverage registry.
+  assert.equal(
+    runCli(root, ['audit', 'coverage', 'update', '--allow-incomplete'], fake.env).status,
+    0,
+  )
+
+  const stamp = runCli(root, ['audit', 'stamp'], fake.env)
+  assert.equal(stamp.status, 0, stamp.stderr)
+
+  const input = runCli(root, ['audit', 'localization', 'input', '--locale', 'ja'], fake.env)
+  assert.equal(input.status, 0, input.stderr)
+
+  const check = runCli(root, ['audit', 'localization', 'check'], fake.env)
+  assert.equal(check.status, 0, check.stderr)
+
+  assert.deepEqual(
+    fake.invocations(),
+    [],
+    'stamp/localization commands must never launch a provider',
+  )
+})
+
+test('every deprecated flat audit alias prints guidance naming its V3 replacement', (t) => {
+  // The alias set is derived from the dispatch source so a newly added flat
+  // alias fails this gate until its success arguments are registered here.
+  const cliSource = fs.readFileSync(path.join(TEST_DIR, '..', 'src', 'cli.ts'), 'utf8')
+  const declared = new Map(
+    [...cliSource.matchAll(/deprecatedAuditAlias\('([^']+)', '([^']+)'\)/gu)]
+      .map((match) => [match[1], match[2]]),
+  )
+  const successArgs = new Map([
+    ['audit-stamp', []],
+    ['audit-import', ['audits/design-scan/ledger.json']],
+    ['audit-localization-input', ['--locale', 'ja']],
+    ['audit-localization-check', []],
+  ])
+  assert.deepEqual(
+    [...declared.keys()].sort(),
+    [...successArgs.keys()].sort(),
+    'every deprecated alias in src/cli.ts must be exercised here',
+  )
+
+  const root = makeCoverageRepo(t)
+  const fake = makeFakeGrok(t)
+  // localization input requires an available review coverage registry.
+  assert.equal(
+    runCli(root, ['audit', 'coverage', 'update', '--allow-incomplete'], fake.env).status,
+    0,
+  )
+  const blob = gitBlob(root, 'src/a.ts')
+  writeJson(root, 'audits/design-scan/ledger.json', {
+    ruleset: 'legacy-v1',
+    scans: [{
+      path: 'src/a.ts',
+      git_blob_sha1: blob,
+      scanned_at: '2026-07-19',
+      finding_count: 0,
+    }],
+  })
+
+  // audit-import adds a legacy ledger, which invalidates the coverage
+  // registry the localization commands read — run it last.
+  const ordered = [...declared.entries()]
+    .sort(([left], [right]) => Number(left === 'audit-import') - Number(right === 'audit-import'))
+  for (const [flat, hierarchical] of ordered) {
+    const result = runCli(root, [flat, ...successArgs.get(flat)], fake.env)
+    assert.equal(result.status, 0, `${flat}: ${result.stderr}`)
+    assert.match(
+      result.stderr,
+      new RegExp(
+        `repo-atlas ${flat} is deprecated — use 'repo-atlas ${hierarchical}' instead`,
+        'u',
+      ),
+      `${flat} must name its hierarchical replacement`,
+    )
+  }
+  assert.deepEqual(fake.invocations(), [], 'deprecated aliases must never launch a provider')
+})
