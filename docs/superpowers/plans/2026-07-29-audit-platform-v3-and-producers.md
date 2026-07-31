@@ -1412,6 +1412,90 @@ git commit -m "docs(audit): publish the V3 platform workflow"
 git push origin feat/codex-security-atlas-adapter
 ```
 
+### Task 11: Accept the deterministic migration validation context in lifecycle reduction
+
+**Files:**
+- Modify: `src/audit-decisions.ts`
+- Modify: `src/audit-v3-types.ts`
+- Modify: `test/audit-decisions.test.mjs`
+- Modify: `test/audit-migrate-relayos-seam.test.mjs`
+- Modify: `docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`
+
+- [x] **Step 1: Add failing reducer and seam tests**
+
+Reducer level (`test/audit-decisions.test.mjs`): a migrated disposition over a
+migration-produced semantic-only occurrence with a real ruleset and a matching
+migration review context validates for every action shape (accepted-risk carry,
+remediated, false-positive, superseded replacement, superseded deletion); a
+tampered review-context ruleset digest, a review context naming a
+non-migration observation, bindings outside the occurrence locations, a Codex
+semantic-only occurrence (null ruleset), and a native non-migration semantic
+occurrence all stay rejected; flipping the indexed `producerKind` after a
+valid build fails the snapshot revalidation inside reduction.
+
+End to end (`test/audit-migrate-relayos-seam.test.mjs`): apply the RelayOS
+fixture migration in a temp repo with an atlas-format policy, then run the
+same lifecycle-reduction path the coverage generator uses
+(`buildAuditDecisionIndex` + `reduceAuditDecisionState` over the applied
+`.atlas` state) and assert zero lifecycle-invalid failures, all 82 governed
+findings carrying honest non-blocking dispositions, and the ungoverned legacy
+receipt findings staying honestly open instead of closed by fabricated
+migration coverage. This test reproduces the consumer blocker:
+`audit-lifecycle-invalid: decision <id> cannot govern a semantic-only
+occurrence without later exact review`.
+
+```bash
+pnpm build:cli
+node --test test/audit-decisions.test.mjs test/audit-migrate-relayos-seam.test.mjs
+```
+
+- [x] **Step 2: Confirm RED**
+
+The new tests fail with `cannot govern a semantic-only occurrence without
+later exact review` from `requireDispositionContext`; every pre-existing test
+still passes.
+
+- [x] **Step 3: Implement the migration validation context**
+
+Index the observation producer kind and the occurrence location paths through
+`buildAuditDecisionIndex`, the in-memory index snapshot, and its
+revalidation. A finding-disposition event is valid under the strict
+closure-eligible context (unchanged) or under the deterministic migration
+validation context: the governed occurrence is not closure-eligible, carries
+a real ruleset, and is produced by a `producer.kind: "migration"`
+observation; the review context repeats the occurrence ruleset digest, names
+a migration-produced observation in the same decision ledger with the same
+ruleset, and covers exactly the occurrence's location paths. Proof checks
+keep their shape under the migration context with migration-observation
+resolution and location-path binding checks replacing exact receipt
+membership; the post-fix absence, fix-revision, replacement-identity, and
+no-replacement revision invariants stay strict. Stable-identity carry
+compares a governed semantic-only occurrence's recorded review bindings —
+not its empty exact bindings — against the later exact occurrence, so an
+accepted-risk or separate-design decision carries only when its exact review
+bindings still match. Codex semantic-only occurrences (null ruleset) and
+non-migration decisions over semantic-only occurrences stay rejected.
+
+- [x] **Step 4: Align the spec decision-lifecycle text**
+
+Extend the decision-lifecycle paragraph in
+`docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`
+to spell out the two validation contexts: what qualifies as the deterministic
+migration validation context, which proof invariants survive unchanged, and
+what stays rejected.
+
+- [x] **Step 5: Verify and commit**
+
+```bash
+pnpm build:cli
+node --test test/audit-decisions.test.mjs test/audit-migrate-relayos-seam.test.mjs
+pnpm test
+pnpm typecheck
+git add src/audit-decisions.ts src/audit-v3-types.ts test/audit-decisions.test.mjs test/audit-migrate-relayos-seam.test.mjs docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md
+git commit -m "fix(audit): accept migration validation context in lifecycle reduction"
+git push origin feat/codex-security-atlas-adapter
+```
+
 ## Final requirement review
 
 - [x] V1/V2 remain readable but every new write is V3.

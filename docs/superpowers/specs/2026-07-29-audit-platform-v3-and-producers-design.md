@@ -1422,6 +1422,47 @@ or explicit acknowledgment until a later exact Atlas validation observation
 provides a real ruleset and exact bindings; the importer never invents a Codex
 ruleset.
 
+A finding-disposition event is valid in exactly two validation contexts. The
+strict context requires the governed occurrence to be closure-eligible: an
+exact-inventory scope whose location bindings are fully reviewed under a real
+ruleset, with the review context naming that same observation, the same
+bindings, and the same ruleset digest. The deterministic migration validation
+context accepts a semantic-only occurrence instead, and only when every
+condition holds at once:
+
+- the occurrence's producing observation is migration-produced
+  (`producer.kind: "migration"`), so a decision written by any live producer
+  can never use this context;
+- the occurrence carries a real (non-null) ruleset receipt, which migrated
+  legacy rulesets such as `relayos-security-v1` provide and Codex
+  semantic-only occurrences never do;
+- the review context ruleset ID and digest equal the occurrence ruleset, so
+  a tampered ruleset digest invalidates the event;
+- the review context observation resolves, inside the same decision ledger,
+  to a migration-produced observation carrying the same ruleset digest; and
+- the review context binding paths equal the occurrence's authoritative
+  location paths. The blobs quote sealed legacy values that no observation
+  re-attests; Atlas does not fabricate receipts for them, and proof bindings
+  are held to the same location paths instead of receipt membership.
+
+Within the migration context, every observation referenced by a proof must
+resolve to a migration-produced observation with the same ruleset, and proof
+bindings must stay within the governed occurrence's locations. The remaining
+proof invariants are unchanged: a post-fix after-observation must not still
+contain the finding, `fixRevision` must equal the after-observation target
+revision, a replacement occurrence must belong to the named replacement
+finding and be migration-produced under the same ruleset, and a
+no-replacement search revision must equal its observation target revision.
+Observations from any other producer kind — including native `grok-cli`
+semantic observations and every Codex contract observation — never satisfy
+this context, so their semantic-only occurrences stay rejected. When a later
+exact Atlas validation observation re-observes the finding, the new
+occurrence is closure-eligible and new decisions use the strict context;
+accepted-risk and separate-design decisions carry to that later occurrence
+only when the review bindings recorded in the decision still match the later
+occurrence's exact bindings, the decision is unexpired, and the policy and
+ruleset digests still match its recorded review context.
+
 Proofs are themselves closed unions (`current-review`, `post-fix`,
 `source-evidence`, `replacement`, `deletion`, and `no-replacement`) with
 kind-specific required fields. When a proof cites a source artifact it requires
