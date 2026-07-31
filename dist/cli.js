@@ -10,7 +10,7 @@ import { auditImportLegacyCommand, auditLocalizationCheckCommand, auditLocalizat
 import { loadConfiguredAuditLocalizations } from './audit-localizations.js';
 import { loadReviewCoverage } from './review-coverage.js';
 import { computeStatus, summarize, summarizeConcepts } from './status.js';
-import { buildHtml, writeAtlas } from './build.js';
+import { buildHtml, loadAuditV3Presentation, writeAtlas } from './build.js';
 import { serve } from './serve.js';
 import { buildImportGraph } from './deps.js';
 import { loadGlossaryRaw, parseGlossary } from './glossary.js';
@@ -675,6 +675,7 @@ function build(root, args) {
     const status = computeStatus(root, scanResult, { readability: false });
     const portfolios = loadAuditPortfolios(root, status.audits);
     const reviewCoverage = loadReviewCoverage(root, portfolios);
+    const auditV3 = loadAuditV3Presentation(root, portfolios.security);
     const localizations = loadConfiguredAuditLocalizations(root, config, reviewCoverage, portfolios);
     const html = buildHtml({
         repoName: path.basename(root),
@@ -687,6 +688,7 @@ function build(root, args) {
         audits: portfolios.security,
         testAudits: portfolios.tests,
         reviewCoverage,
+        auditV3,
         defaultLocale: config.defaultLocale ?? 'en',
         auditSourceLocale: localizations.sourceLocale,
         auditLocalizations: localizations.portfolios,

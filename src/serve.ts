@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process'
 import { scan, headCommit, hashFor, readRepoFile } from './scan.js'
 import { loadNotes, writeNoteBody, updateNoteBody } from './notes.js'
 import { computeStatus } from './status.js'
-import { buildHtml, buildPayload } from './build.js'
+import { buildHtml, buildPayload, loadAuditV3Presentation } from './build.js'
 import { buildImportGraph } from './deps.js'
 import { loadGlossaryRaw, parseGlossary } from './glossary.js'
 import { loadArtifacts } from './artifacts.js'
@@ -54,6 +54,7 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
     const artifacts = loadArtifacts(root)
     const portfolios = loadAuditPortfolios(root, status.audits)
     const reviewCoverage = loadReviewCoverage(root, portfolios)
+    const auditV3 = loadAuditV3Presentation(root, portfolios.security)
     const localizations = loadConfiguredAuditLocalizations(
       root,
       config,
@@ -99,6 +100,7 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
       audits: portfolios.security,
       testAudits: portfolios.tests,
       reviewCoverage,
+      auditV3,
       defaultLocale: config.defaultLocale ?? 'en',
       auditSourceLocale: localizations.sourceLocale,
       auditLocalizations: localizations.portfolios,
@@ -111,7 +113,7 @@ export function serve(root: string, config: AtlasConfig, port: number, host = '1
         JSON.stringify(status.entries) + JSON.stringify(status.orphans) +
         JSON.stringify(status.concepts) + glossaryRaw + JSON.stringify(artifacts) +
         JSON.stringify(portfolios.security) + JSON.stringify(portfolios.tests) +
-        JSON.stringify(reviewCoverage) + JSON.stringify(localizations) +
+        JSON.stringify(reviewCoverage) + JSON.stringify(auditV3) + JSON.stringify(localizations) +
         JSON.stringify(attentionState) + JSON.stringify(attentionDiagnostics) +
         (config.defaultLocale ?? 'en'),
       )

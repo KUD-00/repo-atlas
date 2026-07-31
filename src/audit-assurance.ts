@@ -14,6 +14,18 @@ import type {
   TestAuditImpact,
   TestAuditUnit,
 } from './types.js'
+import type {
+  AtlasSecurityCurrentLedgerV3,
+  AtlasSecurityFindingV3,
+  AuditConfidence,
+  AuditDecisionStateV3,
+  AuditDiagnostic,
+  AuditEffectiveFindingStateV3,
+  AuditObservationHistoryV3,
+  AuditProducerReceiptV3,
+  AuditSeverity,
+  AuditSha256,
+} from './audit-v3-types.js'
 import { missingReviewCoverage } from './review-coverage-portfolio.js'
 
 export type FindingSeverity = AuditFinding['severity']
@@ -1303,4 +1315,536 @@ export function auditSidebarRows(model: DomainAssurance): AuditSidebarRow[] {
   }))
 
   return [...fixed, ...units]
+}
+
+// ---------------------------------------------------------------------------
+// V3 assurance presentation
+//
+// Pure derivation from already-loaded V3 state (observations, histories,
+// decision ledgers, and the reduced decision state) into a JSON-safe
+// presentation model. No filesystem, no clock beyond the supplied `now`, no
+// runtime imports beyond this module — the React viewer only renders this
+// derived model, and build/serve embed it verbatim in the payload.
+// ---------------------------------------------------------------------------
+
+/** Exact-byte coverage vocabulary — never merged with semantic coverage. */
+export type AuditV3ExactState = 'complete' | 'incomplete' | 'invalid' | 'unknown'
+
+/** Semantic (threat-surface) coverage vocabulary — distinct from exact bytes. */
+export type AuditV3SemanticState = 'covered' | 'gap' | 'unknown'
+
+/**
+ * Lifecycle-aware finding status. `expired` is a carried acceptance whose
+ * expiry lapsed; `open` with `policyDrift` is a carry invalidated by policy
+ * change; `unknown` means the decision state could not be reduced.
+ */
+export type AuditV3FindingStatus =
+  | 'open'
+  | 'accepted'
+  | 'expired'
+  | 'reopened'
+  | 'remediated'
+  | 'false-positive'
+  | 'superseded'
+  | 'separate-design'
+  | 'unknown'
+
+export type AuditV3FindingDerivation =
+  | AuditEffectiveFindingStateV3['derivation']
+  | 'decision-state-unavailable'
+
+export type AuditV3Lifecycle = AuditEffectiveFindingStateV3['lifecycle']
+
+export type AuditV3PublicationState = 'current' | 'historical' | 'history-ahead'
+
+export interface AuditV3ExactPresentation {
+  state: AuditV3ExactState
+  /** The observation's own exact-coverage completeness declaration. */
+  completeness: 'complete' | 'partial' | 'unknown'
+  fileCount: number | null
+  reviewedFileCount: number | null
+  unreviewedCount: number
+}
+
+export interface AuditV3SemanticSurfaceCounts {
+  total: number
+  reported: number
+  noIssueFound: number
+  rejected: number
+  notApplicable: number
+  needsFollowUp: number
+}
+
+export interface AuditV3SemanticPresentation {
+  state: AuditV3SemanticState
+  completeness: 'complete' | 'partial' | 'unknown'
+  surfaces: AuditV3SemanticSurfaceCounts
+  deferredCount: number
+  /**
+   * Migration-produced observation. Migrated evidence keeps its `unknown`
+   * semantic coverage and is never presented as Codex-equivalent.
+   */
+  migrated: boolean
+}
+
+export interface AuditV3ProducerPresentation {
+  kind: AuditProducerReceiptV3['kind']
+  name: string
+  version: string
+  adapter: string
+  adapterVersion: string
+  runId: string
+  identityDigest: AuditSha256
+  identityBasis: 'ruleset' | 'codex-contract'
+  ruleset: { id: string; digest: AuditSha256 } | null
+  prompt: { builtinVersion: string; digest: AuditSha256; extraPath: string | null } | null
+  /** Transcript proof digest when the producer supplied one; null otherwise. */
+  transcriptDigest: AuditSha256 | null
+  sourceContract: { namespace: string; sealedAt: string } | null
+}
+
+export interface AuditV3ObservationRef {
+  observationId: string
+  observedAt: string
+  digest: AuditSha256
+  findingCount: number
+  publicationState: AuditV3PublicationState
+}
+
+export interface AuditV3FindingPresentation {
+  findingId: string
+  occurrenceId: string
+  title: string
+  severity: AuditSeverity
+  severityScore: number | null
+  /** Supplied confidence; null renders as "not supplied", never as low. */
+  confidence: AuditConfidence | null
+  category: string
+  status: AuditV3FindingStatus
+  lifecycle: AuditV3Lifecycle
+  blocking: boolean
+  derivation: AuditV3FindingDerivation
+  expiresAt: string | null
+  expiryState: AuditEffectiveFindingStateV3['expiryState']
+  reopenAcknowledged: boolean
+  /** Carried decision invalidated by a policy change (not by expiry). */
+  policyDrift: boolean
+  provenance: {
+    source: string
+    producerSource: string | null
+    sourceFindingId: string | null
+    sourceOccurrenceId: string | null
+  }
+  locations: string[]
+}
+
+export type AuditV3FindingStatusCounts = Record<AuditV3FindingStatus, number>
+
+export interface AuditV3UnitPresentation {
+  slug: string
+  title: string
+  conceptSlug: string | null
+  exact: AuditV3ExactPresentation
+  semantic: AuditV3SemanticPresentation
+  /** Worktree bytes drifted from the exact receipts — re-audit needed. */
+  staleExactBytes: boolean
+  /** At least one finding's carried decision predates the current policy. */
+  policyDrift: boolean
+  producer: AuditV3ProducerPresentation | null
+  current: AuditV3ObservationRef | null
+  history: AuditV3ObservationRef[]
+  historyAhead: boolean
+  findings: AuditV3FindingPresentation[]
+  countsByStatus: AuditV3FindingStatusCounts
+  /** Blocking roll-up: open + expired + reopened. */
+  openCount: number
+  zeroFindings: boolean
+}
+
+export interface AuditV3PortfolioPresentation {
+  generatedAt: string
+  policyDigest: AuditSha256 | null
+  decisionStateAvailable: boolean
+  diagnostics: AuditDiagnostic[]
+  historyAhead: string[]
+  units: AuditV3UnitPresentation[]
+  totals: {
+    units: number
+    findings: number
+    openCount: number
+    countsByStatus: AuditV3FindingStatusCounts
+  }
+}
+
+/**
+ * Loader output for the pure V3 derivation. `decisionState` is null whenever
+ * the decision portfolio could not be reduced (missing/invalid policy or
+ * index failure) — findings then present as honestly unknown and blocking.
+ */
+export interface AuditV3AssuranceInput {
+  observations: AtlasSecurityCurrentLedgerV3[]
+  histories: AuditObservationHistoryV3[]
+  decisionState: AuditDecisionStateV3 | null
+  policyDigest: AuditSha256 | null
+  /** Exact-bytes staleness per slug, from the portfolio freshness pipeline. */
+  staleBySlug: ReadonlyMap<string, boolean>
+  historyAhead: readonly string[]
+  diagnostics: readonly AuditDiagnostic[]
+  now: string
+}
+
+function emptyV3StatusCounts(): AuditV3FindingStatusCounts {
+  return {
+    open: 0,
+    accepted: 0,
+    expired: 0,
+    reopened: 0,
+    remediated: 0,
+    'false-positive': 0,
+    superseded: 0,
+    'separate-design': 0,
+    unknown: 0,
+  }
+}
+
+function v3ExactPresentation(
+  observation: AtlasSecurityCurrentLedgerV3['current'],
+): AuditV3ExactPresentation {
+  const exactCoverage = observation.exactCoverage
+  const completeness = exactCoverage.completeness
+  const state: AuditV3ExactState =
+    completeness === 'unknown'
+      ? 'unknown'
+      : completeness === 'partial' || exactCoverage.unreviewed.length > 0
+        ? 'incomplete'
+        : 'complete'
+  return {
+    state,
+    completeness,
+    fileCount:
+      observation.scope.identityBasis === 'exact-inventory'
+        ? observation.scope.fileCount
+        : null,
+    reviewedFileCount:
+      completeness === 'unknown' ? null : exactCoverage.reviewedFileCount,
+    unreviewedCount: completeness === 'unknown' ? 0 : exactCoverage.unreviewed.length,
+  }
+}
+
+function v3InvalidExactPresentation(): AuditV3ExactPresentation {
+  return {
+    state: 'invalid',
+    completeness: 'unknown',
+    fileCount: null,
+    reviewedFileCount: null,
+    unreviewedCount: 0,
+  }
+}
+
+function v3SemanticPresentation(
+  observation: AtlasSecurityCurrentLedgerV3['current'],
+): AuditV3SemanticPresentation {
+  const semantic = observation.semanticCoverage
+  const surfaces: AuditV3SemanticSurfaceCounts = {
+    total: semantic.surfaces.length,
+    reported: 0,
+    noIssueFound: 0,
+    rejected: 0,
+    notApplicable: 0,
+    needsFollowUp: 0,
+  }
+  for (const surface of semantic.surfaces) {
+    if (surface.disposition === 'reported') surfaces.reported += 1
+    else if (surface.disposition === 'no_issue_found') surfaces.noIssueFound += 1
+    else if (surface.disposition === 'rejected') surfaces.rejected += 1
+    else if (surface.disposition === 'not_applicable') surfaces.notApplicable += 1
+    else if (surface.disposition === 'needs_follow_up') surfaces.needsFollowUp += 1
+  }
+  const state: AuditV3SemanticState =
+    semantic.completeness === 'unknown'
+      ? 'unknown'
+      : semantic.completeness === 'partial' ||
+          semantic.deferred.length > 0 ||
+          surfaces.needsFollowUp > 0
+        ? 'gap'
+        : 'covered'
+  return {
+    state,
+    completeness: semantic.completeness,
+    surfaces,
+    deferredCount: semantic.deferred.length,
+    migrated: observation.producer.kind === 'migration',
+  }
+}
+
+function v3UnknownSemanticPresentation(): AuditV3SemanticPresentation {
+  return {
+    state: 'unknown',
+    completeness: 'unknown',
+    surfaces: {
+      total: 0,
+      reported: 0,
+      noIssueFound: 0,
+      rejected: 0,
+      notApplicable: 0,
+      needsFollowUp: 0,
+    },
+    deferredCount: 0,
+    migrated: false,
+  }
+}
+
+function v3ProducerPresentation(
+  producer: AuditProducerReceiptV3,
+): AuditV3ProducerPresentation {
+  const shared = {
+    kind: producer.kind,
+    name: producer.name,
+    version: producer.version,
+    adapter: producer.adapter,
+    adapterVersion: producer.adapterVersion,
+    runId: producer.runId,
+    identityDigest: producer.identityDigest,
+  }
+  if (producer.identityBasis === 'codex-contract') {
+    return {
+      ...shared,
+      identityBasis: 'codex-contract',
+      ruleset: null,
+      prompt: null,
+      transcriptDigest: null,
+      sourceContract: {
+        namespace: producer.sourceContract.namespace,
+        sealedAt: producer.sourceContract.sealedAt,
+      },
+    }
+  }
+  return {
+    ...shared,
+    identityBasis: 'ruleset',
+    ruleset: { id: producer.ruleset.id, digest: producer.ruleset.digest },
+    prompt: producer.prompt
+      ? {
+          builtinVersion: producer.prompt.builtinVersion,
+          digest: producer.prompt.digest,
+          extraPath: producer.prompt.extraPath ?? null,
+        }
+      : null,
+    transcriptDigest: producer.transcriptDigest ?? null,
+    sourceContract: null,
+  }
+}
+
+function v3FindingStatus(
+  effective: AuditEffectiveFindingStateV3 | undefined,
+): Pick<
+  AuditV3FindingPresentation,
+  | 'status'
+  | 'lifecycle'
+  | 'blocking'
+  | 'derivation'
+  | 'expiresAt'
+  | 'expiryState'
+  | 'reopenAcknowledged'
+  | 'policyDrift'
+> {
+  if (effective === undefined) {
+    return {
+      status: 'unknown',
+      lifecycle: 'unknown',
+      blocking: true,
+      derivation: 'decision-state-unavailable',
+      expiresAt: null,
+      expiryState: 'not-applicable',
+      reopenAcknowledged: false,
+      policyDrift: false,
+    }
+  }
+  const status: AuditV3FindingStatus =
+    effective.derivation === 'carry-invalidated' && effective.expiryState === 'expired'
+      ? 'expired'
+      : effective.disposition === 'accepted-risk'
+        ? 'accepted'
+        : effective.disposition
+  return {
+    status,
+    lifecycle: effective.lifecycle,
+    blocking: effective.blocking,
+    derivation: effective.derivation,
+    expiresAt: effective.expiresAt,
+    expiryState: effective.expiryState,
+    reopenAcknowledged: effective.reopenAcknowledged,
+    policyDrift:
+      effective.derivation === 'carry-invalidated' &&
+      effective.expiryState !== 'expired',
+  }
+}
+
+function v3FindingPresentation(
+  finding: AtlasSecurityFindingV3,
+  effective: AuditEffectiveFindingStateV3 | undefined,
+): AuditV3FindingPresentation {
+  return {
+    findingId: finding.findingId,
+    occurrenceId: finding.occurrenceId,
+    title: finding.title,
+    severity: finding.severity.level,
+    severityScore: finding.severity.score ?? null,
+    confidence: finding.confidence?.level ?? null,
+    category: finding.taxonomy.category,
+    ...v3FindingStatus(effective),
+    provenance: {
+      source: finding.provenance.source,
+      producerSource: finding.provenance.producerSource ?? null,
+      sourceFindingId: finding.provenance.sourceFindingId ?? null,
+      sourceOccurrenceId: finding.provenance.sourceOccurrenceId ?? null,
+    },
+    locations: finding.locations.map(
+      (location) => `${location.path}:${location.startLine}`,
+    ),
+  }
+}
+
+function v3ObservationRef(
+  observationId: string,
+  observedAt: string,
+  digest: AuditSha256,
+  findingCount: number,
+  publicationState: AuditV3PublicationState,
+): AuditV3ObservationRef {
+  return { observationId, observedAt, digest, findingCount, publicationState }
+}
+
+/** `.atlas/audits/<slug>.json[/json-pointer]` → slug, else null. */
+function v3SlugFromDiagnosticPath(path: string): string | null {
+  const match = /^\.atlas\/audits\/([^/]+)\.json(?:\/|$)/.exec(path)
+  return match ? match[1] : null
+}
+
+/**
+ * Pure V3 presentation derivation. Exact coverage, semantic coverage, finding
+ * lifecycle, producer integrity, and history are independent states — no state
+ * substitutes for another, and absent evidence is never upgraded.
+ */
+export function deriveAuditV3Portfolio(
+  input: AuditV3AssuranceInput,
+): AuditV3PortfolioPresentation {
+  const historyBySlug = new Map(input.histories.map((history) => [history.slug, history]))
+  const historyAhead = [...input.historyAhead].sort(compareText)
+  const historyAheadSet = new Set(historyAhead)
+  const diagnostics = input.diagnostics.map((diagnostic) => ({ ...diagnostic }))
+
+  const invalidSlugs = new Map<string, AuditDiagnostic[]>()
+  for (const diagnostic of diagnostics) {
+    const slug = v3SlugFromDiagnosticPath(diagnostic.path)
+    if (slug === null) continue
+    const rows = invalidSlugs.get(slug) ?? []
+    rows.push(diagnostic)
+    invalidSlugs.set(slug, rows)
+  }
+
+  const units: AuditV3UnitPresentation[] = []
+  for (const ledger of input.observations) {
+    const observation = ledger.current
+    const effectiveFindings = input.decisionState?.findings
+    const findings = observation.findings.map((finding) =>
+      v3FindingPresentation(
+        finding,
+        effectiveFindings?.get(finding.findingId),
+      ),
+    )
+    const countsByStatus = emptyV3StatusCounts()
+    for (const finding of findings) countsByStatus[finding.status] += 1
+    const history = historyBySlug.get(ledger.slug)
+    const currentIndex = history
+      ? history.entries.findIndex(
+          (entry) => entry.observationId === observation.observationId,
+        )
+      : -1
+    const historyRefs = (history?.entries ?? []).map((entry, index) =>
+      v3ObservationRef(
+        entry.observationId,
+        entry.observation.observedAt,
+        entry.entryDigest,
+        entry.observation.findings.length,
+        index === currentIndex
+          ? 'current'
+          : historyAheadSet.has(ledger.slug) && index > currentIndex
+            ? 'history-ahead'
+            : 'historical',
+      ),
+    )
+    units.push({
+      slug: ledger.slug,
+      title: ledger.title,
+      conceptSlug: ledger.conceptSlug ?? null,
+      exact: v3ExactPresentation(observation),
+      semantic: v3SemanticPresentation(observation),
+      staleExactBytes: input.staleBySlug.get(ledger.slug) ?? false,
+      policyDrift: findings.some((finding) => finding.policyDrift),
+      producer: v3ProducerPresentation(observation.producer),
+      current: v3ObservationRef(
+        observation.observationId,
+        observation.observedAt,
+        ledger.currentDigest,
+        observation.findings.length,
+        'current',
+      ),
+      history: historyRefs,
+      historyAhead: historyAheadSet.has(ledger.slug),
+      findings,
+      countsByStatus,
+      openCount:
+        countsByStatus.open + countsByStatus.expired + countsByStatus.reopened,
+      zeroFindings: observation.findings.length === 0,
+    })
+    invalidSlugs.delete(ledger.slug)
+  }
+
+  // Structurally invalid ledgers stay visible as invalid exact units; they are
+  // never silently dropped behind the valid portfolio.
+  for (const slug of [...invalidSlugs.keys()].sort(compareText)) {
+    units.push({
+      slug,
+      title: slug,
+      conceptSlug: null,
+      exact: v3InvalidExactPresentation(),
+      semantic: v3UnknownSemanticPresentation(),
+      staleExactBytes: false,
+      policyDrift: false,
+      producer: null,
+      current: null,
+      history: [],
+      historyAhead: false,
+      findings: [],
+      countsByStatus: emptyV3StatusCounts(),
+      openCount: 0,
+      zeroFindings: false,
+    })
+  }
+  units.sort((left, right) => compareText(left.slug, right.slug))
+
+  const totals = {
+    units: units.length,
+    findings: 0,
+    openCount: 0,
+    countsByStatus: emptyV3StatusCounts(),
+  }
+  for (const unit of units) {
+    totals.findings += unit.findings.length
+    totals.openCount += unit.openCount
+    for (const status of Object.keys(unit.countsByStatus) as AuditV3FindingStatus[]) {
+      totals.countsByStatus[status] += unit.countsByStatus[status]
+    }
+  }
+
+  return {
+    generatedAt: input.now,
+    policyDigest: input.policyDigest,
+    decisionStateAvailable: input.decisionState !== null,
+    diagnostics,
+    historyAhead,
+    units,
+    totals,
+  }
 }

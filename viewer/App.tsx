@@ -692,6 +692,7 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
           ) : primaryView === 'security' ? (
             <AuditNav
               model={securityModel}
+              auditV3={data.auditV3 ?? null}
               selectedMode={securityMode}
               selectedUnitSlug={auditRouteInfo?.domain === 'security' ? auditRouteInfo.slug : null}
               onMode={setSecurityMode}
@@ -753,6 +754,7 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
               <SecurityPane
                 model={securityModel}
                 audits={audits}
+                auditV3={data.auditV3 ?? null}
                 mode={securityMode}
                 focusSlug={auditRouteInfo?.domain === 'security' ? auditRouteInfo.slug : null}
                 onMode={setSecurityMode}

@@ -11,6 +11,7 @@ import {
   auditUnitRows,
   coverageCountsAvailable,
   coverageStatementText,
+  deriveAuditV3Portfolio,
   domainAssurance,
   domainNavSuffix,
   gapsModeProjection,
@@ -2297,4 +2298,599 @@ test('action targeting sends coverage paths to code jump and findings to units',
     }),
     { kind: 'unit', unitSlug: 'test-src' },
   )
+})
+
+// ---------------------------------------------------------------------------
+// V3 assurance presentation (pure derivation — no filesystem)
+// ---------------------------------------------------------------------------
+
+const V3_NOW = '2026-07-29T00:00:00.000Z'
+const V3_DIGEST = `sha256:${'9'.repeat(64)}`
+const V3_RULESET = { id: 'fixture-security-v1', digest: `sha256:${'1'.repeat(64)}` }
+
+function v3Finding(overrides = {}) {
+  return {
+    findingId: `atf_${'a'.repeat(64)}`,
+    occurrenceId: `atocc_${'b'.repeat(64)}`,
+    decisionLedger: 'security-v3',
+    ruleId: 'authorization/fixture',
+    identity: { anchor: 'audit/fixture' },
+    fingerprints: [{ scheme: 'atlas/v1', value: `atlas/v1:sha256:${'c'.repeat(64)}`, role: 'canonical' }],
+    title: 'fixture finding',
+    summary: 'fixture summary',
+    severity: { level: 'medium' },
+    taxonomy: { category: 'authorization' },
+    locations: [{ path: 'src/a.ts', startLine: 1 }],
+    remediation: 'fix it',
+    provenance: { source: 'manual' },
+    ...overrides,
+  }
+}
+
+function v3Observation(overrides = {}) {
+  return {
+    observationId: `aobs_${'d'.repeat(64)}`,
+    observedAt: '2026-07-28T00:00:00.000Z',
+    reviewState: 'complete',
+    producer: {
+      kind: 'manual',
+      name: 'fixture',
+      version: '1',
+      adapter: 'repo-atlas/manual-v1',
+      adapterVersion: '0.1.0',
+      runId: 'fixture-run',
+      identityDigest: V3_RULESET.digest,
+      identityBasis: 'ruleset',
+      ruleset: V3_RULESET,
+    },
+    target: {
+      kind: 'directory-snapshot',
+      repositoryId: 'repo_fixture',
+      targetId: 'fixture-target',
+      identityDigest: V3_DIGEST,
+      identityBasis: 'snapshot',
+      snapshotDigest: V3_DIGEST,
+    },
+    scope: {
+      mode: 'unit',
+      identityDigest: V3_DIGEST,
+      identityBasis: 'exact-inventory',
+      includePaths: ['src/**'],
+      excludePaths: [],
+      scopeHash: V3_DIGEST,
+      inventoryDigest: V3_DIGEST,
+      fileCount: 1,
+      files: [{
+        path: 'src/a.ts',
+        blob: `git-sha1:${'2'.repeat(40)}`,
+        lines: 1,
+        status: 'reviewed',
+        outcome: 'findings',
+        findingOccurrenceIds: [],
+        receiptRefs: [],
+      }],
+    },
+    exactCoverage: {
+      completeness: 'complete',
+      basis: 'full-read-receipts',
+      reviewedFileCount: 1,
+      unreviewed: [],
+    },
+    semanticCoverage: {
+      mode: 'unit',
+      completeness: 'complete',
+      inventoryStrategy: 'unit',
+      surfaces: [{
+        id: 'surface-1',
+        label: 'authorization boundary',
+        disposition: 'reported',
+        receiptRefs: [],
+      }],
+      explicitExclusions: [],
+      deferred: [],
+    },
+    findings: [],
+    evidenceRefs: [],
+    sourceArtifacts: [],
+    producerExtensions: [],
+    ...overrides,
+  }
+}
+
+function v3Ledger(slug, observation, overrides = {}) {
+  return {
+    formatVersion: 3,
+    format: 'atlas-audit-v3',
+    domain: 'security',
+    slug,
+    title: slug,
+    current: observation,
+    currentDigest: V3_DIGEST,
+    history: {
+      path: `.atlas/audit-history/${slug}.json`,
+      observationId: observation.observationId,
+      entryDigest: V3_DIGEST,
+    },
+    ...overrides,
+  }
+}
+
+function v3History(slug, entries) {
+  return {
+    formatVersion: 1,
+    format: 'atlas-audit-history-v1',
+    domain: 'security',
+    slug,
+    entries: entries.map((observation, index) => ({
+      observationId: observation.observationId,
+      observationDigest: V3_DIGEST,
+      previousEntryDigest: index === 0 ? null : V3_DIGEST,
+      observation,
+      entryDigest: `sha256:${String(index + 1).repeat(64)}`,
+    })),
+  }
+}
+
+function v3Effective(overrides = {}) {
+  return {
+    disposition: 'open',
+    blocking: true,
+    derivation: 'implicit-open',
+    lifecycle: 'new',
+    currentOccurrenceIds: [],
+    eventId: null,
+    basisEventIds: [],
+    expiresAt: null,
+    expiryState: 'not-applicable',
+    reopenAcknowledged: false,
+    ...overrides,
+  }
+}
+
+function v3DecisionState(findings) {
+  return {
+    findings: new Map(findings),
+    retirements: new Map(),
+    aliases: new Map(),
+  }
+}
+
+function v3Input(overrides = {}) {
+  return {
+    observations: [],
+    histories: [],
+    decisionLedgers: [],
+    decisionState: null,
+    policyDigest: null,
+    staleBySlug: new Map(),
+    historyAhead: [],
+    diagnostics: [],
+    now: V3_NOW,
+    ...overrides,
+  }
+}
+
+test('v3 presentation keeps exact completeness distinct from semantic coverage', () => {
+  const complete = v3Ledger('security-complete', v3Observation({
+    observationId: 'aobs_complete',
+    findings: [],
+  }))
+  const partial = v3Ledger('security-partial', v3Observation({
+    observationId: 'aobs_partial',
+    exactCoverage: {
+      completeness: 'partial',
+      basis: 'full-read-receipts',
+      reviewedFileCount: 1,
+      unreviewed: [{ path: 'src/b.ts', reason: 'not read' }],
+    },
+    findings: [],
+  }))
+  const unavailable = v3Ledger('security-unavailable', v3Observation({
+    observationId: 'aobs_unavailable',
+    exactCoverage: {
+      completeness: 'unknown',
+      basis: 'unavailable',
+      reason: 'inventory unavailable',
+    },
+    findings: [],
+  }))
+  const semanticGap = v3Ledger('security-semantic-gap', v3Observation({
+    observationId: 'aobs_semantic_gap',
+    semanticCoverage: {
+      mode: 'unit',
+      completeness: 'partial',
+      inventoryStrategy: 'unit',
+      surfaces: [{
+        id: 'surface-1',
+        label: 'authorization boundary',
+        disposition: 'needs_follow_up',
+        receiptRefs: [],
+      }],
+      explicitExclusions: [],
+      deferred: [{ id: 'deferred-1', reason: 'deeper review deferred' }],
+    },
+    findings: [],
+  }))
+  const semanticUnknown = v3Ledger('security-semantic-unknown', v3Observation({
+    observationId: 'aobs_semantic_unknown',
+    semanticCoverage: {
+      mode: 'unit',
+      completeness: 'unknown',
+      inventoryStrategy: 'unit',
+      surfaces: [],
+      explicitExclusions: [],
+      deferred: [],
+    },
+    findings: [],
+  }))
+
+  const model = deriveAuditV3Portfolio(v3Input({
+    observations: [complete, partial, unavailable, semanticGap, semanticUnknown],
+    diagnostics: [{
+      code: 'audit-ledger-invalid',
+      path: '.atlas/audits/security-bad.json/findings/0',
+      message: 'invalid V3 ledger',
+    }],
+  }))
+
+  const bySlug = new Map(model.units.map((unit) => [unit.slug, unit]))
+  assert.equal(bySlug.get('security-complete').exact.state, 'complete')
+  assert.equal(bySlug.get('security-complete').semantic.state, 'covered')
+  assert.equal(bySlug.get('security-partial').exact.state, 'incomplete')
+  assert.equal(bySlug.get('security-partial').exact.unreviewedCount, 1)
+  assert.equal(bySlug.get('security-unavailable').exact.state, 'unknown')
+  assert.equal(bySlug.get('security-semantic-gap').exact.state, 'complete')
+  assert.equal(bySlug.get('security-semantic-gap').semantic.state, 'gap')
+  assert.equal(bySlug.get('security-semantic-gap').semantic.deferredCount, 1)
+  assert.equal(bySlug.get('security-semantic-gap').semantic.surfaces.needsFollowUp, 1)
+  assert.equal(bySlug.get('security-semantic-unknown').semantic.state, 'unknown')
+  // Structurally invalid ledgers surface as invalid exact units, never silently dropped.
+  assert.equal(bySlug.get('security-bad').exact.state, 'invalid')
+  assert.equal(bySlug.get('security-bad').semantic.state, 'unknown')
+  assert.equal(bySlug.get('security-bad').producer, null)
+  assert.ok(model.diagnostics.length > 0)
+})
+
+test('v3 finding presentation carries severity, confidence, and status', () => {
+  const scored = v3Finding({
+    findingId: 'atf_scored',
+    occurrenceId: 'atocc_scored',
+    severity: { level: 'high', score: 7.5, scoringSystem: 'CVSSv3.1' },
+    confidence: { level: 'low', rationale: 'heuristic' },
+  })
+  const noConfidence = v3Finding({
+    findingId: 'atf_plain',
+    occurrenceId: 'atocc_plain',
+    severity: { level: 'informational' },
+  })
+  const observation = v3Observation({ findings: [scored, noConfidence] })
+  const ledger = v3Ledger('security-v3', observation)
+  const model = deriveAuditV3Portfolio(v3Input({
+    observations: [ledger],
+    decisionState: v3DecisionState([]),
+  }))
+
+  const unit = model.units[0]
+  assert.equal(unit.findings.length, 2)
+  const byId = new Map(unit.findings.map((finding) => [finding.findingId, finding]))
+  assert.equal(byId.get('atf_scored').severity, 'high')
+  assert.equal(byId.get('atf_scored').severityScore, 7.5)
+  // Supplied low confidence stays low; it is never rewritten to "not supplied".
+  assert.equal(byId.get('atf_scored').confidence, 'low')
+  assert.equal(byId.get('atf_plain').severity, 'informational')
+  assert.equal(byId.get('atf_plain').severityScore, null)
+  // Missing confidence is absent evidence — the viewer renders "not supplied".
+  assert.equal(byId.get('atf_plain').confidence, null)
+  assert.equal(byId.get('atf_plain').category, 'authorization')
+  assert.deepEqual(byId.get('atf_plain').locations, ['src/a.ts:1'])
+})
+
+test('v3 finding statuses cover the full lifecycle vocabulary', () => {
+  const cases = [
+    ['open', v3Effective({ disposition: 'open', derivation: 'implicit-open', lifecycle: 'new' })],
+    ['accepted', v3Effective({
+      disposition: 'accepted-risk',
+      blocking: false,
+      derivation: 'explicit-event',
+      lifecycle: 'persisting',
+      expiresAt: '2026-10-01T00:00:00.000Z',
+      expiryState: 'active',
+    })],
+    ['accepted', v3Effective({
+      disposition: 'accepted-risk',
+      blocking: false,
+      derivation: 'carried',
+      lifecycle: 'persisting',
+      expiresAt: '2026-08-05T00:00:00.000Z',
+      expiryState: 'warning',
+    })],
+    ['expired', v3Effective({
+      disposition: 'open',
+      derivation: 'carry-invalidated',
+      lifecycle: 'persisting',
+      expiresAt: '2026-02-01T00:00:00.000Z',
+      expiryState: 'expired',
+    })],
+    ['reopened', v3Effective({ disposition: 'reopened', derivation: 'automatic-reopen', lifecycle: 'reopened' })],
+    ['reopened', v3Effective({
+      disposition: 'reopened',
+      derivation: 'explicit-event',
+      lifecycle: 'reopened',
+      reopenAcknowledged: true,
+    })],
+    ['remediated', v3Effective({
+      disposition: 'remediated',
+      blocking: false,
+      derivation: 'explicit-event',
+      lifecycle: 'resolved',
+    })],
+    ['false-positive', v3Effective({
+      disposition: 'false-positive',
+      blocking: false,
+      derivation: 'explicit-event',
+      lifecycle: 'unknown',
+    })],
+    ['superseded', v3Effective({
+      disposition: 'superseded',
+      blocking: false,
+      derivation: 'explicit-event',
+      lifecycle: 'unknown',
+    })],
+    ['separate-design', v3Effective({
+      disposition: 'separate-design',
+      blocking: false,
+      derivation: 'explicit-event',
+      lifecycle: 'persisting',
+      expiresAt: '2026-10-01T00:00:00.000Z',
+      expiryState: 'active',
+    })],
+  ]
+  const findings = cases.map(([_, effective], index) => v3Finding({
+    findingId: `atf_case_${index}`,
+    occurrenceId: `atocc_case_${index}`,
+  }))
+  const observation = v3Observation({ findings })
+  const ledger = v3Ledger('security-v3', observation)
+  const model = deriveAuditV3Portfolio(v3Input({
+    observations: [ledger],
+    decisionState: v3DecisionState(
+      cases.map(([_, effective], index) => [`atf_case_${index}`, {
+        ...effective,
+        currentOccurrenceIds: [`atocc_case_${index}`],
+      }]),
+    ),
+  }))
+
+  const byId = new Map(model.units[0].findings.map((finding) => [finding.findingId, finding]))
+  cases.forEach(([expected], index) => {
+    assert.equal(byId.get(`atf_case_${index}`).status, expected, `case ${index} status`)
+  })
+  // An expired carried decision is expired, not open; a policy-invalidated carry
+  // is open with explicit policy drift.
+  assert.equal(byId.get('atf_case_3').expiryState, 'expired')
+  assert.equal(byId.get('atf_case_3').policyDrift, false)
+  assert.equal(byId.get('atf_case_5').reopenAcknowledged, true)
+  assert.equal(byId.get('atf_case_1').expiresAt, '2026-10-01T00:00:00.000Z')
+  assert.equal(model.units[0].countsByStatus.open, 1)
+  assert.equal(model.units[0].countsByStatus.accepted, 2)
+  assert.equal(model.units[0].countsByStatus.expired, 1)
+  assert.equal(model.units[0].countsByStatus.reopened, 2)
+  assert.equal(model.units[0].countsByStatus.remediated, 1)
+  assert.equal(model.units[0].countsByStatus['false-positive'], 1)
+  assert.equal(model.units[0].countsByStatus.superseded, 1)
+  assert.equal(model.units[0].countsByStatus['separate-design'], 1)
+  // openCount rolls up blocking vocabulary: open + expired + reopened.
+  assert.equal(model.units[0].openCount, 4)
+})
+
+test('v3 policy-invalidated carry renders as open with policy drift', () => {
+  const finding = v3Finding({ findingId: 'atf_drift', occurrenceId: 'atocc_drift' })
+  const ledger = v3Ledger('security-v3', v3Observation({ findings: [finding] }))
+  const model = deriveAuditV3Portfolio(v3Input({
+    observations: [ledger],
+    decisionState: v3DecisionState([['atf_drift', v3Effective({
+      disposition: 'open',
+      derivation: 'carry-invalidated',
+      lifecycle: 'persisting',
+      currentOccurrenceIds: ['atocc_drift'],
+      expiryState: 'not-applicable',
+    })]]),
+  }))
+  const presented = model.units[0].findings[0]
+  assert.equal(presented.status, 'open')
+  assert.equal(presented.policyDrift, true)
+  assert.equal(model.units[0].policyDrift, true)
+})
+
+test('v3 current observation is distinct from history', () => {
+  const older = v3Observation({ observationId: 'aobs_older', observedAt: '2026-07-20T00:00:00.000Z' })
+  const current = v3Observation({ observationId: 'aobs_current', observedAt: '2026-07-28T00:00:00.000Z' })
+  const ahead = v3Observation({ observationId: 'aobs_ahead', observedAt: '2026-07-29T00:00:00.000Z' })
+  const ledger = v3Ledger('security-v3', current)
+  const history = v3History('security-v3', [older, current, ahead])
+  const model = deriveAuditV3Portfolio(v3Input({
+    observations: [ledger],
+    histories: [history],
+    historyAhead: ['security-v3'],
+  }))
+
+  const unit = model.units[0]
+  assert.equal(unit.current.observationId, 'aobs_current')
+  assert.equal(unit.current.publicationState, 'current')
+  assert.equal(unit.historyAhead, true)
+  assert.deepEqual(
+    unit.history.map((entry) => [entry.observationId, entry.publicationState]),
+    [
+      ['aobs_older', 'historical'],
+      ['aobs_current', 'current'],
+      ['aobs_ahead', 'history-ahead'],
+    ],
+  )
+  assert.deepEqual(model.historyAhead, ['security-v3'])
+})
+
+test('v3 producer, provenance, and transcript proof are explicit', () => {
+  const codexFinding = v3Finding({
+    findingId: 'atf_codex',
+    occurrenceId: 'atocc_codex',
+    provenance: {
+      source: 'codex-security',
+      producerSource: 'codex-cli',
+      sourceFindingId: 'codex-finding-1',
+      sourceOccurrenceId: 'codex-occ-1',
+    },
+  })
+  const codexLedger = v3Ledger('security-codex', v3Observation({
+    observationId: 'aobs_codex',
+    producer: {
+      kind: 'codex-security',
+      name: 'codex',
+      version: '0.44.0',
+      adapter: 'repo-atlas/codex-security-v1',
+      adapterVersion: '0.1.0',
+      runId: 'codex-run-1',
+      identityDigest: V3_DIGEST,
+      identityBasis: 'codex-contract',
+      sourceContract: {
+        namespace: 'codex-security/1.0',
+        status: 'completed',
+        startedAt: '2026-07-27T00:00:00.000Z',
+        completedAt: '2026-07-27T01:00:00.000Z',
+        sealedAt: '2026-07-27T01:05:00.000Z',
+        manifestPath: 'scan-manifest.json',
+        coverageRef: 'coverage.json',
+        findingsRef: 'findings.json',
+      },
+    },
+    findings: [codexFinding],
+  }))
+  const grokLedger = v3Ledger('security-grok', v3Observation({
+    observationId: 'aobs_grok',
+    producer: {
+      kind: 'grok-cli',
+      name: 'grok',
+      version: '1.0.0',
+      adapter: 'repo-atlas/grok-cli-v1',
+      adapterVersion: '0.1.0',
+      runId: 'grok-run-1',
+      identityDigest: V3_RULESET.digest,
+      identityBasis: 'ruleset',
+      ruleset: V3_RULESET,
+      prompt: { builtinVersion: 'security-v1', digest: V3_DIGEST },
+      transcriptDigest: `sha256:${'7'.repeat(64)}`,
+    },
+    findings: [],
+  }))
+  const model = deriveAuditV3Portfolio(v3Input({ observations: [codexLedger, grokLedger] }))
+  const bySlug = new Map(model.units.map((unit) => [unit.slug, unit]))
+
+  const codex = bySlug.get('security-codex').producer
+  assert.equal(codex.kind, 'codex-security')
+  assert.equal(codex.ruleset, null)
+  assert.equal(codex.transcriptDigest, null)
+  assert.equal(codex.sourceContract.namespace, 'codex-security/1.0')
+  assert.equal(codex.sourceContract.sealedAt, '2026-07-27T01:05:00.000Z')
+  const codexPresented = bySlug.get('security-codex').findings[0]
+  assert.equal(codexPresented.provenance.source, 'codex-security')
+  assert.equal(codexPresented.provenance.producerSource, 'codex-cli')
+  assert.equal(codexPresented.provenance.sourceFindingId, 'codex-finding-1')
+  assert.equal(codexPresented.provenance.sourceOccurrenceId, 'codex-occ-1')
+
+  const grok = bySlug.get('security-grok').producer
+  assert.equal(grok.kind, 'grok-cli')
+  assert.equal(grok.ruleset.id, 'fixture-security-v1')
+  assert.equal(grok.prompt.digest, V3_DIGEST)
+  assert.equal(grok.transcriptDigest, `sha256:${'7'.repeat(64)}`)
+  assert.equal(grok.sourceContract, null)
+  assert.equal(grok.adapter, 'repo-atlas/grok-cli-v1')
+  assert.equal(grok.runId, 'grok-run-1')
+})
+
+test('v3 migrated evidence stays semantically unknown and never Codex-equivalent', () => {
+  const migrated = v3Ledger('security-migrated', v3Observation({
+    observationId: 'aobs_migrated',
+    producer: {
+      kind: 'migration',
+      name: 'repo-atlas/migrate-relayos',
+      version: '0.1.0',
+      adapter: 'repo-atlas/migrate-relayos-v1',
+      adapterVersion: '0.1.0',
+      runId: 'migration-run-1',
+      identityDigest: V3_RULESET.digest,
+      identityBasis: 'ruleset',
+      ruleset: V3_RULESET,
+    },
+    semanticCoverage: {
+      mode: 'repository',
+      completeness: 'unknown',
+      inventoryStrategy: 'repository',
+      surfaces: [],
+      explicitExclusions: [],
+      deferred: [],
+    },
+    findings: [],
+  }))
+  const model = deriveAuditV3Portfolio(v3Input({ observations: [migrated] }))
+  const unit = model.units[0]
+  assert.equal(unit.producer.kind, 'migration')
+  assert.equal(unit.semantic.migrated, true)
+  // Migration observations carry unknown semantic coverage — never presented
+  // as covered, and never labeled as a Codex producer.
+  assert.equal(unit.semantic.state, 'unknown')
+  assert.notEqual(unit.semantic.state, 'covered')
+  assert.notEqual(unit.producer.kind, 'codex-security')
+  assert.equal(unit.producer.sourceContract, null)
+})
+
+test('v3 stale exact bytes and policy drift are explicit', () => {
+  const finding = v3Finding({ findingId: 'atf_stale', occurrenceId: 'atocc_stale' })
+  const ledger = v3Ledger('security-v3', v3Observation({ findings: [finding] }))
+  const model = deriveAuditV3Portfolio(v3Input({
+    observations: [ledger],
+    staleBySlug: new Map([['security-v3', true]]),
+    decisionState: v3DecisionState([['atf_stale', v3Effective({
+      disposition: 'open',
+      derivation: 'carry-invalidated',
+      lifecycle: 'persisting',
+      currentOccurrenceIds: ['atocc_stale'],
+      expiryState: 'not-applicable',
+    })]]),
+  }))
+  const unit = model.units[0]
+  assert.equal(unit.staleExactBytes, true)
+  assert.equal(unit.policyDrift, true)
+  assert.equal(unit.findings[0].policyDrift, true)
+})
+
+test('v3 absent decision state marks finding status unknown and blocking', () => {
+  const finding = v3Finding({ findingId: 'atf_nodec', occurrenceId: 'atocc_nodec' })
+  const ledger = v3Ledger('security-v3', v3Observation({ findings: [finding] }))
+  const model = deriveAuditV3Portfolio(v3Input({
+    observations: [ledger],
+    decisionState: null,
+  }))
+  const presented = model.units[0].findings[0]
+  assert.equal(model.decisionStateAvailable, false)
+  assert.equal(presented.status, 'unknown')
+  assert.equal(presented.lifecycle, 'unknown')
+  assert.equal(presented.blocking, true)
+  assert.equal(presented.derivation, 'decision-state-unavailable')
+  assert.equal(model.units[0].countsByStatus.unknown, 1)
+})
+
+test('v3 presentation model is JSON-safe and carries zero-finding honesty', () => {
+  const clean = v3Ledger('security-clean', v3Observation({ findings: [] }))
+  const model = deriveAuditV3Portfolio(v3Input({
+    observations: [clean],
+    histories: [v3History('security-clean', [clean.current])],
+    policyDigest: V3_DIGEST,
+    decisionState: v3DecisionState([]),
+    now: V3_NOW,
+  }))
+  assert.equal(model.policyDigest, V3_DIGEST)
+  assert.equal(model.generatedAt, V3_NOW)
+  assert.equal(model.decisionStateAvailable, true)
+  assert.equal(model.units[0].zeroFindings, true)
+  // Payloads serialize as plain JSON — no Maps, class instances, or undefined.
+  assert.deepEqual(JSON.parse(JSON.stringify(model)), model)
 })

@@ -11,6 +11,9 @@ import {
   recentAuditUnits,
   strongZeroFindingPhrase,
   type AuditAction,
+  type AuditV3FindingPresentation,
+  type AuditV3PortfolioPresentation,
+  type AuditV3UnitPresentation,
   type AuditViewMode,
   type DomainAssurance,
 } from '../src/audit-assurance'
@@ -27,6 +30,12 @@ import {
   AuditEvidenceSummary,
   AuditFileTable,
   AuditUnitPortfolio,
+  AuditV3ExactPanel,
+  AuditV3FindingCard,
+  AuditV3HistorySection,
+  AuditV3PortfolioSection,
+  AuditV3ProducerPanel,
+  AuditV3SemanticPanel,
   CoverageStatement,
   CoverageSummary,
 } from './AuditCoverage'
@@ -122,6 +131,64 @@ export const tallyOf = (findings: AuditFinding[]): Map<Severity, number> => {
   const m = new Map<Severity, number>()
   for (const f of findings) m.set(f.severity as Severity, (m.get(f.severity as Severity) ?? 0) + 1)
   return m
+}
+
+const V3_SEV_RANK: Record<AuditV3FindingPresentation['severity'], number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  informational: 4,
+}
+
+const V3_STATUS_GROUP: Record<AuditV3FindingPresentation['status'], number> = {
+  open: 0,
+  reopened: 1,
+  expired: 2,
+  unknown: 3,
+  accepted: 4,
+  remediated: 5,
+  'false-positive': 6,
+  superseded: 7,
+  'separate-design': 8,
+}
+
+/** Blocking lifecycle statuses first, then retained risk, severity-ordered. */
+function sortV3Findings(
+  findings: AuditV3FindingPresentation[],
+): AuditV3FindingPresentation[] {
+  return [...findings].sort((a, b) => {
+    const group = V3_STATUS_GROUP[a.status] - V3_STATUS_GROUP[b.status]
+    if (group !== 0) return group
+    const severity = V3_SEV_RANK[a.severity] - V3_SEV_RANK[b.severity]
+    if (severity !== 0) return severity
+    return a.title < b.title ? -1 : a.title > b.title ? 1 : 0
+  })
+}
+
+/**
+ * V3 findings with true lifecycle statuses. The legacy open/retained split
+ * would misreport V3 decisions, so V3 units render this section instead.
+ */
+function V3FindingsSection({ unit }: { unit: AuditV3UnitPresentation }) {
+  const { i18n } = useLingui()
+  const ordered = useMemo(() => sortV3Findings(unit.findings), [unit.findings])
+  return (
+    <section className={SECTION} aria-labelledby="sec-findings">
+      <h2 id="sec-findings" className="text-[0.85rem] font-semibold m-0 mb-2">
+        {t(i18n)`Findings`}
+      </h2>
+      {unit.zeroFindings ? (
+        <p className={META + ' m-0'}>
+          {t(i18n)`No reportable findings in this evidenced scope.`}
+        </p>
+      ) : (
+        ordered.map((finding) => (
+          <AuditV3FindingCard key={finding.findingId} finding={finding} />
+        ))
+      )}
+    </section>
+  )
 }
 
 function conceptHrefFor(unit: SecurityAuditUnit): string | null {
@@ -283,10 +350,12 @@ function RecentAudits({
 function UnitDetail({
   model,
   unit,
+  v3Unit = null,
   onBack,
 }: {
   model: Extract<DomainAssurance, { domain: 'security' }>
   unit: SecurityAuditUnit
+  v3Unit?: AuditV3UnitPresentation | null
   onBack: () => void
 }) {
   const { i18n } = useLingui()
@@ -345,6 +414,9 @@ function UnitDetail({
         </p>
       )}
 
+      {v3Unit ? (
+        <V3FindingsSection unit={v3Unit} />
+      ) : (
       <section className={SECTION} aria-labelledby="sec-findings">
         <h2 id="sec-findings" className="text-[0.85rem] font-semibold m-0 mb-2">
           {t(i18n)`Findings`}
@@ -388,6 +460,7 @@ function UnitDetail({
           </div>
         )}
       </section>
+      )}
 
       <section className={SECTION} aria-labelledby="sec-coverage">
         <h2 id="sec-coverage" className="text-[0.85rem] font-semibold m-0 mb-2">
@@ -396,6 +469,15 @@ function UnitDetail({
         {unitRow && <AuditUnitCoverageFacts model={model} coverage={unitRow.coverage} />}
         <AuditFileTable rows={fileRows} query={fileQuery} onQueryChange={setFileQuery} />
       </section>
+
+      {v3Unit && (
+        <>
+          <AuditV3ExactPanel unit={v3Unit} />
+          <AuditV3SemanticPanel unit={v3Unit} />
+          {v3Unit.producer !== null && <AuditV3ProducerPanel producer={v3Unit.producer} />}
+          <AuditV3HistorySection unit={v3Unit} />
+        </>
+      )}
 
       <section className={SECTION} aria-labelledby="sec-evidence">
         <h2 id="sec-evidence" className="text-[0.85rem] font-semibold m-0 mb-2">
@@ -413,11 +495,13 @@ function UnitDetail({
 
 function OverviewHome({
   model,
+  auditV3 = null,
   mode,
   onSelectUnit,
   onAction,
 }: {
   model: Extract<DomainAssurance, { domain: 'security' }>
+  auditV3?: AuditV3PortfolioPresentation | null
   mode: AuditViewMode
   onSelectUnit: (slug: string) => void
   onAction: (action: AuditAction) => void
@@ -474,6 +558,7 @@ function OverviewHome({
       <EvidenceFacts model={model} />
       <ActionQueue actions={actions} model={model} onAction={onAction} />
       <AuditUnitPortfolio model={model} onSelect={onSelectUnit} />
+      {auditV3 && <AuditV3PortfolioSection model={auditV3} onSelect={onSelectUnit} />}
       <RecentAudits model={model} onSelect={onSelectUnit} />
     </div>
   )
@@ -483,6 +568,7 @@ function OverviewHome({
 export function SecurityPane({
   model,
   audits,
+  auditV3 = null,
   mode = 'overview',
   focusSlug = null,
   onSelectUnit,
@@ -490,6 +576,7 @@ export function SecurityPane({
 }: {
   model: DomainAssurance
   audits: SecurityAuditUnit[]
+  auditV3?: AuditV3PortfolioPresentation | null
   mode?: AuditViewMode
   focusSlug?: string | null
   onSelectUnit?: (slug: string) => void
@@ -497,6 +584,10 @@ export function SecurityPane({
 }) {
   const securityModel = model.domain === 'security' ? model : null
   const auditsBySlug = useMemo(() => new Map(audits.map((u) => [u.slug, u])), [audits])
+  const v3BySlug = useMemo(
+    () => new Map((auditV3?.units ?? []).map((u) => [u.slug, u])),
+    [auditV3],
+  )
   const focusedUnit = focusSlug ? auditsBySlug.get(focusSlug) ?? null : null
 
   if (!securityModel) {
@@ -535,6 +626,7 @@ export function SecurityPane({
         <UnitDetail
           model={securityModel}
           unit={focusedUnit}
+          v3Unit={v3BySlug.get(focusedUnit.slug) ?? null}
           onBack={() => {
             onMode?.('overview')
             if (onSelectUnit) onSelectUnit('')
@@ -564,6 +656,7 @@ export function SecurityPane({
   return (
     <OverviewHome
       model={securityModel}
+      auditV3={auditV3}
       mode={mode}
       onSelectUnit={selectUnit}
       onAction={onAction}

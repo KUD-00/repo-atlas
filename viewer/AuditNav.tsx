@@ -4,6 +4,7 @@ import {
   auditSidebarRows,
   type AuditSidebarModeRow,
   type AuditSidebarUnitRow,
+  type AuditV3PortfolioPresentation,
   type AuditViewMode,
   type DomainAssurance,
 } from '../src/audit-assurance'
@@ -31,12 +32,15 @@ const UNIT_META = 'shrink-0 text-[0.68rem] text-muted max-w-32 overflow-hidden t
  */
 export function AuditNav({
   model,
+  auditV3 = null,
   selectedMode,
   selectedUnitSlug,
   onMode,
   onSelect,
 }: {
   model: DomainAssurance
+  /** Derived V3 model; V3 units get lifecycle-aware risk lines. */
+  auditV3?: AuditV3PortfolioPresentation | null
   selectedMode: AuditViewMode
   selectedUnitSlug: string | null
   onMode: (mode: AuditViewMode) => void
@@ -49,6 +53,7 @@ export function AuditNav({
   const modeRows = rows.filter((row): row is AuditSidebarModeRow => row.kind !== 'unit')
   const unitRows = rows.filter((row): row is AuditSidebarUnitRow => row.kind === 'unit')
   const unitBySlug = new Map(model.unitRows.map((u) => [u.slug, u]))
+  const v3BySlug = new Map((auditV3?.units ?? []).map((u) => [u.slug, u]))
 
   return (
     <div className="flex flex-col gap-0.5">
@@ -95,10 +100,19 @@ export function AuditNav({
         const selected = selectedUnitSlug === row.slug
         const route = auditUnitRoute(domain, row.slug)
         const unit = unitBySlug.get(row.slug)
+        const v3Unit = v3BySlug.get(row.slug)
         const coverageText = unit
           ? localizedCoverageLabel(i18n, unit.coverage)
           : ''
-        const riskText = unit ? localizedRiskLabel(i18n, unit.risk) : ''
+        // V3 units carry lifecycle-aware statuses; the legacy risk label
+        // counts every V3 finding as open and would misreport decisions.
+        const riskText = v3Unit
+          ? v3Unit.openCount > 0
+            ? t(i18n)`${v3Unit.openCount} open`
+            : t(i18n)`No open findings recorded`
+          : unit
+            ? localizedRiskLabel(i18n, unit.risk)
+            : ''
         const body = (
           <>
             <span className="flex-1 min-w-0 overflow-hidden text-ellipsis">{row.title}</span>

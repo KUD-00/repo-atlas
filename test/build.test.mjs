@@ -7,7 +7,7 @@ import test from 'node:test'
 import { loadAuditPortfolios } from '../dist/audits.js'
 import { buildAuditLocalizationInput } from '../dist/audit-localizations.js'
 import { loadAuditReviewPolicy } from '../dist/audit-policy.js'
-import { buildPayload } from '../dist/build.js'
+import { buildPayload, loadAuditV3Presentation } from '../dist/build.js'
 import { loadReviewCoverage } from '../dist/review-coverage.js'
 import { reviewCoverageInventoryHash } from '../dist/review-coverage-hash.js'
 import { scan } from '../dist/scan.js'
@@ -634,6 +634,302 @@ test('audit localization cli emits deterministic input and gates required locale
     )
     assert.equal(completeResult.status, 0, completeResult.stderr || completeResult.stdout)
     assert.equal(JSON.parse(completeResult.stdout).locales.zh.state, 'complete')
+  } finally {
+    cleanup(root)
+  }
+})
+
+// ---------------------------------------------------------------------------
+// V3 assurance payload (build + serve share the derived model)
+// ---------------------------------------------------------------------------
+
+const v3 = await import('../dist/audit-v3.js')
+const v3decisions = await import('../dist/audit-decisions.js')
+const {
+  computeAuditInventoryDigest,
+  computeAuditScopeHash,
+  computeAtlasFindingId,
+  computeAtlasFingerprint,
+  computeAtlasObservationId,
+  computeAtlasOccurrenceId,
+  computeExactScopeIdentityDigest,
+  prepareAuditObservationPublication,
+  publishAuditObservation,
+} = v3
+const { appendAuditDecision } = v3decisions
+
+const V3_NOW = '2026-07-29T00:00:00.000Z'
+const V3_REPOSITORY_ID = 'repo_build_fixture'
+const V3_SLUG = 'security-v3'
+const V3_RULESET_ID = 'fixture-security-v1'
+const V3_RULESET_DIGEST = `sha256:${'1'.repeat(64)}`
+const V3_TARGET_DIGEST = `sha256:${'2'.repeat(64)}`
+const V3_ACTOR = 'identity:reviewer@example.invalid'
+
+function publishV3Observation(root, blob) {
+  const scopeIdentityDigest = computeExactScopeIdentityDigest({
+    mode: 'unit',
+    includePaths: ['src/**'],
+    excludePaths: [],
+    files: [{ path: 'src/a.ts', blob }],
+  })
+  const finding = (instance) => {
+    const fingerprint = computeAtlasFingerprint({
+      repositoryId: V3_REPOSITORY_ID,
+      domain: 'security',
+      ruleId: 'authorization/build-fixture',
+      anchor: 'audit/build-fixture',
+      instance,
+    })
+    return { fingerprint, findingId: computeAtlasFindingId(fingerprint) }
+  }
+  const observationId = computeAtlasObservationId({
+    slug: V3_SLUG,
+    adapter: 'repo-atlas/manual-v1',
+    runId: 'build-fixture-run',
+    producerIdentityDigest: V3_RULESET_DIGEST,
+    targetId: 'build-fixture-target',
+    targetIdentityDigest: V3_TARGET_DIGEST,
+    scopeIdentityDigest,
+  })
+  const findingA = finding('a')
+  const findingB = finding('b')
+  const occurrenceA = computeAtlasOccurrenceId(observationId, findingA.fingerprint)
+  const occurrenceB = computeAtlasOccurrenceId(observationId, findingB.fingerprint)
+  const files = [{
+    path: 'src/a.ts',
+    blob,
+    lines: 1,
+    status: 'reviewed',
+    outcome: 'findings',
+    reviewedAt: '2026-07-28T12:00:00.000Z',
+    reviewedAtPrecision: 'timestamp',
+    reviewedBy: 'fixture',
+    ruleset: V3_RULESET_ID,
+    findingOccurrenceIds: [occurrenceA, occurrenceB].sort(),
+    receiptRefs: ['fixture:full-read'],
+  }]
+  const inventoryDigest = computeAuditInventoryDigest(files)
+  const v3FindingFor = (ids, title) => ({
+    findingId: ids.findingId,
+    occurrenceId: ids.occurrenceId,
+    decisionLedger: V3_SLUG,
+    ruleId: 'authorization/build-fixture',
+    identity: { anchor: 'audit/build-fixture', instance: ids.instance },
+    fingerprints: [{ scheme: 'atlas/v1', value: ids.fingerprint, role: 'canonical' }],
+    title,
+    summary: 'Bounded build fixture finding.',
+    severity: { level: 'medium' },
+    taxonomy: { category: 'authorization' },
+    locations: [{ path: 'src/a.ts', startLine: 1 }],
+    remediation: 'Add the missing gate.',
+    provenance: { source: 'manual' },
+  })
+  const observation = {
+    observationId,
+    observedAt: '2026-07-28T12:00:00.000Z',
+    reviewState: 'complete',
+    producer: {
+      kind: 'manual',
+      name: 'fixture',
+      version: '1',
+      adapter: 'repo-atlas/manual-v1',
+      adapterVersion: '0.1.0',
+      runId: 'build-fixture-run',
+      identityDigest: V3_RULESET_DIGEST,
+      identityBasis: 'ruleset',
+      ruleset: { id: V3_RULESET_ID, digest: V3_RULESET_DIGEST },
+    },
+    target: {
+      kind: 'directory-snapshot',
+      repositoryId: V3_REPOSITORY_ID,
+      targetId: 'build-fixture-target',
+      identityDigest: V3_TARGET_DIGEST,
+      identityBasis: 'snapshot',
+      snapshotDigest: V3_TARGET_DIGEST,
+    },
+    scope: {
+      mode: 'unit',
+      identityDigest: scopeIdentityDigest,
+      identityBasis: 'exact-inventory',
+      includePaths: ['src/**'],
+      excludePaths: [],
+      scopeHash: computeAuditScopeHash({
+        mode: 'unit',
+        includePaths: ['src/**'],
+        excludePaths: [],
+        inventoryDigest,
+      }),
+      inventoryDigest,
+      fileCount: 1,
+      files,
+      artifactsReviewed: [],
+      limitations: [],
+    },
+    exactCoverage: {
+      completeness: 'complete',
+      basis: 'full-read-receipts',
+      reviewedFileCount: 1,
+      unreviewed: [],
+    },
+    semanticCoverage: {
+      mode: 'unit',
+      completeness: 'complete',
+      inventoryStrategy: 'unit',
+      surfaces: [{
+        id: 'surface-1',
+        label: 'authorization boundary',
+        disposition: 'reported',
+        receiptRefs: [],
+      }],
+      explicitExclusions: [],
+      deferred: [],
+    },
+    findings: [
+      v3FindingFor({ ...findingA, occurrenceId: occurrenceA, instance: 'a' }, 'build fixture finding A'),
+      v3FindingFor({ ...findingB, occurrenceId: occurrenceB, instance: 'b' }, 'build fixture finding B'),
+    ],
+    evidenceRefs: ['evidence/v3.json'],
+    sourceArtifacts: [],
+    producerExtensions: [],
+  }
+  const prepared = prepareAuditObservationPublication(
+    root,
+    observation,
+    { slug: V3_SLUG, title: 'Build Fixture V3' },
+  )
+  publishAuditObservation(root, prepared.ledger)
+  return {
+    slug: V3_SLUG,
+    blob,
+    observationId,
+    findingA: { findingId: findingA.findingId, occurrenceId: occurrenceA },
+    findingB: { findingId: findingB.findingId, occurrenceId: occurrenceB },
+  }
+}
+
+test('payload carries the derived V3 assurance model on build and static html', () => {
+  const root = makeRepo()
+  try {
+    write(root, 'src/a.ts', 'export const a = 1\n')
+    commitAll(root)
+    write(root, '.atlas/config.json', `${JSON.stringify({
+      formatVersion: 1,
+      exclude: [],
+      repositoryId: V3_REPOSITORY_ID,
+    }, null, 2)}\n`)
+    write(root, '.atlas/review-policy.json', `${JSON.stringify(fixtureReviewPolicy(), null, 2)}\n`)
+    const rawBlob = gitBlob(root, 'src/a.ts')
+    const blob = `git-sha${rawBlob.length === 40 ? '1' : '256'}:${rawBlob}`
+    const fixture = publishV3Observation(root, blob)
+
+    // Finding B is explicitly accepted (warning-window expiry); finding A stays open.
+    const policyDigest = loadAuditReviewPolicy(root).policy.securityDecisions.policyDigest
+    const binding = { path: 'src/a.ts', blob }
+    appendAuditDecision(root, fixture.slug, {
+      type: 'finding-disposition',
+      findingId: fixture.findingB.findingId,
+      occurrenceId: fixture.findingB.occurrenceId,
+      action: 'accepted-risk',
+      actor: V3_ACTOR,
+      owner: 'build-fixture-owner',
+      reason: 'Bounded build fixture acceptance.',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      createdAtBasis: 'recorded',
+      reviewContext: {
+        observationId: fixture.observationId,
+        bindings: [binding],
+        ruleset: { id: V3_RULESET_ID, digest: V3_RULESET_DIGEST },
+        policyDigest,
+      },
+      evidenceRefs: [],
+      proofs: [{
+        kind: 'current-review',
+        observationId: fixture.observationId,
+        reviewedBindings: [binding],
+        outcome: 'finding-present',
+        summary: 'Bounded fixture review proof.',
+      }],
+      reviews: [],
+      expiresAt: '2026-08-05T00:00:00.000Z',
+    })
+
+    const scanResult = scan(root, { exclude: [] })
+    const status = computeStatus(root, scanResult, { readability: false })
+    const portfolios = loadAuditPortfolios(root, status.audits)
+    const auditV3 = loadAuditV3Presentation(root, portfolios.security, V3_NOW)
+    assert.notEqual(auditV3, null)
+    assert.equal(auditV3.decisionStateAvailable, true)
+    assert.equal(auditV3.units.length, 1)
+
+    const unit = auditV3.units[0]
+    assert.equal(unit.slug, V3_SLUG)
+    assert.equal(unit.exact.state, 'complete')
+    assert.equal(unit.semantic.state, 'covered')
+    assert.equal(unit.staleExactBytes, false)
+    assert.equal(unit.policyDrift, false)
+    assert.equal(unit.producer.kind, 'manual')
+    assert.equal(unit.producer.ruleset.id, V3_RULESET_ID)
+    assert.equal(unit.current.observationId, fixture.observationId)
+    assert.equal(unit.current.publicationState, 'current')
+    assert.equal(unit.historyAhead, false)
+    assert.equal(unit.history.length, 1)
+    assert.equal(unit.history[0].publicationState, 'current')
+
+    const findings = new Map(unit.findings.map((finding) => [finding.findingId, finding]))
+    const findingA = findings.get(fixture.findingA.findingId)
+    assert.equal(findingA.status, 'open')
+    assert.equal(findingA.lifecycle, 'new')
+    assert.equal(findingA.derivation, 'implicit-open')
+    assert.equal(findingA.blocking, true)
+    assert.equal(findingA.confidence, null)
+    const findingB = findings.get(fixture.findingB.findingId)
+    assert.equal(findingB.status, 'accepted')
+    assert.equal(findingB.expiryState, 'warning')
+    assert.equal(findingB.expiresAt, '2026-08-05T00:00:00.000Z')
+    assert.equal(findingB.blocking, false)
+    assert.equal(unit.openCount, 1)
+    assert.equal(unit.countsByStatus.accepted, 1)
+
+    const payload = buildPayload({
+      repoName: 'fixture',
+      commit: null,
+      status,
+      audits: portfolios.security,
+      testAudits: portfolios.tests,
+      auditV3,
+    })
+    assert.deepEqual(payload.auditV3, auditV3)
+    assert.deepEqual(JSON.parse(JSON.stringify(payload.auditV3)), payload.auditV3)
+
+    const defaults = buildPayload({ repoName: 'fixture', commit: null, status })
+    assert.equal(defaults.auditV3, null)
+
+    // The static build surface embeds the same derived V3 model.
+    const result = spawnSync(process.execPath, [CLI, 'build', '-o', '.atlas/v3.html'], {
+      cwd: root,
+      encoding: 'utf8',
+    })
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+    const data = extractAtlasPayload(
+      fs.readFileSync(path.join(root, '.atlas/v3.html'), 'utf8'),
+    )
+    assert.notEqual(data.auditV3, null)
+    assert.equal(data.auditV3.units.length, 1)
+    assert.equal(data.auditV3.units[0].slug, V3_SLUG)
+    assert.equal(data.auditV3.units[0].exact.state, 'complete')
+    assert.equal(data.auditV3.units[0].semantic.state, 'covered')
+    assert.equal(data.auditV3.decisionStateAvailable, true)
+    const htmlFindingB = data.auditV3.units[0].findings
+      .find((finding) => finding.findingId === fixture.findingB.findingId)
+    assert.equal(htmlFindingB.status, 'accepted')
+
+    // Byte drift after the receipt is explicit stale exact evidence.
+    write(root, 'src/a.ts', 'export const a = 2\n')
+    const staleStatus = computeStatus(root, scan(root, { exclude: [] }), { readability: false })
+    const stalePortfolios = loadAuditPortfolios(root, staleStatus.audits)
+    const staleV3 = loadAuditV3Presentation(root, stalePortfolios.security, V3_NOW)
+    assert.equal(staleV3.units[0].staleExactBytes, true)
   } finally {
     cleanup(root)
   }

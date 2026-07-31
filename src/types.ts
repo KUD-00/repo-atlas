@@ -684,6 +684,13 @@ export interface AtlasPayload {
   auditSourceLocale: AtlasLocale
   /** Verified, disposable audit-prose projections keyed by target locale. */
   auditLocalizations: Partial<Record<AtlasLocale, AuditLocalizationPortfolio>>
+  /**
+   * Derived V3 assurance presentation (exact/semantic coverage, finding
+   * lifecycle, producer integrity, history). Null when the repository holds
+   * no V3 audit state; derivation lives in audit-assurance.ts and both build
+   * and serve embed the same model.
+   */
+  auditV3: import('./audit-assurance.js').AuditV3PortfolioPresentation | null
 }
 
 export interface ChatMessage {

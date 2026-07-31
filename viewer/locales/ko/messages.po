@@ -31,6 +31,16 @@ msgstr "(디렉터리)"
 msgid "{0} accepted risk"
 msgstr "수용된 위험 {0}건"
 
+#. placeholder {0}: semantic.deferredCount
+#: viewer/AuditCoverage.tsx
+msgid "{0} deferred"
+msgstr "{0}개 보류됨"
+
+#. placeholder {0}: entry.findingCount
+#: viewer/AuditCoverage.tsx
+msgid "{0} findings"
+msgstr "{0}개 발견"
+
 #. placeholder {0}: coverage.invalid
 #: viewer/audit-copy.ts
 msgid "{0} invalid"
@@ -46,8 +56,21 @@ msgstr "무효 증거 {0}건"
 msgid "{0} missing"
 msgstr "누락 {0}건"
 
+#. placeholder {0}: semantic.surfaces.needsFollowUp
+#: viewer/AuditCoverage.tsx
+msgid "{0} need follow-up"
+msgstr "{0}개 후속 조치 필요"
+
+#. placeholder {0}: exact.reviewedFileCount
+#. placeholder {1}: exact.fileCount
+#: viewer/AuditCoverage.tsx
+msgid "{0} of {1} files reviewed"
+msgstr "{1}개 파일 중 {0}개 검토 완료"
+
 #. placeholder {0}: model.openCount
+#. placeholder {0}: v3Unit.openCount
 #: viewer/audit-copy.ts
+#: viewer/AuditNav.tsx
 msgid "{0} open"
 msgstr "미처리 {0}건"
 
@@ -76,6 +99,16 @@ msgstr "separate design {0}건"
 #: viewer/audit-copy.ts
 msgid "{0} stale"
 msgstr "오래됨 {0}건"
+
+#. placeholder {0}: semantic.surfaces.total
+#: viewer/AuditCoverage.tsx
+msgid "{0} surfaces"
+msgstr "{0}개 위협 표면"
+
+#. placeholder {0}: exact.unreviewedCount
+#: viewer/AuditCoverage.tsx
+msgid "{0} unreviewed"
+msgstr "{0}개 미검토"
 
 #. placeholder {0}: action.impact
 #. placeholder {0}: action.severity
@@ -204,6 +237,10 @@ msgstr "확인"
 msgid "acknowledged"
 msgstr "확인됨"
 
+#: viewer/AuditCoverage.tsx
+msgid "adapter"
+msgstr "어댑터"
+
 #: viewer/Chat.tsx
 msgid "agent connected"
 msgstr "에이전트 연결됨"
@@ -307,6 +344,10 @@ msgstr "코드"
 msgid "Code"
 msgstr "코드"
 
+#: viewer/AuditCoverage.tsx
+msgid "Codex Security"
+msgstr "Codex Security"
+
 #: viewer/Preview.tsx
 msgid "collapse panel"
 msgstr "패널 접기"
@@ -339,6 +380,10 @@ msgstr "개념 페이지"
 #: viewer/App.tsx
 msgid "concepts"
 msgstr "개념"
+
+#: viewer/AuditCoverage.tsx
+msgid "confidence"
+msgstr "신뢰도"
 
 #: viewer/AuditCoverage.tsx
 msgid "conflicted"
@@ -434,6 +479,10 @@ msgstr "review coverage 보고서가 없어 coverage를 알 수 없습니다"
 msgid "covered"
 msgstr "커버됨"
 
+#: viewer/AuditCoverage.tsx
+msgid "current observation"
+msgstr "현재 관측"
+
 #: viewer/Security.tsx
 msgid "dataflow"
 msgstr "데이터 흐름:"
@@ -441,6 +490,10 @@ msgstr "데이터 흐름:"
 #: viewer/Attention.tsx
 msgid "decision recorded"
 msgstr "결정 기록됨"
+
+#: viewer/AuditCoverage.tsx
+msgid "decision state unavailable — finding statuses shown as unknown"
+msgstr "결정 상태를 사용할 수 없음 — 발견 상태가 알 수 없음으로 표시됩니다"
 
 #: viewer/Attention.tsx
 msgid "declared source scope"
@@ -493,6 +546,34 @@ msgid "evidence refs"
 msgstr "증거 참조"
 
 #: viewer/AuditCoverage.tsx
+msgid "exact"
+msgstr "정확"
+
+#: viewer/AuditCoverage.tsx
+msgid "exact complete"
+msgstr "정확 커버리지 완료"
+
+#: viewer/AuditCoverage.tsx
+msgid "Exact coverage"
+msgstr "정확 커버리지"
+
+#: viewer/AuditCoverage.tsx
+msgid "exact incomplete"
+msgstr "정확 커버리지 불완전"
+
+#: viewer/AuditCoverage.tsx
+msgid "exact invalid"
+msgstr "정확 커버리지 무효"
+
+#: viewer/AuditCoverage.tsx
+msgid "exact review coverage unavailable"
+msgstr "정확한 리뷰 커버리지를 사용할 수 없음"
+
+#: viewer/AuditCoverage.tsx
+msgid "exact unknown"
+msgstr "정확 커버리지 알 수 없음"
+
+#: viewer/AuditCoverage.tsx
 msgid "excluded"
 msgstr "제외됨"
 
@@ -503,6 +584,19 @@ msgstr "패널 펼치기"
 #: viewer/App.tsx
 msgid "expand sidebar"
 msgstr "사이드바 펼치기"
+
+#: viewer/AuditCoverage.tsx
+msgid "expired"
+msgstr "만료됨"
+
+#. placeholder {0}: finding.expiresAt
+#: viewer/AuditCoverage.tsx
+msgid "expires {0}"
+msgstr "만료 {0}"
+
+#: viewer/AuditCoverage.tsx
+msgid "false positive"
+msgstr "오탐"
 
 #: viewer/Doc.tsx
 msgid "file"
@@ -541,6 +635,10 @@ msgstr "파일 필터…"
 msgid "filter paths…"
 msgstr "경로 필터…"
 
+#: viewer/AuditCoverage.tsx
+msgid "findings"
+msgstr "발견"
+
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
 msgid "Findings"
@@ -571,8 +669,8 @@ msgid "Fresh when first observed; these versions have no human review receipt."
 msgstr "처음 관찰했을 때 최신 상태였으며, 이 버전에는 사람의 검토 기록이 없습니다."
 
 #: viewer/Concept.tsx
-msgid "full walkthrough"
-msgstr "전체 설명"
+#~ msgid "full walkthrough"
+#~ msgstr "전체 설명"
 
 #: viewer/AuditCoverage.tsx
 msgid "gaps"
@@ -590,6 +688,18 @@ msgstr "용어집"
 msgid "gone from the scan"
 msgstr "스캔에서 사라짐"
 
+#: viewer/AuditCoverage.tsx
+msgid "Grok CLI"
+msgstr "Grok CLI"
+
+#: viewer/AuditCoverage.tsx
+msgid "historical"
+msgstr "이력"
+
+#: viewer/AuditCoverage.tsx
+msgid "history ahead"
+msgstr "이력이 앞섬"
+
 #: viewer/Attention.tsx
 msgid "I understand"
 msgstr "이해했습니다"
@@ -604,8 +714,8 @@ msgid "ignored — excluded by .atlas/config.json"
 msgstr "제외됨 — .atlas/config.json에서 제외됨"
 
 #: viewer/Concept.tsx
-msgid "Inside the full walkthrough"
-msgstr "전체 설명의 내용"
+#~ msgid "Inside the full walkthrough"
+#~ msgstr "전체 설명의 내용"
 
 #: viewer/AuditCoverage.tsx
 msgid "invalid"
@@ -636,6 +746,26 @@ msgstr "언어"
 msgid "latest scan"
 msgstr "최근 스캔"
 
+#: viewer/AuditCoverage.tsx
+msgid "lifecycle new"
+msgstr "라이프사이클 신규"
+
+#: viewer/AuditCoverage.tsx
+msgid "lifecycle persisting"
+msgstr "라이프사이클 지속"
+
+#: viewer/AuditCoverage.tsx
+msgid "lifecycle reopened"
+msgstr "라이프사이클 재개"
+
+#: viewer/AuditCoverage.tsx
+msgid "lifecycle resolved"
+msgstr "라이프사이클 해결됨"
+
+#: viewer/AuditCoverage.tsx
+msgid "lifecycle unknown"
+msgstr "라이프사이클 알 수 없음"
+
 #: viewer/Preview.tsx
 msgid "lines"
 msgstr "줄"
@@ -648,6 +778,10 @@ msgstr "로딩 중…"
 msgid "Machine freshness is kept separate from human understanding. These counts diagnose Atlas artifacts only."
 msgstr ""
 
+#: viewer/AuditCoverage.tsx
+msgid "manual"
+msgstr "수동"
+
 #: viewer/Doc.tsx
 msgid "Markdown note for this path…"
 msgstr "이 경로의 Markdown 노트…"
@@ -659,6 +793,10 @@ msgstr "에이전트에 메시지… (⏎ 전송, ⇧⏎ 줄바꿈)"
 #: viewer/Chat.tsx
 msgid "Messages go to whichever agent session is polling <0>/chat/poll</0>."
 msgstr "메시지는 <0>/chat/poll</0>을 폴링하는 에이전트 세션으로 전송됩니다."
+
+#: viewer/AuditCoverage.tsx
+msgid "migration"
+msgstr "마이그레이션"
 
 #: viewer/App.tsx
 #: viewer/Attention.tsx
@@ -766,6 +904,7 @@ msgid "No open actions in this view"
 msgstr "이 보기에 미처리 작업이 없습니다"
 
 #: viewer/audit-copy.ts
+#: viewer/AuditNav.tsx
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
 msgid "No open findings recorded"
@@ -778,6 +917,11 @@ msgstr ""
 #: viewer/Preview.tsx
 msgid "no preview — file contents are served by <0>repo-atlas serve</0>; the static build only carries descriptions"
 msgstr "미리보기 없음 — 파일 내용은 <0>repo-atlas serve</0>로 제공됩니다. 정적 빌드에는 설명만 포함됩니다"
+
+#: viewer/AuditCoverage.tsx
+#: viewer/Security.tsx
+msgid "No reportable findings in this evidenced scope."
+msgstr "이 입증 범위에서 보고할 발견이 없습니다."
 
 #: viewer/Attention.tsx
 msgid "No review events yet."
@@ -803,11 +947,24 @@ msgstr "현재 coverage 보고서에서 수락되지 않음"
 msgid "not relevant"
 msgstr "관련 없음"
 
+#: viewer/AuditCoverage.tsx
+msgid "not supplied"
+msgstr "제공되지 않음"
+
 #: viewer/Attention.tsx
 msgid "Nothing has been reviewed yet."
 msgstr "아직 검토된 항목이 없습니다."
 
+#: viewer/AuditCoverage.tsx
+msgid "observation"
+msgstr "관측"
+
+#: viewer/AuditCoverage.tsx
+msgid "Observation history"
+msgstr "관측 이력"
+
 #: viewer/Attention.tsx
+#: viewer/AuditCoverage.tsx
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
 msgid "open"
@@ -847,8 +1004,8 @@ msgid "outdated — code changed since this was written"
 msgstr "오래됨 — 작성 후 코드가 변경됨"
 
 #: viewer/Concept.tsx
-msgid "overview"
-msgstr "개요"
+#~ msgid "overview"
+#~ msgstr "개요"
 
 #: viewer/AuditNav.tsx
 msgid "Overview"
@@ -874,6 +1031,10 @@ msgstr "고정된 읽기 순서"
 msgid "policy conflict"
 msgstr "정책 충돌"
 
+#: viewer/AuditCoverage.tsx
+msgid "policy drift — decision predates current policy"
+msgstr "정책 드리프트 — 결정이 현재 정책보다 오래되었습니다"
+
 #: viewer/App.tsx
 msgid "primary"
 msgstr "기본"
@@ -895,17 +1056,29 @@ msgstr "이 디렉터리를 PDF로 인쇄"
 msgid "print this page as a PDF"
 msgstr "이 페이지를 PDF로 인쇄"
 
+#: viewer/AuditCoverage.tsx
+msgid "producer"
+msgstr "프로듀서"
+
+#: viewer/AuditCoverage.tsx
+msgid "Producer"
+msgstr "프로듀서"
+
+#: viewer/AuditCoverage.tsx
+msgid "prompt"
+msgstr "프롬프트"
+
 #: viewer/Attention.tsx
 msgid "Quiet baselines"
 msgstr "조용한 기준선"
 
 #: viewer/Concept.tsx
-msgid "read the full walkthrough"
-msgstr "전체 설명 읽기"
+#~ msgid "read the full walkthrough"
+#~ msgstr "전체 설명 읽기"
 
 #: viewer/Concept.tsx
-msgid "reading mode"
-msgstr "읽기 모드"
+#~ msgid "reading mode"
+#~ msgstr "읽기 모드"
 
 #: viewer/Preview.tsx
 msgid "reading order"
@@ -933,11 +1106,16 @@ msgstr "기록된 감사 증거"
 msgid "referenced in {0} notes"
 msgstr "{0}개 노트에서 참조됨"
 
+#: viewer/AuditCoverage.tsx
+msgid "remediated"
+msgstr "수정 완료"
+
 #: viewer/Attention.tsx
 msgid "reopen"
 msgstr "다시 열기"
 
 #: viewer/Attention.tsx
+#: viewer/AuditCoverage.tsx
 msgid "reopened"
 msgstr "다시 열림"
 
@@ -1027,6 +1205,10 @@ msgstr "규칙 집합"
 msgid "rulesets"
 msgstr "규칙 집합"
 
+#: viewer/AuditCoverage.tsx
+msgid "run"
+msgstr "실행"
+
 #: viewer/Doc.tsx
 msgid "save"
 msgstr "저장"
@@ -1061,10 +1243,31 @@ msgstr "Security"
 msgid "security audit"
 msgstr "보안 감사"
 
+#: viewer/AuditCoverage.tsx
+msgid "semantic"
+msgstr "시맨틱"
+
+#: viewer/AuditCoverage.tsx
+msgid "Semantic coverage"
+msgstr "시맨틱 커버리지"
+
+#: viewer/AuditCoverage.tsx
+msgid "semantic covered"
+msgstr "시맨틱 커버됨"
+
+#: viewer/AuditCoverage.tsx
+msgid "semantic gap"
+msgstr "시맨틱 커버리지 갭"
+
+#: viewer/AuditCoverage.tsx
+msgid "semantic unknown"
+msgstr "시맨틱 커버리지 알 수 없음"
+
 #: viewer/Chat.tsx
 msgid "send"
 msgstr "전송"
 
+#: viewer/AuditCoverage.tsx
 #: viewer/Security.tsx
 msgid "separate design"
 msgstr "separate design"
@@ -1106,6 +1309,14 @@ msgstr "정렬: a–z"
 msgid "sort: reading"
 msgstr "정렬: 읽기 순서"
 
+#: viewer/AuditCoverage.tsx
+msgid "source"
+msgstr "소스"
+
+#: viewer/AuditCoverage.tsx
+msgid "source contract"
+msgstr "소스 계약"
+
 #: viewer/Concept.tsx
 msgid "sources →"
 msgstr "소스 →"
@@ -1127,6 +1338,10 @@ msgstr "오래된 감사 증거 — 재감사 필요"
 msgid "stale evidence"
 msgstr "오래된 증거"
 
+#: viewer/AuditCoverage.tsx
+msgid "stale exact bytes — re-audit needed"
+msgstr "정확한 바이트가 오래됨 — 재감사 필요"
+
 #: viewer/Concept.tsx
 #: viewer/Doc.tsx
 msgid "stamped"
@@ -1137,12 +1352,20 @@ msgid "start reading ↘"
 msgstr "읽기 시작 ↘"
 
 #: viewer/AuditCoverage.tsx
+msgid "state"
+msgstr "상태"
+
+#: viewer/AuditCoverage.tsx
 msgid "status"
 msgstr "상태"
 
 #: viewer/Attention.tsx
 msgid "Structure"
 msgstr "구조"
+
+#: viewer/AuditCoverage.tsx
+msgid "superseded"
+msgstr "대체됨"
 
 #: viewer/Attention.tsx
 msgid "system health"
@@ -1186,6 +1409,10 @@ msgstr "이 소스 버전은 아직 검토가 필요합니다."
 msgid "This version was fresh when first observed; no human review receipt exists."
 msgstr "이 버전은 처음 확인했을 때 최신 상태였으며, 사람의 검토 기록은 없습니다."
 
+#: viewer/AuditCoverage.tsx
+msgid "transcript digest"
+msgstr "트랜스크립트 다이제스트"
+
 #: viewer/App.tsx
 msgid "tree layout: alphabetical or reading order"
 msgstr "트리 레이아웃: 알파벳 순서 또는 읽기 순서"
@@ -1215,6 +1442,7 @@ msgid "Units"
 msgstr "유닛"
 
 #: viewer/audit-copy.ts
+#: viewer/AuditCoverage.tsx
 msgid "unknown"
 msgstr "알 수 없음"
 
@@ -1244,6 +1472,10 @@ msgstr "바깥 트리로"
 #: viewer/Doc.tsx
 msgid "uses →"
 msgstr "사용 대상 →"
+
+#: viewer/AuditCoverage.tsx
+msgid "V3 observations"
+msgstr "V3 관측"
 
 #: viewer/Concept.tsx
 msgid "view receipt"
