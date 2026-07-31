@@ -6845,10 +6845,17 @@ export function reduceAuditDecisionState(
         stateFromDirectEvent(explicitRow, [occurrence.occurrenceId]),
       )
     } else {
+      // Implicit-open gating derives only from an authoritative current
+      // occurrence with no governing event: occurrences that live solely in
+      // historical or history-ahead entries stay honestly open without
+      // blocking — mere absence never resolves, but history never drives
+      // implicit blocking state under requireDisposition.
       occurrenceStates.set(occurrence.occurrenceId, {
         disposition: 'open',
         blocking:
-          policy.requireDisposition || policy.blockingActions.includes('open'),
+          occurrence.authoritative &&
+          (policy.requireDisposition ||
+            policy.blockingActions.includes('open')),
         derivation: 'implicit-open',
         lifecycle: occurrence.authoritative ? 'new' : 'unknown',
         currentOccurrenceIds: [occurrence.occurrenceId],

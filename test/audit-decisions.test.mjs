@@ -5399,7 +5399,7 @@ test('history-ahead occurrence does not create a global frontier component', () 
   )
 })
 
-test('historical unclosed finding remains blocking after current absence', () => {
+test('historical unclosed finding stays open without blocking after current absence', () => {
   const absent = observationFixture({
     observationId: AFTER_OBSERVATION_ID,
     findingId: REPLACEMENT_FINDING_ID,
@@ -5421,8 +5421,30 @@ test('historical unclosed finding remains blocking after current absence', () =>
     '2026-08-01T00:00:00.000Z',
   ).findings.get(FINDING_ID)
 
+  // Implicit-open blocking derives only from a current occurrence with no
+  // governing event. The historical entry keeps the finding honestly open —
+  // mere absence never resolves — but a finding with no current occurrence
+  // does not gate under requireDisposition.
   assert.equal(state.disposition, 'open')
-  assert.equal(state.blocking, true)
+  assert.equal(state.blocking, false)
+  assert.equal(state.derivation, 'implicit-open')
+  assert.equal(state.lifecycle, 'unknown')
+  assert.deepEqual(state.currentOccurrenceIds, [])
+})
+
+test('genesis history-ahead finding drives no implicit blocking state', () => {
+  const history = historyFixture(
+    'security-runtime',
+    [observationFixture({ severity: 'medium' })],
+  )
+  const state = reduceAuditDecisionState(
+    buildAuditDecisionIndex([], [history], []),
+    parseAuditDecisionPolicy(policyInput(), POLICY_DIGEST),
+    '2026-08-01T00:00:00.000Z',
+  ).findings.get(FINDING_ID)
+
+  assert.equal(state.disposition, 'open')
+  assert.equal(state.blocking, false)
   assert.equal(state.derivation, 'implicit-open')
   assert.equal(state.lifecycle, 'unknown')
   assert.deepEqual(state.currentOccurrenceIds, [])

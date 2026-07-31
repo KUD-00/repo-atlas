@@ -649,6 +649,7 @@ test('applied fixture migration reduces through the audit lifecycle reduction pa
   const api = await migrationApi()
   const {
     buildAuditDecisionIndex,
+    computeAuditDecisionEntryDigest,
     loadAuditDecisionLedgers,
     reduceAuditDecisionState,
   } = await import('../dist/audit-decisions.js')
@@ -764,6 +765,34 @@ test('applied fixture migration reduces through the audit lifecycle reduction pa
       histories,
       decisions.ledgers,
     )
+    // The migrated occurrence population is honestly 161, not 101: 60 opaque
+    // baseline receipt occurrences (the V3 receipt invariants force one
+    // occurrence per legacy finding_count row and the exact-inventory scope
+    // binds every occurrence to a receipt), 82 candidate occurrences, and 19
+    // synthesized current occurrences across 142 distinct canonical findings.
+    // The 19 current occurrences share findingIds with their candidate-layer
+    // identity; the 60 baseline findings alias onto no candidate because the
+    // sealed legacy populations provably do not correspond (72 of 82
+    // candidates name a source blob no ledger scan records, and 40 of 47
+    // finding-bearing scans record counts no structured candidate explains).
+    const occurrenceLayer = (occurrenceId) => {
+      const observation = index.observations.get(
+        index.occurrences.get(occurrenceId).observationId,
+      )
+      return observation.producerKind === 'migration'
+        ? observation.publicationState
+        : 'unexpected'
+    }
+    const layerCounts = new Map()
+    for (const occurrenceId of index.occurrences.keys()) {
+      const layer = occurrenceLayer(occurrenceId)
+      layerCounts.set(layer, (layerCounts.get(layer) ?? 0) + 1)
+    }
+    assert.equal(index.occurrences.size, 161)
+    assert.equal(index.findings.size, 142)
+    assert.equal(layerCounts.get('historical'), 142)
+    assert.equal(layerCounts.get('current'), 19)
+    assert.equal(layerCounts.get('unexpected'), undefined)
     const state = reduceAuditDecisionState(
       index,
       policyLoad.policy.securityDecisions,
@@ -800,16 +829,93 @@ test('applied fixture migration reduces through the audit lifecycle reduction pa
     assert.equal(dispositionCounts.get('remediated'), 55)
     assert.equal(governedNonBlocking, 82)
     // The opaque legacy scan-receipt findings received no decision events:
-    // they stay honestly open (blocking under this disposition-requiring
-    // policy) instead of being closed by fabricated migration coverage.
+    // they stay honestly open instead of being closed by fabricated migration
+    // coverage. Their occurrences live only in history layers, and
+    // implicit-open gating derives only from a current occurrence with no
+    // governing event, so the full migrated corpus holds zero blocking
+    // findings under requireDisposition.
     assert.equal(dispositionCounts.get('open'), state.findings.size - 82)
     assert.equal(implicitOpen, state.findings.size - 82)
-    assert.equal(blocking.length, state.findings.size - 82)
+    assert.equal(
+      [...state.findings.values()].filter((finding) =>
+        finding.derivation === 'implicit-open' &&
+        finding.currentOccurrenceIds.length === 0).length,
+      state.findings.size - 82,
+    )
+    assert.equal(blocking.length, 0)
     assert.equal(
       [...state.findings.values()].filter((finding) =>
         finding.lifecycle === 'resolved').length,
       55,
     )
+
+    // Dropping one governing event re-derives honestly at corpus scale: an
+    // undisposed finding with a current occurrence blocks through the open
+    // carry across its stable-identity edge, while an undisposed finding
+    // whose occurrences all live in history layers stays open without
+    // blocking.
+    const dispositionRows = [...index.events.values()]
+      .filter((row) => row.event.type === 'finding-disposition')
+      .sort((left, right) =>
+        left.event.eventId < right.event.eventId ? -1 : 1)
+    const currentRow = dispositionRows.find((row) =>
+      index.findings.get(row.event.findingId).currentOccurrenceIds.length > 0)
+    const historyRow = dispositionRows.find((row) =>
+      index.findings.get(row.event.findingId).currentOccurrenceIds.length === 0)
+    assert.ok(currentRow !== undefined)
+    assert.ok(historyRow !== undefined)
+    const reduceWithout = (eventId) => {
+      const row = index.events.get(eventId)
+      assert.ok(row !== undefined)
+      const decisionLedgers = new Map(index.decisionLedgers)
+      const ledger = decisionLedgers.get(row.decisionLedger)
+      let previousEntryDigest = null
+      const entries = []
+      for (const entry of ledger.entries) {
+        if (entry.eventId === eventId) continue
+        const rechained = {
+          eventId: entry.eventId,
+          previousEntryDigest,
+          event: entry.event,
+        }
+        entries.push({
+          ...rechained,
+          entryDigest: computeAuditDecisionEntryDigest(rechained),
+        })
+        previousEntryDigest = entries.at(-1).entryDigest
+      }
+      decisionLedgers.set(row.decisionLedger, { ...ledger, entries })
+      const events = new Map()
+      for (const [slug, parsed] of decisionLedgers) {
+        for (const [chainIndex, entry] of parsed.entries.entries()) {
+          events.set(entry.eventId, {
+            decisionLedger: slug,
+            chainIndex,
+            eventDigest: index.events.get(entry.eventId).eventDigest,
+            event: entry.event,
+          })
+        }
+      }
+      return reduceAuditDecisionState(
+        { ...index, decisionLedgers, events },
+        policyLoad.policy.securityDecisions,
+        '2026-08-01T00:00:00.000Z',
+      )
+    }
+    const undisposedCurrent = reduceWithout(currentRow.event.eventId)
+      .findings.get(currentRow.event.findingId)
+    assert.equal(undisposedCurrent.disposition, 'open')
+    assert.equal(undisposedCurrent.blocking, true)
+    assert.equal(undisposedCurrent.derivation, 'carried')
+    assert.equal(undisposedCurrent.lifecycle, 'persisting')
+    assert.ok(undisposedCurrent.currentOccurrenceIds.length > 0)
+    const undisposedHistorical = reduceWithout(historyRow.event.eventId)
+      .findings.get(historyRow.event.findingId)
+    assert.equal(undisposedHistorical.disposition, 'open')
+    assert.equal(undisposedHistorical.blocking, false)
+    assert.equal(undisposedHistorical.derivation, 'implicit-open')
+    assert.equal(undisposedHistorical.lifecycle, 'unknown')
+    assert.deepEqual(undisposedHistorical.currentOccurrenceIds, [])
   } finally {
     cleanup(repo)
   }
