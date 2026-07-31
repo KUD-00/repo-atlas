@@ -1324,7 +1324,7 @@ git commit -m "feat(audit): expose V3 audit command surface"
 - Modify: `viewer/locales/zh/messages.po`
 - Modify: `viewer/locales/ko/messages.po`
 
-- [ ] **Step 1: Write failing presentation tests**
+- [x] **Step 1: Write failing presentation tests**
 
 Assert the payload and pure presentation distinguish:
 
@@ -1336,18 +1336,18 @@ Assert the payload and pure presentation distinguish:
 - migrated unknown semantic coverage;
 - stale exact bytes and policy drift.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 ```bash
 pnpm build:cli
 node --test test/build.test.mjs test/audit-assurance.test.mjs test/audit-localization-viewer.test.mjs
 ```
 
-- [ ] **Step 3: Add payload and viewer projections**
+- [x] **Step 3: Add payload and viewer projections**
 
 Keep derivation pure in `src/audit-assurance.ts`; the React viewer only renders the derived model. Never label migrated or partial evidence as Codex-equivalent. Show missing confidence as “not supplied,” not low confidence.
 
-- [ ] **Step 4: Extract, translate, compile, and test**
+- [x] **Step 4: Extract, translate, compile, and test**
 
 ```bash
 pnpm i18n:extract
@@ -1358,10 +1358,10 @@ node --test test/build.test.mjs test/audit-assurance.test.mjs test/audit-localiz
 
 Populate every new message in all four catalogs before compiling.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add src/types.ts src/build.ts src/serve.ts src/audit-assurance.ts viewer/Security.tsx viewer/AuditCoverage.tsx viewer/AuditNav.tsx test/build.test.mjs test/audit-assurance.test.mjs test/audit-localization-viewer.test.mjs viewer/locales/en/messages.po viewer/locales/ja/messages.po viewer/locales/zh/messages.po viewer/locales/ko/messages.po src/vendor/viewer.js src/vendor/viewer.css
+git add src/types.ts src/build.ts src/serve.ts src/cli.ts src/audit-assurance.ts viewer/Security.tsx viewer/AuditCoverage.tsx viewer/AuditNav.tsx viewer/App.tsx test/build.test.mjs test/audit-assurance.test.mjs test/audit-localization-viewer.test.mjs viewer/locales/en/messages.po viewer/locales/en/messages.ts viewer/locales/ja/messages.po viewer/locales/ja/messages.ts viewer/locales/zh/messages.po viewer/locales/zh/messages.ts viewer/locales/ko/messages.po viewer/locales/ko/messages.ts src/vendor/viewer.js src/vendor/viewer.css dist/audit-assurance.js dist/build.js dist/cli.js dist/serve.js
 git commit -m "feat(audit): present V3 assurance and lifecycle"
 ```
 
