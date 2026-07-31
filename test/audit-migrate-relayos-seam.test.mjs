@@ -579,8 +579,7 @@ test('includeHistory:false omits history documents but keeps projections, decisi
   }
 })
 
-test('honors custom scanRoot and policyPath locations', async () => {
-  const api = await migrationApi()
+test('honors custom scanRoot and policyPath locations', async () => {  const api = await migrationApi()
   const { root: repo } = makeRepo()
   try {
     fs.rmSync(path.join(repo, ...'.atlas/review-policy.json'.split('/')))
@@ -641,6 +640,176 @@ test('honors custom scanRoot and policyPath locations', async () => {
       true,
     )
     assert.equal(result.receipt.unmapped.length, 0)
+  } finally {
+    cleanup(repo)
+  }
+})
+
+test('applied fixture migration reduces through the audit lifecycle reduction path', async () => {
+  const api = await migrationApi()
+  const {
+    buildAuditDecisionIndex,
+    loadAuditDecisionLedgers,
+    reduceAuditDecisionState,
+  } = await import('../dist/audit-decisions.js')
+  const { loadAuditReviewPolicy } = await import('../dist/audit-policy.js')
+  const { root: repo } = makeRepo()
+  try {
+    // Replace the legacy-format policy with the atlas-format policy whose
+    // digest the migration seals into every review context; the coverage
+    // generator loads the same document when it reduces the lifecycle.
+    writeJson(repo, '.atlas/review-policy.json', {
+      formatVersion: 1,
+      format: 'atlas-review-policy-v1',
+      rules: [],
+      units: [
+        {
+          domain: 'security',
+          slug: 'security-fixture-github',
+          title: 'Fixture GitHub',
+          include: ['.github/**'],
+        },
+        {
+          domain: 'security',
+          slug: 'security-fixture-apps',
+          title: 'Fixture applications',
+          include: ['apps/**'],
+        },
+        {
+          domain: 'security',
+          slug: 'security-fixture-packages',
+          title: 'Fixture packages',
+          include: ['packages/**'],
+        },
+      ],
+      securityDecisions: {
+        requireDisposition: true,
+        blockingActions: ['open', 'reopened'],
+        drift: {
+          findingBearing: 'blocking',
+          clean: 'advisory',
+          unknown: 'blocking',
+        },
+        expiry: {
+          warningDays: 14,
+          requiredFor: ['accepted-risk', 'separate-design'],
+          acceptedRiskMaximumDays: 90,
+          separateDesignMaximumDays: 90,
+          falsePositiveMustBeNull: true,
+          severityOverrides: [],
+        },
+        remediation: {
+          fixBlobRequired: true,
+          postFixProofRequired: true,
+          passingRegressionRequired: true,
+          allowedRegressionKinds: ['test', 'guardrail', 'check'],
+        },
+        falsePositive: {
+          reviewedBlobRequired: true,
+          sourceEvidenceRequired: true,
+        },
+        superseded: {
+          replacementOrDeletionProofRequired: true,
+          existingPathRequiresCurrentReview: true,
+        },
+        retirement: {
+          historyProofRequired: true,
+          allowedReasons: [
+            'deleted',
+            'moved',
+            'superseded',
+            'staged-deletion',
+            'uncommitted-snapshot-absent',
+          ],
+        },
+        acceptedRulesets: ['relayos-security-v1'],
+      },
+    })
+    commit(repo, 'atlas review policy')
+    const revision = head(repo)
+    const applied = api.migrateRelayOSAudit(
+      repo,
+      migrationOptions(revision, revision, { apply: true }),
+    )
+    assert.equal(applied.receipt.counts.canonicalFindings, 82)
+
+    // Feed the applied state into the same lifecycle-reduction path the
+    // coverage generator uses (lifecycleAssurance in
+    // src/audit-coverage-generator.ts): the same three loaded inputs, the
+    // same index builder, and the same reducer. The observation loaders
+    // additionally verify legacy blob bytes against the Git object store;
+    // those objects exist in the consumer repository but not in this
+    // synthetic fixture repository, so the test reads the applied documents
+    // directly. A failure here surfaces to consumers as the non-tolerated
+    // audit-lifecycle-invalid diagnostic.
+    const readDir = (name) =>
+      fs.readdirSync(path.join(repo, '.atlas', name))
+        .filter((entry) => entry.endsWith('.json'))
+        .sort()
+        .map((entry) =>
+          JSON.parse(fs.readFileSync(
+            path.join(repo, '.atlas', name, entry),
+            'utf8',
+          )))
+    const currents = readDir('audits')
+    const histories = readDir('audit-history')
+    const decisions = loadAuditDecisionLedgers(repo)
+    assert.deepEqual(decisions.diagnostics, [])
+    const policyLoad = loadAuditReviewPolicy(repo)
+    assert.deepEqual(policyLoad.diagnostics, [])
+    assert.ok(policyLoad.policy !== null)
+
+    const index = buildAuditDecisionIndex(
+      currents,
+      histories,
+      decisions.ledgers,
+    )
+    const state = reduceAuditDecisionState(
+      index,
+      policyLoad.policy.securityDecisions,
+      '2026-08-01T00:00:00.000Z',
+    )
+
+    const dispositionCounts = new Map()
+    const blocking = []
+    let implicitOpen = 0
+    let governedNonBlocking = 0
+    for (const finding of state.findings.values()) {
+      if (finding.blocking) blocking.push(finding)
+      if (finding.derivation === 'implicit-open') implicitOpen += 1
+      if (
+        finding.derivation !== 'implicit-open' &&
+        finding.disposition !== 'open' &&
+        !finding.blocking
+      ) {
+        governedNonBlocking += 1
+      }
+      dispositionCounts.set(
+        finding.disposition,
+        (dispositionCounts.get(finding.disposition) ?? 0) + 1,
+      )
+    }
+    // Every migrated disposition governs its semantic-only occurrence
+    // through the deterministic migration validation context: the accepted
+    // risks carry to the current exact occurrences, and all 82 governed
+    // findings hold their honest non-blocking closure.
+    assert.equal(dispositionCounts.get('accepted-risk'), 3)
+    assert.equal(dispositionCounts.get('separate-design'), 16)
+    assert.equal(dispositionCounts.get('false-positive'), 3)
+    assert.equal(dispositionCounts.get('superseded'), 5)
+    assert.equal(dispositionCounts.get('remediated'), 55)
+    assert.equal(governedNonBlocking, 82)
+    // The opaque legacy scan-receipt findings received no decision events:
+    // they stay honestly open (blocking under this disposition-requiring
+    // policy) instead of being closed by fabricated migration coverage.
+    assert.equal(dispositionCounts.get('open'), state.findings.size - 82)
+    assert.equal(implicitOpen, state.findings.size - 82)
+    assert.equal(blocking.length, state.findings.size - 82)
+    assert.equal(
+      [...state.findings.values()].filter((finding) =>
+        finding.lifecycle === 'resolved').length,
+      55,
+    )
   } finally {
     cleanup(repo)
   }

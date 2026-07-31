@@ -674,6 +674,70 @@ function sameRuleset(left, right) {
             left.id === right.id &&
             left.digest === right.digest;
 }
+const AUDIT_PRODUCER_KINDS = [
+    'grok-cli',
+    'codex-security',
+    'migration',
+    'manual',
+];
+function producerKindOf(value) {
+    return typeof value === 'string' &&
+        AUDIT_PRODUCER_KINDS.includes(value)
+        ? value
+        : null;
+}
+function bindingPathsWithinLocations(bindings, locationPaths) {
+    const locations = new Set(locationPaths);
+    return bindings.every((binding) => locations.has(binding.path));
+}
+function sameLocationPaths(bindings, locationPaths) {
+    return bindings.length === locationPaths.length &&
+        bindings.every((binding, index) => binding.path === locationPaths[index]);
+}
+// A migration-produced observation participating in the deterministic
+// migration validation context of one decision ledger. The ruleset receipt
+// must equal the governed occurrence's real ruleset; a null slug leaves the
+// ledger unconstrained (a replacement occurrence may live in another unit).
+function migrationContextObservation(observations, observationId, ruleset, slug) {
+    const observation = observations.get(observationId);
+    if (observation === undefined ||
+        observation.producerKind !== 'migration' ||
+        (slug !== null && observation.slug !== slug) ||
+        !sameRuleset(observation.ruleset, ruleset)) {
+        return null;
+    }
+    return observation;
+}
+// A finding-disposition event governs its occurrence through either the
+// strict exact review context (the occurrence is closure-eligible and the
+// review context matches its exact observation, bindings, and ruleset) or
+// the deterministic migration validation context: the governed occurrence is
+// semantic-only but carries a real ruleset, its producing observation is
+// migration-produced, and the review context deterministically references a
+// migration-produced observation of the same decision ledger with the same
+// ruleset digest while covering every authoritative occurrence location.
+// Codex semantic-only occurrences have no ruleset and stay rejected, as do
+// decisions over semantic-only occurrences from any other producer kind.
+function dispositionContextKind(event, occurrence, observations) {
+    if (occurrence.closureEligible &&
+        occurrence.ruleset !== null &&
+        event.reviewContext.observationId === occurrence.observationId &&
+        sameBindings(event.reviewContext.bindings, occurrence.bindings) &&
+        event.reviewContext.ruleset.id === occurrence.ruleset.id &&
+        event.reviewContext.ruleset.digest === occurrence.ruleset.digest) {
+        return 'exact';
+    }
+    if (!occurrence.closureEligible &&
+        occurrence.ruleset !== null &&
+        event.reviewContext.ruleset.id === occurrence.ruleset.id &&
+        event.reviewContext.ruleset.digest === occurrence.ruleset.digest &&
+        migrationContextObservation(observations, occurrence.observationId, occurrence.ruleset, occurrence.decisionLedger) !== null &&
+        migrationContextObservation(observations, event.reviewContext.observationId, occurrence.ruleset, occurrence.decisionLedger) !== null &&
+        sameLocationPaths(event.reviewContext.bindings, occurrence.locationPaths)) {
+        return 'migration';
+    }
+    return 'invalid';
+}
 function requireStableIdentityReconciliation(event, occurrences) {
     const beforeFindingIds = new Set(event.beforeOccurrenceIds.map((occurrenceId) => {
         const occurrence = occurrences.get(occurrenceId);
@@ -1946,6 +2010,7 @@ export function buildAuditDecisionIndex(currentLedgers, histories, decisionLedge
             throw new Error(`decision index observations exceed the ${DECISION_INDEX_ITEM_LIMIT}-item limit`);
         }
         const producer = observation.producer;
+        const producerKind = producerKindOf(producer?.kind);
         const producerRuleset = producer?.ruleset;
         let ruleset = null;
         if (producerRuleset &&
@@ -2081,6 +2146,7 @@ export function buildAuditDecisionIndex(currentLedgers, histories, decisionLedge
                 decisionLedger,
                 bindings,
                 reviewedBindings: findingReviewedBindings,
+                locationPaths: [...new Set(locationPaths)].sort(utf16Compare),
                 closureEligible: exactScope &&
                     bindings.length > 0 &&
                     findingReviewedBindings.length === bindings.length &&
@@ -2111,6 +2177,7 @@ export function buildAuditDecisionIndex(currentLedgers, histories, decisionLedge
             occurrenceIds,
             inventoryBindings,
             reviewedBindings,
+            producerKind,
             ruleset,
             repositoryRevision,
         };
@@ -2355,24 +2422,50 @@ export function buildAuditDecisionIndex(currentLedgers, histories, decisionLedge
             findings.get(event.findingId)?.decisionLedger !== ledgerSlug) {
             throw new Error(`decision ${event.eventId} is not stored in the finding's stable ledger`);
         }
-        if (!occurrence.closureEligible ||
-            occurrence.ruleset === null) {
-            throw new Error(`decision ${event.eventId} cannot govern a semantic-only occurrence without later exact review`);
+        const contextKind = dispositionContextKind(event, occurrence, observations);
+        if (contextKind === 'invalid') {
+            throw new Error(occurrence.closureEligible && occurrence.ruleset !== null
+                ? `decision ${event.eventId} review context has mismatched observation, binding, or ruleset references`
+                : `decision ${event.eventId} cannot govern a semantic-only occurrence without later exact review`);
         }
-        if (event.reviewContext.observationId !== occurrence.observationId ||
-            !sameBindings(event.reviewContext.bindings, occurrence.bindings) ||
-            event.reviewContext.ruleset.id !== occurrence.ruleset.id ||
-            event.reviewContext.ruleset.digest !== occurrence.ruleset.digest) {
-            throw new Error(`decision ${event.eventId} review context has mismatched observation, binding, or ruleset references`);
-        }
+        const ruleset = occurrence.ruleset;
+        const requireMigrationProofObservation = (observationId, slug = occurrence.decisionLedger) => {
+            const observation = migrationContextObservation(observations, observationId, ruleset, slug);
+            if (observation === null) {
+                throw new Error(`decision ${event.eventId} references an observation outside the deterministic migration validation context`);
+            }
+            return observation;
+        };
+        const requireMigrationProofBindings = (bindings) => {
+            if (!bindingPathsWithinLocations(bindings, occurrence.locationPaths)) {
+                throw new Error(`decision ${event.eventId} references bindings outside the governed occurrence locations`);
+            }
+        };
         for (const proof of event.proofs) {
             if (proof.kind === 'current-review' || proof.kind === 'source-evidence') {
-                requireBindingsInObservation(proof.observationId, proof.reviewedBindings, `decision proof ${event.eventId}`);
+                if (contextKind === 'migration') {
+                    requireMigrationProofObservation(proof.observationId);
+                    requireMigrationProofBindings(proof.reviewedBindings);
+                }
+                else {
+                    requireBindingsInObservation(proof.observationId, proof.reviewedBindings, `decision proof ${event.eventId}`);
+                }
             }
             else if (proof.kind === 'post-fix') {
-                requireBindingsInObservation(proof.beforeObservationId, proof.beforeBindings, `decision proof ${event.eventId}`);
-                requireBindingsInObservation(proof.afterObservationId, proof.afterBindings, `decision proof ${event.eventId}`);
-                const afterObservation = requireObservation(proof.afterObservationId, `decision proof ${event.eventId}`);
+                if (contextKind === 'migration') {
+                    requireMigrationProofObservation(proof.beforeObservationId);
+                    requireMigrationProofBindings(proof.beforeBindings);
+                }
+                else {
+                    requireBindingsInObservation(proof.beforeObservationId, proof.beforeBindings, `decision proof ${event.eventId}`);
+                    requireBindingsInObservation(proof.afterObservationId, proof.afterBindings, `decision proof ${event.eventId}`);
+                }
+                const afterObservation = contextKind === 'migration'
+                    ? requireMigrationProofObservation(proof.afterObservationId)
+                    : requireObservation(proof.afterObservationId, `decision proof ${event.eventId}`);
+                if (contextKind === 'migration') {
+                    requireMigrationProofBindings(proof.afterBindings);
+                }
                 if (afterObservation.occurrenceIds.some((occurrenceId) => occurrences.get(occurrenceId)?.findingId === event.findingId)) {
                     throw new Error(`decision ${event.eventId} post-fix observation still contains the finding`);
                 }
@@ -2383,7 +2476,16 @@ export function buildAuditDecisionIndex(currentLedgers, histories, decisionLedge
             }
             else if (proof.kind === 'replacement') {
                 const replacement = occurrences.get(proof.replacementOccurrenceId);
-                if (!replacement ||
+                if (contextKind === 'migration') {
+                    if (!replacement ||
+                        replacement.findingId !== proof.replacementFindingId ||
+                        migrationContextObservation(observations, replacement.observationId, ruleset, null) === null) {
+                        throw new Error(`decision ${event.eventId} has mismatched replacement references`);
+                    }
+                    requireMigrationProofObservation(proof.observationId);
+                    requireMigrationProofBindings(proof.replacementBindings);
+                }
+                else if (!replacement ||
                     replacement.findingId !== proof.replacementFindingId ||
                     replacement.observationId !== proof.observationId ||
                     !sameBindings(replacement.bindings, proof.replacementBindings)) {
@@ -2391,14 +2493,26 @@ export function buildAuditDecisionIndex(currentLedgers, histories, decisionLedge
                 }
             }
             else if (proof.kind === 'deletion') {
-                const knownBinding = proof.deletedBindings.every((binding) => receiptOwners.has(`${binding.path}\0${binding.blob}`));
-                if (!knownBinding) {
-                    throw new Error(`decision ${event.eventId} deletion proof references unknown path/blob history`);
+                if (contextKind === 'migration') {
+                    requireMigrationProofBindings(proof.deletedBindings);
+                }
+                else {
+                    const knownBinding = proof.deletedBindings.every((binding) => receiptOwners.has(`${binding.path}\0${binding.blob}`));
+                    if (!knownBinding) {
+                        throw new Error(`decision ${event.eventId} deletion proof references unknown path/blob history`);
+                    }
                 }
             }
             else {
-                requireBindingsInObservation(proof.observationId, proof.reviewedBindings, `decision proof ${event.eventId}`);
-                const observation = requireObservation(proof.observationId, `decision proof ${event.eventId}`);
+                if (contextKind === 'migration') {
+                    requireMigrationProofBindings(proof.reviewedBindings);
+                }
+                else {
+                    requireBindingsInObservation(proof.observationId, proof.reviewedBindings, `decision proof ${event.eventId}`);
+                }
+                const observation = contextKind === 'migration'
+                    ? requireMigrationProofObservation(proof.observationId)
+                    : requireObservation(proof.observationId, `decision proof ${event.eventId}`);
                 if (observation.repositoryRevision === null ||
                     observation.repositoryRevision !== proof.searchRevision) {
                     throw new Error(`decision ${event.eventId} no-replacement revision is mismatched`);
@@ -2758,6 +2872,7 @@ function snapshotAuditDecisionIndex(value) {
             'decisionLedger',
             'bindings',
             'reviewedBindings',
+            'locationPaths',
             'closureEligible',
             'ruleset',
             'repositoryRevision',
@@ -2771,6 +2886,7 @@ function snapshotAuditDecisionIndex(value) {
             decisionLedger: slugAt(occurrence.decisionLedger, `${pointer}/decisionLedger`),
             bindings: parseBindings(occurrence.bindings, `${pointer}/bindings`, false),
             reviewedBindings: parseBindings(occurrence.reviewedBindings, `${pointer}/reviewedBindings`, false),
+            locationPaths: sortedUniqueStringsAt(occurrence.locationPaths, `${pointer}/locationPaths`, repoPathAt, true),
             closureEligible: booleanAt(occurrence.closureEligible, `${pointer}/closureEligible`),
             ruleset: parseNullableRuleset(occurrence.ruleset, `${pointer}/ruleset`),
             repositoryRevision: parseNullableRevision(occurrence.repositoryRevision, `${pointer}/repositoryRevision`),
@@ -2787,6 +2903,7 @@ function snapshotAuditDecisionIndex(value) {
             'occurrenceIds',
             'inventoryBindings',
             'reviewedBindings',
+            'producerKind',
             'ruleset',
             'repositoryRevision',
             'authoritative',
@@ -2799,6 +2916,9 @@ function snapshotAuditDecisionIndex(value) {
             occurrenceIds: sortedUniqueStringsAt(observation.occurrenceIds, `${pointer}/occurrenceIds`, parseOccurrenceId),
             inventoryBindings: parseBindings(observation.inventoryBindings, `${pointer}/inventoryBindings`, false),
             reviewedBindings: parseBindings(observation.reviewedBindings, `${pointer}/reviewedBindings`, false),
+            producerKind: observation.producerKind === null
+                ? null
+                : enumAt(observation.producerKind, AUDIT_PRODUCER_KINDS, `${pointer}/producerKind`),
             ruleset: parseNullableRuleset(observation.ruleset, `${pointer}/ruleset`),
             repositoryRevision: parseNullableRevision(observation.repositoryRevision, `${pointer}/repositoryRevision`),
             authoritative: booleanAt(observation.authoritative, `${pointer}/authoritative`),
@@ -2947,9 +3067,12 @@ function snapshotAuditDecisionIndex(value) {
         const inventory = inventoryBindingKeysByObservation.get(occurrence.observationId);
         const reviewed = reviewedBindingKeysByObservation.get(occurrence.observationId);
         const occurrenceBindings = new Set(occurrence.bindings.map(bindingKey));
-        if (occurrence.bindings.some((binding) => !inventory.has(bindingKey(binding))) ||
+        const occurrenceLocationPaths = new Set(occurrence.locationPaths);
+        if (occurrence.bindings.some((binding) => !inventory.has(bindingKey(binding)) ||
+            !occurrenceLocationPaths.has(binding.path)) ||
             occurrence.reviewedBindings.some((binding) => !reviewed.has(bindingKey(binding)) ||
-                !occurrenceBindings.has(bindingKey(binding))) ||
+                !occurrenceBindings.has(bindingKey(binding)) ||
+                !occurrenceLocationPaths.has(binding.path)) ||
             (occurrence.closureEligible &&
                 (occurrence.ruleset === null ||
                     occurrence.bindings.length === 0 ||
@@ -3196,23 +3319,47 @@ function snapshotAuditDecisionIndex(value) {
                 findings.get(event.findingId)?.decisionLedger !== row.decisionLedger) {
                 invalid('decision-index-reference-mismatch', `/index/events/${eventId}`, 'finding decision references a foreign occurrence or ledger');
             }
-            if (!occurrence.closureEligible ||
-                occurrence.ruleset === null ||
-                event.reviewContext.observationId !== occurrence.observationId ||
-                !sameBindings(event.reviewContext.bindings, occurrence.bindings) ||
-                event.reviewContext.ruleset.id !== occurrence.ruleset.id ||
-                event.reviewContext.ruleset.digest !== occurrence.ruleset.digest) {
+            const contextKind = dispositionContextKind(event, occurrence, observations);
+            if (contextKind === 'invalid') {
                 throw new Error(`decision ${eventId} has foreign review context or cannot govern a semantic-only occurrence`);
             }
+            const migrationRuleset = occurrence.ruleset;
+            const requireMigrationObservation = (observationId, slug = occurrence.decisionLedger) => {
+                const observation = migrationContextObservation(observations, observationId, migrationRuleset, slug);
+                if (observation === null) {
+                    throw new Error(`decision ${eventId} references an observation outside the deterministic migration validation context`);
+                }
+                return observation;
+            };
+            const requireMigrationBindings = (bindings) => {
+                if (!bindingPathsWithinLocations(bindings, occurrence.locationPaths)) {
+                    throw new Error(`decision ${eventId} references bindings outside the governed occurrence locations`);
+                }
+            };
             for (const proof of event.proofs) {
                 switch (proof.kind) {
                     case 'current-review':
                     case 'source-evidence':
-                        requireObservationBindings(proof.observationId, proof.reviewedBindings, `decision proof ${eventId}`);
+                        if (contextKind === 'migration') {
+                            requireMigrationObservation(proof.observationId);
+                            requireMigrationBindings(proof.reviewedBindings);
+                        }
+                        else {
+                            requireObservationBindings(proof.observationId, proof.reviewedBindings, `decision proof ${eventId}`);
+                        }
                         break;
                     case 'post-fix': {
-                        requireObservationBindings(proof.beforeObservationId, proof.beforeBindings, `decision proof ${eventId}`);
-                        const afterObservation = requireObservationBindings(proof.afterObservationId, proof.afterBindings, `decision proof ${eventId}`);
+                        const afterObservation = contextKind === 'migration'
+                            ? requireMigrationObservation(proof.afterObservationId)
+                            : requireObservationBindings(proof.afterObservationId, proof.afterBindings, `decision proof ${eventId}`);
+                        if (contextKind === 'migration') {
+                            requireMigrationObservation(proof.beforeObservationId);
+                            requireMigrationBindings(proof.beforeBindings);
+                            requireMigrationBindings(proof.afterBindings);
+                        }
+                        else {
+                            requireObservationBindings(proof.beforeObservationId, proof.beforeBindings, `decision proof ${eventId}`);
+                        }
                         if (afterObservation.repositoryRevision !== proof.fixRevision ||
                             afterObservation.occurrenceIds.some((occurrenceId) => occurrences.get(occurrenceId)?.findingId === event.findingId)) {
                             throw new Error(`decision ${eventId} has foreign post-fix observation facts`);
@@ -3221,7 +3368,16 @@ function snapshotAuditDecisionIndex(value) {
                     }
                     case 'replacement': {
                         const replacement = occurrences.get(proof.replacementOccurrenceId);
-                        if (!replacement ||
+                        if (contextKind === 'migration') {
+                            if (!replacement ||
+                                replacement.findingId !== proof.replacementFindingId ||
+                                migrationContextObservation(observations, replacement.observationId, migrationRuleset, null) === null) {
+                                throw new Error(`decision ${eventId} has foreign replacement facts`);
+                            }
+                            requireMigrationObservation(proof.observationId);
+                            requireMigrationBindings(proof.replacementBindings);
+                        }
+                        else if (!replacement ||
                             replacement.findingId !== proof.replacementFindingId ||
                             replacement.observationId !== proof.observationId ||
                             !sameBindings(replacement.bindings, proof.replacementBindings)) {
@@ -3230,12 +3386,20 @@ function snapshotAuditDecisionIndex(value) {
                         break;
                     }
                     case 'deletion':
-                        if (proof.deletedBindings.some((binding) => !receiptOwners.has(bindingKey(binding)))) {
+                        if (contextKind === 'migration') {
+                            requireMigrationBindings(proof.deletedBindings);
+                        }
+                        else if (proof.deletedBindings.some((binding) => !receiptOwners.has(bindingKey(binding)))) {
                             throw new Error(`decision ${eventId} has foreign deletion bindings`);
                         }
                         break;
                     case 'no-replacement': {
-                        const searched = requireObservationBindings(proof.observationId, proof.reviewedBindings, `decision proof ${eventId}`);
+                        const searched = contextKind === 'migration'
+                            ? requireMigrationObservation(proof.observationId)
+                            : requireObservationBindings(proof.observationId, proof.reviewedBindings, `decision proof ${eventId}`);
+                        if (contextKind === 'migration') {
+                            requireMigrationBindings(proof.reviewedBindings);
+                        }
                         if (searched.repositoryRevision !== proof.searchRevision) {
                             throw new Error(`decision ${eventId} has foreign no-replacement revision`);
                         }
@@ -3819,6 +3983,19 @@ export function reduceAuditDecisionState(index, policy, now) {
         rows.push(row);
         dispositionRowsByOccurrence.set(row.event.occurrenceId, rows);
     }
+    // The bindings a decision was validated against. A closure-eligible
+    // occurrence carries its own exact bindings; a semantic-only occurrence
+    // carries the exact review bindings recorded in the governing
+    // disposition's review context (for native closure-eligible decisions the
+    // two are identical, since the strict context requires the review context
+    // bindings to equal the occurrence bindings).
+    const carryBasisBindings = (occurrence) => {
+        if (occurrence.closureEligible)
+            return occurrence.bindings;
+        return dispositionRowsByOccurrence
+            .get(occurrence.occurrenceId)
+            ?.at(-1)?.event.reviewContext.bindings ?? occurrence.bindings;
+    };
     const explicitOccurrenceIds = new Set();
     const occurrenceStates = new Map();
     for (const occurrence of index.occurrences.values()) {
@@ -3885,7 +4062,7 @@ export function reduceAuditDecisionState(index, policy, now) {
                     afterOccurrenceIds: [afterOccurrenceId],
                     outcome: 'equivalent',
                     confidence: 'high',
-                    bindingsCompatible: sameBindings(beforeOccurrence.bindings, afterOccurrence.bindings),
+                    bindingsCompatible: sameBindings(carryBasisBindings(beforeOccurrence), afterOccurrence.bindings),
                 });
                 stableIdentityPredecessors.set(afterOccurrenceId, beforeOccurrenceId);
             }
@@ -3932,7 +4109,7 @@ export function reduceAuditDecisionState(index, policy, now) {
             afterOccurrenceIds: [seedOccurrenceId],
             outcome: 'equivalent',
             confidence: 'high',
-            bindingsCompatible: sameBindings(sourceOccurrence.bindings, seedOccurrence.bindings),
+            bindingsCompatible: sameBindings(carryBasisBindings(sourceOccurrence), seedOccurrence.bindings),
         });
     }
     const lifecycleEdges = [

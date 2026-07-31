@@ -1205,6 +1205,7 @@ export interface AuditIndexedOccurrenceV3 {
   decisionLedger: string
   bindings: AuditBlobBindingV3[]
   reviewedBindings: AuditBlobBindingV3[]
+  locationPaths: string[]
   closureEligible: boolean
   ruleset: AuditRulesetReceiptV3 | null
   repositoryRevision: string | null
@@ -1219,6 +1220,7 @@ export interface AuditIndexedObservationV3 {
   occurrenceIds: AtlasOccurrenceId[]
   inventoryBindings: AuditBlobBindingV3[]
   reviewedBindings: AuditBlobBindingV3[]
+  producerKind: AuditProducerKind | null
   ruleset: AuditRulesetReceiptV3 | null
   repositoryRevision: string | null
   authoritative: boolean

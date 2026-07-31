@@ -434,12 +434,96 @@ function observationFixture({
   }
 }
 
+const MIGRATION_RULESET = {
+  id: 'relayos-security-v1',
+  digest: `sha256:${'7'.repeat(64)}`,
+}
+const MIGRATION_CURRENT_BLOB = `git-sha1:${'c'.repeat(40)}`
+const MIGRATION_FIX_BLOB = `git-sha1:${'d'.repeat(40)}`
+const MIGRATION_UNATTESTED_BLOB = `git-sha1:${'0'.repeat(40)}`
+
+function migrationProducerFixture(kind = 'migration') {
+  return {
+    kind,
+    identityBasis: 'ruleset',
+    ruleset: MIGRATION_RULESET,
+  }
+}
+
+function migrationCandidateObservation({
+  observationId = OBSERVATION_ID,
+  findingId = FINDING_ID,
+  occurrenceId = OCCURRENCE_ID,
+  decisionLedger = 'security-runtime',
+  path: sourcePath = 'src/a.ts',
+  severity = 'high',
+  producer = migrationProducerFixture(),
+  extraFindings = [],
+} = {}) {
+  return {
+    observationId,
+    observedAt: '2026-07-29T00:00:00.000Z',
+    producer,
+    target: { revision: REVISION },
+    scope: { identityBasis: 'semantic-declaration' },
+    findings: [
+      {
+        findingId,
+        occurrenceId,
+        decisionLedger,
+        severity: { level: severity },
+        locations: [{ path: sourcePath, startLine: 1 }],
+      },
+      ...extraFindings,
+    ],
+    evidenceRefs: [],
+    sourceArtifacts: [],
+  }
+}
+
+function migrationCurrentObservation({
+  observationId = AFTER_OBSERVATION_ID,
+  decisionLedger = 'security-runtime',
+  producer = migrationProducerFixture(),
+  files = [{
+    path: 'src/a.ts',
+    blob: MIGRATION_CURRENT_BLOB,
+    status: 'reviewed',
+  }],
+  findings = [],
+} = {}) {
+  return {
+    observationId,
+    observedAt: '2026-07-30T00:00:00.000Z',
+    producer,
+    target: { revision: REVISION },
+    scope: { identityBasis: 'exact-inventory', files },
+    findings,
+    evidenceRefs: [],
+    sourceArtifacts: [],
+  }
+}
+
+function migrationReviewContext(overrides = {}) {
+  return reviewContext({ ruleset: MIGRATION_RULESET, ...overrides })
+}
+
+function migrationPolicy() {
+  const base = policyInput()
+  return parseAuditDecisionPolicy(
+    policyInput({
+      acceptedRulesets: ['atlas-security-v3', 'relayos-security-v1'],
+      expiry: { ...base.expiry, severityOverrides: [] },
+    }),
+    POLICY_DIGEST,
+  )
+}
+
 function exactObservation({
   observationId,
   rows,
   revision = REVISION,
-}) {
-  const filesByKey = new Map()
+}) {  const filesByKey = new Map()
   for (const row of rows) {
     for (const file of row.bindings) {
       filesByKey.set(`${file.path}\0${file.blob}`, {
@@ -2020,6 +2104,386 @@ test('global index rejects invalid pointers, ownership, and decision context ref
       [validDecisions],
     ),
     /reviewed|closure|eligible|context|decision/i,
+  )
+})
+
+test('migration validation context governs migrated semantic-only occurrences', () => {
+  // The RelayOS migrator deliberately does not fabricate exact scope for the
+  // candidates layer: the governed occurrence is semantic-only, yet its
+  // migration-produced observation carries a real ruleset and the event
+  // review context deterministically references the migration validation
+  // observation. Such dispositions must reduce.
+  const candidates = migrationCandidateObservation()
+  const currentOccurrence = {
+    findingId: FINDING_ID,
+    occurrenceId: SPLIT_OCCURRENCE_ID,
+    decisionLedger: 'security-runtime',
+    severity: { level: 'high' },
+    locations: [{ path: 'src/a.ts', startLine: 1 }],
+  }
+  const current = migrationCurrentObservation({ findings: [currentOccurrence] })
+  const history = historyFixture('security-runtime', [candidates, current])
+  const currentWrapper = currentFixture(history)
+  const acceptedRisk = dispositionBase({
+    action: 'accepted-risk',
+    occurrenceId: OCCURRENCE_ID,
+    expiresAt: '2026-08-28T00:00:00.000Z',
+    reviewContext: migrationReviewContext({
+      observationId: AFTER_OBSERVATION_ID,
+      bindings: [binding('src/a.ts', MIGRATION_CURRENT_BLOB)],
+    }),
+    proofs: [currentReviewProof({
+      observationId: AFTER_OBSERVATION_ID,
+      reviewedBindings: [binding('src/a.ts', MIGRATION_CURRENT_BLOB)],
+    })],
+  })
+  const decisions = prepareEventLedger('security-runtime', [acceptedRisk])
+  const index = buildAuditDecisionIndex(
+    [currentWrapper],
+    [history],
+    [decisions],
+  )
+  const occurrence = index.occurrences.get(OCCURRENCE_ID)
+  assert.equal(occurrence.closureEligible, false)
+  assert.equal(occurrence.ruleset.id, 'relayos-security-v1')
+  const carried = reduceAuditDecisionState(
+    index,
+    migrationPolicy(),
+    '2026-08-01T00:00:00.000Z',
+  ).findings.get(FINDING_ID)
+  assert.equal(carried.disposition, 'accepted-risk')
+  assert.equal(carried.blocking, false)
+  assert.equal(carried.derivation, 'carried')
+
+  // A migrated remediation references the candidates observation in its
+  // review context and quotes the sealed legacy fix blob, which is not an
+  // attested receipt in the later exact observation.
+  const remediationCandidates = migrationCandidateObservation()
+  const remediationCurrent = migrationCurrentObservation()
+  const remediationHistory = historyFixture(
+    'security-runtime',
+    [remediationCandidates, remediationCurrent],
+  )
+  const remediated = dispositionBase({
+    action: 'remediated',
+    occurrenceId: OCCURRENCE_ID,
+    reviewContext: migrationReviewContext({
+      observationId: OBSERVATION_ID,
+      bindings: [binding()],
+    }),
+    proofs: [postFixProof({
+      beforeObservationId: OBSERVATION_ID,
+      afterObservationId: AFTER_OBSERVATION_ID,
+      beforeBindings: [binding()],
+      afterBindings: [binding('src/a.ts', MIGRATION_FIX_BLOB)],
+      fixRevision: REVISION,
+    })],
+    regression: {
+      kind: 'test',
+      name: 'authorization regression',
+      command: 'pnpm test',
+      result: 'passed',
+      binding: {
+        repositoryRevision: REVISION,
+        observationId: AFTER_OBSERVATION_ID,
+        files: [binding('src/a.ts', MIGRATION_FIX_BLOB)],
+      },
+    },
+    actionEvidence: {
+      kind: 'remediation',
+      beforeBindings: [binding()],
+      afterBindings: [binding('src/a.ts', MIGRATION_FIX_BLOB)],
+      fixRevision: REVISION,
+    },
+  })
+  const remediationDecisions = prepareEventLedger(
+    'security-runtime',
+    [remediated],
+  )
+  const remediationIndex = buildAuditDecisionIndex(
+    [currentFixture(remediationHistory)],
+    [remediationHistory],
+    [remediationDecisions],
+  )
+  const resolved = reduceAuditDecisionState(
+    remediationIndex,
+    migrationPolicy(),
+    '2026-08-01T00:00:00.000Z',
+  ).findings.get(FINDING_ID)
+  assert.equal(resolved.disposition, 'remediated')
+  assert.equal(resolved.blocking, false)
+  assert.equal(resolved.lifecycle, 'resolved')
+
+  // A migrated false positive quotes a reviewed blob that predates the
+  // current scan blob; the source-evidence binding is sealed legacy evidence,
+  // not a receipt in the exact current observation.
+  const falsePositiveHistory = historyFixture(
+    'security-runtime',
+    [migrationCandidateObservation(), migrationCurrentObservation()],
+  )
+  const falsePositive = dispositionBase({
+    action: 'false-positive',
+    occurrenceId: OCCURRENCE_ID,
+    expiresAt: null,
+    reviewContext: migrationReviewContext({
+      observationId: AFTER_OBSERVATION_ID,
+      bindings: [binding('src/a.ts', MIGRATION_UNATTESTED_BLOB)],
+    }),
+    proofs: [sourceEvidenceProof({
+      observationId: AFTER_OBSERVATION_ID,
+      reviewedBindings: [binding('src/a.ts', MIGRATION_UNATTESTED_BLOB)],
+    })],
+    actionEvidence: {
+      kind: 'source-evidence',
+      reviewedBindings: [binding('src/a.ts', MIGRATION_UNATTESTED_BLOB)],
+      conclusion: 'not-reportable',
+      rationale: 'The sealed legacy review disproves the report.',
+    },
+  })
+  const falsePositiveDecisions = prepareEventLedger(
+    'security-runtime',
+    [falsePositive],
+  )
+  const falsePositiveIndex = buildAuditDecisionIndex(
+    [currentFixture(falsePositiveHistory)],
+    [falsePositiveHistory],
+    [falsePositiveDecisions],
+  )
+  const disproved = reduceAuditDecisionState(
+    falsePositiveIndex,
+    migrationPolicy(),
+    '2026-08-01T00:00:00.000Z',
+  ).findings.get(FINDING_ID)
+  assert.equal(disproved.disposition, 'false-positive')
+  assert.equal(disproved.blocking, false)
+
+  // A migrated supersession through deletion quotes deleted bindings that no
+  // observation ever attested; the no-replacement search stays bound to the
+  // exact migration observation and its revision.
+  const deletionCandidates = migrationCandidateObservation({
+    path: 'src/deleted.ts',
+  })
+  const deletionCurrent = migrationCurrentObservation()
+  const deletionHistory = historyFixture(
+    'security-runtime',
+    [deletionCandidates, deletionCurrent],
+  )
+  const superseded = dispositionBase({
+    action: 'superseded',
+    occurrenceId: OCCURRENCE_ID,
+    reviewContext: migrationReviewContext({
+      observationId: OBSERVATION_ID,
+      bindings: [binding('src/deleted.ts')],
+    }),
+    proofs: [
+      deletionProof({
+        deletedBindings: [binding('src/deleted.ts', MIGRATION_UNATTESTED_BLOB)],
+      }),
+      noReplacementProof({
+        observationId: AFTER_OBSERVATION_ID,
+        searchRevision: REVISION,
+        reviewedBindings: [binding('src/deleted.ts')],
+      }),
+    ],
+    actionEvidence: {
+      kind: 'deletion',
+      deletionCommit: REVISION,
+      deletedBindings: [binding('src/deleted.ts', MIGRATION_UNATTESTED_BLOB)],
+      noReplacementEvidence: {
+        observationId: AFTER_OBSERVATION_ID,
+        searchRevision: REVISION,
+        reviewedBindings: [binding('src/deleted.ts')],
+        summary: 'No replacement remains after deletion.',
+      },
+    },
+  })
+  const deletionDecisions = prepareEventLedger('security-runtime', [superseded])
+  const deletionIndex = buildAuditDecisionIndex(
+    [currentFixture(deletionHistory)],
+    [deletionHistory],
+    [deletionDecisions],
+  )
+  const replaced = reduceAuditDecisionState(
+    deletionIndex,
+    migrationPolicy(),
+    '2026-08-01T00:00:00.000Z',
+  ).findings.get(FINDING_ID)
+  assert.equal(replaced.disposition, 'superseded')
+  assert.equal(replaced.blocking, false)
+
+  // A migrated supersession through replacement tracks a semantic-only
+  // replacement occurrence from the same migration corpus.
+  const replacementFinding = {
+    findingId: REPLACEMENT_FINDING_ID,
+    occurrenceId: REPLACEMENT_OCCURRENCE_ID,
+    decisionLedger: 'security-runtime',
+    severity: { level: 'medium' },
+    locations: [{ path: 'src/b.ts', startLine: 1 }],
+  }
+  const replacementCandidates = migrationCandidateObservation({
+    path: 'src/superseded.ts',
+    extraFindings: [replacementFinding],
+  })
+  const replacementCurrent = migrationCurrentObservation()
+  const replacementHistory = historyFixture(
+    'security-runtime',
+    [replacementCandidates, replacementCurrent],
+  )
+  const replacement = dispositionBase({
+    action: 'superseded',
+    occurrenceId: OCCURRENCE_ID,
+    reviewContext: migrationReviewContext({
+      observationId: OBSERVATION_ID,
+      bindings: [binding('src/superseded.ts')],
+    }),
+    proofs: [replacementProof({
+      observationId: AFTER_OBSERVATION_ID,
+      replacementBindings: [binding('src/superseded.ts')],
+    })],
+    actionEvidence: {
+      kind: 'replacement',
+      replacementFindingId: REPLACEMENT_FINDING_ID,
+      replacementOccurrenceId: REPLACEMENT_OCCURRENCE_ID,
+    },
+  })
+  const replacementDecisions = prepareEventLedger(
+    'security-runtime',
+    [replacement],
+  )
+  const replacementIndex = buildAuditDecisionIndex(
+    [currentFixture(replacementHistory)],
+    [replacementHistory],
+    [replacementDecisions],
+  )
+  const tracked = reduceAuditDecisionState(
+    replacementIndex,
+    migrationPolicy(),
+    '2026-08-01T00:00:00.000Z',
+  ).findings.get(FINDING_ID)
+  assert.equal(tracked.disposition, 'superseded')
+  assert.equal(tracked.blocking, false)
+})
+
+test('migration validation context rejects tampered or non-migration contexts', () => {
+  const candidates = migrationCandidateObservation()
+  const current = migrationCurrentObservation()
+  const history = historyFixture('security-runtime', [candidates, current])
+  const currentWrapper = currentFixture(history)
+  const acceptedRisk = (overrides = {}) => dispositionBase({
+    action: 'accepted-risk',
+    occurrenceId: OCCURRENCE_ID,
+    expiresAt: '2026-08-28T00:00:00.000Z',
+    reviewContext: migrationReviewContext({
+      observationId: AFTER_OBSERVATION_ID,
+      bindings: [binding('src/a.ts', MIGRATION_CURRENT_BLOB)],
+    }),
+    proofs: [currentReviewProof({
+      observationId: AFTER_OBSERVATION_ID,
+      reviewedBindings: [binding('src/a.ts', MIGRATION_CURRENT_BLOB)],
+    })],
+    ...overrides,
+  })
+  const reject = (label, event, pattern = /semantic|migration|context|ruleset|binding|location|exact/i) => {
+    const decisions = prepareEventLedger('security-runtime', [event])
+    assert.throws(
+      () => buildAuditDecisionIndex([currentWrapper], [history], [decisions]),
+      pattern,
+      label,
+    )
+  }
+
+  reject(
+    'tampered review-context ruleset digest',
+    acceptedRisk({
+      reviewContext: migrationReviewContext({
+        observationId: AFTER_OBSERVATION_ID,
+        bindings: [binding('src/a.ts', MIGRATION_CURRENT_BLOB)],
+        ruleset: {
+          id: 'relayos-security-v1',
+          digest: `sha256:${'f'.repeat(64)}`,
+        },
+      }),
+    }),
+  )
+  // A review context naming a non-migration observation — even one carrying
+  // the same ruleset receipt — is not a migration validation context.
+  {
+    const nativeCurrent = migrationCurrentObservation({
+      producer: {
+        kind: 'grok-cli',
+        identityBasis: 'ruleset',
+        ruleset: MIGRATION_RULESET,
+      },
+    })
+    const nativeHistory = historyFixture('security-runtime', [
+      migrationCandidateObservation(),
+      nativeCurrent,
+    ])
+    const decisions = prepareEventLedger('security-runtime', [acceptedRisk()])
+    assert.throws(
+      () => buildAuditDecisionIndex(
+        [currentFixture(nativeHistory)],
+        [nativeHistory],
+        [decisions],
+      ),
+      /semantic|migration|context|observation/i,
+      'review-context observation outside the migration corpus',
+    )
+  }
+  reject(
+    'review-context bindings outside the occurrence locations',
+    acceptedRisk({
+      reviewContext: migrationReviewContext({
+        observationId: AFTER_OBSERVATION_ID,
+        bindings: [binding('src/other.ts', MIGRATION_CURRENT_BLOB)],
+      }),
+      proofs: [currentReviewProof({
+        observationId: AFTER_OBSERVATION_ID,
+        reviewedBindings: [binding('src/other.ts', MIGRATION_CURRENT_BLOB)],
+      })],
+    }),
+    /semantic|migration|context|binding|location/i,
+  )
+
+  // A semantic-only occurrence produced by anything other than a migration
+  // never accepts a disposition, even when a real ruleset receipt exists.
+  for (const [label, producer] of [
+    ['native semantic observation', migrationProducerFixture('grok-cli')],
+    [
+      'codex semantic-only occurrence',
+      { kind: 'codex-security', identityBasis: 'codex-contract' },
+    ],
+  ]) {
+    const nativeObservation = migrationCandidateObservation({ producer })
+    const nativeHistory = historyFixture('security-runtime', [
+      nativeObservation,
+      migrationCurrentObservation(),
+    ])
+    const decisions = prepareEventLedger('security-runtime', [acceptedRisk()])
+    assert.throws(
+      () => buildAuditDecisionIndex(
+        [currentFixture(nativeHistory)],
+        [nativeHistory],
+        [decisions],
+      ),
+      /semantic|migration|context|ruleset|exact/i,
+      label,
+    )
+  }
+
+  // The snapshot revalidation inside reduction applies the same predicate:
+  // flipping the indexed producer kind after a valid build must fail closed.
+  const decisions = prepareEventLedger('security-runtime', [acceptedRisk()])
+  const index = buildAuditDecisionIndex([currentWrapper], [history], [decisions])
+  index.observations.get(OBSERVATION_ID).producerKind = null
+  assert.throws(
+    () => reduceAuditDecisionState(
+      index,
+      migrationPolicy(),
+      '2026-08-01T00:00:00.000Z',
+    ),
+    /semantic|migration|context|producer/i,
+    'snapshot path revalidates the migration provenance',
   )
 })
 
