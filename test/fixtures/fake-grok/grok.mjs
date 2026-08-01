@@ -10,8 +10,10 @@
 //   and violations exit 2 with the real error shapes before any side effect;
 // - for analysis runs, writes the adapter-contract session transcript at
 //   $XDG_DATA_HOME/grok/sessions/<session-id>/chat_history.jsonl and emits
-//   bounded streaming-json on stdout whose terminal response is byte-identical
-//   to the transcript terminal response.
+//   bounded streaming-json on stdout in the real grok 0.2.82 vocabulary
+//   (thought chunks, ordered text chunks, one terminal end event; tool calls
+//   never appear on stdout) whose concatenated text response is
+//   byte-identical to the transcript terminal response.
 //
 // Behavior is steered by control.json written beside this script by the test.
 // The script never touches the network.
@@ -373,12 +375,42 @@ async function main() {
     )
   }
 
+  // Real 0.2.82 stdout vocabulary: reasoning streams as thought chunks, the
+  // final response streams as ordered text chunks (split here so the
+  // adapter's concatenation is exercised), and one terminal end event closes
+  // the turn. The concatenated text is byte-identical to the transcript
+  // terminal response. Tool calls never appear on stdout.
   const stdoutEvents = []
-  stdoutEvents.push({ type: 'progress', message: 'starting' })
+  stdoutEvents.push({ type: 'thought', data: 'planning the bounded review' })
   if (control.progressMarker) {
-    stdoutEvents.push({ type: 'progress', message: control.progressMarker })
+    stdoutEvents.push({ type: 'thought', data: control.progressMarker })
   }
-  stdoutEvents.push({ type: 'result', status: 'success', response })
+  if (mode === 'stdout-error') {
+    // The real CLI reports failures as an in-band error event (usually with a
+    // nonzero exit); here the process exits 0 so the adapter's own fail-closed
+    // error-event handling is what rejects the stream.
+    stdoutEvents.push({
+      type: 'error',
+      message: "Couldn't set model 'grok-4.5': Invalid params: \"unknown model id\".",
+    })
+  } else {
+    if (mode !== 'empty-response') {
+      const midpoint = Math.ceil(response.length / 2)
+      stdoutEvents.push({ type: 'text', data: response.slice(0, midpoint) })
+      stdoutEvents.push({ type: 'text', data: response.slice(midpoint) })
+    }
+    if (mode !== 'no-terminal-end') {
+      stdoutEvents.push({
+        type: 'end',
+        stopReason: mode === 'bad-stop-reason' ? 'MaxTokens' : 'EndTurn',
+        sessionId,
+        requestId: '00000000-1111-4222-8333-444444444444',
+      })
+    }
+    if (mode === 'events-after-end') {
+      stdoutEvents.push({ type: 'text', data: '{"late":true}' })
+    }
+  }
   for (const event of stdoutEvents) process.stdout.write(`${JSON.stringify(event)}\n`)
   finishRecord({ phase: unit.kind })
   timeline('E', sessionId)

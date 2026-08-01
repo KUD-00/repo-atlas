@@ -483,11 +483,22 @@ function renderUnitPrompt(context, unitBlock, template) {
 // ---------------------------------------------------------------------------
 // Stdout and transcript proof
 // ---------------------------------------------------------------------------
+// Real grok 0.2.82 `--output-format streaming-json` vocabulary, verified
+// against the live CLI: reasoning streams as `thought` chunks, the assistant
+// response streams as ordered `text` chunks whose concatenation is the final
+// response, and exactly one terminal `end` event with
+// `stopReason: "EndTurn"` closes a successful turn. Tool calls never appear
+// on stdout; they live only in the session transcript. Failures surface as an
+// in-band `error` event (usually paired with a nonzero exit). Unknown
+// non-terminal event types are ignored; a missing or non-EndTurn terminal,
+// an error event, or anything after the terminal fails closed.
 function parseStreamingStdout(stdout, context, phase) {
     const lines = stdout.split('\n').filter((line) => line.trim().length > 0);
     if (lines.length === 0 || lines.length > MAX_STDOUT_LINES) {
         throw new AuditProviderError('output-invalid', 'grok stdout is not a bounded streaming-json sequence', phase);
     }
+    const textChunks = [];
+    let responseBytes = 0;
     let terminal;
     for (const line of lines) {
         let event;
@@ -500,19 +511,40 @@ function parseStreamingStdout(stdout, context, phase) {
         if (!isPlainObject(event) || typeof event.type !== 'string') {
             throw new AuditProviderError('output-invalid', 'grok stdout streaming event is malformed', phase);
         }
-        terminal = event;
+        if (terminal !== undefined) {
+            throw new AuditProviderError('output-invalid', 'grok stdout continues after its terminal end event', phase);
+        }
+        if (event.type === 'error') {
+            throw new AuditProviderError('output-invalid', 'grok stdout reported an error event', phase);
+        }
+        if (event.type === 'end') {
+            terminal = event;
+            continue;
+        }
+        if (event.type === 'text') {
+            if (typeof event.data !== 'string') {
+                throw new AuditProviderError('output-invalid', 'grok stdout text event is malformed', phase);
+            }
+            responseBytes += Buffer.byteLength(event.data, 'utf8');
+            if (responseBytes > context.policy.maxResponseBytes) {
+                throw new AuditProviderError('output-invalid', 'grok final response exceeds the size bound', phase);
+            }
+            textChunks.push(event.data);
+        }
+        // Any other non-terminal event type (thought, or a future addition) is
+        // ignored: it carries nothing the adapter consumes.
     }
-    if (terminal === undefined ||
-        terminal.type !== 'result' ||
-        terminal.status !== 'success' ||
-        typeof terminal.response !== 'string' ||
-        terminal.response.length === 0) {
-        throw new AuditProviderError('output-invalid', 'grok stdout has no successful terminal result', phase);
+    if (terminal === undefined) {
+        throw new AuditProviderError('output-invalid', 'grok stdout has no terminal end event', phase);
     }
-    if (Buffer.byteLength(terminal.response, 'utf8') > context.policy.maxResponseBytes) {
-        throw new AuditProviderError('output-invalid', 'grok final response exceeds the size bound', phase);
+    if (terminal.stopReason !== 'EndTurn') {
+        throw new AuditProviderError('output-invalid', 'grok stdout terminal end event is not a successful EndTurn', phase);
     }
-    return terminal.response;
+    const response = textChunks.join('');
+    if (response.length === 0) {
+        throw new AuditProviderError('output-invalid', 'grok stdout produced an empty response', phase);
+    }
+    return response;
 }
 function normalizeTranscriptPath(value, context, phase) {
     if (typeof value !== 'string' || value.length === 0) {

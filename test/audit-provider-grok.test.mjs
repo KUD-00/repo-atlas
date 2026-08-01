@@ -711,6 +711,50 @@ test('invalid final JSON prevents publication', async (t) => {
   )
 })
 
+test('the stdout terminal contract follows the real 0.2.82 streaming-json vocabulary', async (t) => {
+  // The fake CLI emits the real vocabulary on stdout: thought chunks, the
+  // final response as two ordered text chunks, and one terminal end event.
+  // A completed run pins text concatenation (a wrong concatenation would
+  // break the final JSON block or mismatch the transcript terminal
+  // response) and proves thought chunks are ignored.
+  const ok = makeFakeGrok(t, { mode: 'ok' })
+  const root = makeRepo(t, { 'src/a.ts': makeSource(6, 'a') })
+  const result = await runAuditProviderInvocation(
+    makeRequest(root, makePolicy(ok), ['src/a.ts']),
+    createGrokAuditProvider(),
+  )
+  assert.equal(
+    result.status,
+    'completed',
+    'ordered text chunks concatenate into the final response',
+  )
+
+  // Every terminal-contract violation fails closed as output-invalid and
+  // stays a clone-local failed attempt.
+  const cases = [
+    ['no-terminal-end', 'a missing terminal end event'],
+    ['bad-stop-reason', 'a non-EndTurn stop reason'],
+    ['events-after-end', 'events after the terminal end'],
+    ['stdout-error', 'an in-band error event'],
+    ['empty-response', 'an end event with no text response'],
+  ]
+  for (const [mode, label] of cases) {
+    const fake = makeFakeGrok(t, { mode })
+    const caseRoot = makeRepo(t, { 'src/a.ts': makeSource(6, 'a') })
+    await assert.rejects(
+      () =>
+        runAuditProviderInvocation(
+          makeRequest(caseRoot, makePolicy(fake), ['src/a.ts']),
+          createGrokAuditProvider(),
+        ),
+      (error) => error instanceof AuditProviderError && error.code === 'output-invalid',
+      `${label} must fail closed as output-invalid`,
+    )
+    const atlasWrites = listFiles(path.join(caseRoot, '.atlas'))
+    assert.ok(atlasWrites.every((entry) => entry.startsWith('.runtime/')))
+  }
+})
+
 test('a missing per-file receipt prevents publication', async (t) => {
   const fake = makeFakeGrok(t, { mode: 'missing-receipt' })
   const root = makeRepo(t, {
