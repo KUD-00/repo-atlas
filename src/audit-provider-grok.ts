@@ -904,7 +904,9 @@ function proveTranscriptReadInterval(
   if (anchor === null || Number(anchor[1]) !== call.offset) {
     throw new AuditProviderError(
       'transcript-invalid',
-      'transcript Read result does not prove its start line',
+      `transcript Read result does not prove its start line (expected offset ${String(
+        call.offset,
+      )}, observed anchor ${anchor === null ? 'none' : anchor[1]})`,
       phase,
     )
   }
@@ -922,7 +924,9 @@ function proveTranscriptReadInterval(
     if (inner !== null && Number(inner[1]) !== call.offset + index) {
       throw new AuditProviderError(
         'transcript-invalid',
-        'transcript Read result line anchor does not match its position',
+        `transcript Read result line anchor does not match its position (line index ${String(
+          index,
+        )}, expected absolute ${String(call.offset + index)}, observed ${inner[1]})`,
         phase,
       )
     }
@@ -930,9 +934,15 @@ function proveTranscriptReadInterval(
   const end = call.offset + lines.length - 1
   const entry = context.manifestEntry(call.path)!
   if (end > call.offset + call.limit - 1 || end > entry.lines) {
+    const requestedEnd =
+      call.limit === Number.MAX_SAFE_INTEGER ? 'none' : String(call.offset + call.limit - 1)
     throw new AuditProviderError(
       'transcript-invalid',
-      'transcript Read result does not prove its returned range',
+      `transcript Read result does not prove its returned range (offset ${String(
+        call.offset,
+      )}, counted ${String(lines.length)} lines, requested end ${requestedEnd}, file lines ${String(
+        entry.lines,
+      )}, computed end ${String(end)})`,
       phase,
     )
   }

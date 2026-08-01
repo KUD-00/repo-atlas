@@ -618,7 +618,7 @@ function normalizeTranscriptDirectory(value, context, phase) {
 function proveTranscriptReadInterval(content, call, context, phase) {
     const anchor = /^(\d+)→/.exec(content);
     if (anchor === null || Number(anchor[1]) !== call.offset) {
-        throw new AuditProviderError('transcript-invalid', 'transcript Read result does not prove its start line', phase);
+        throw new AuditProviderError('transcript-invalid', `transcript Read result does not prove its start line (expected offset ${String(call.offset)}, observed anchor ${anchor === null ? 'none' : anchor[1]})`, phase);
     }
     const lines = content.slice(anchor[0].length).split('\n');
     if (lines.length > 0 && lines[lines.length - 1] === '')
@@ -629,13 +629,14 @@ function proveTranscriptReadInterval(content, call, context, phase) {
     for (const [index, line] of lines.entries()) {
         const inner = /^(\d+)→/.exec(line);
         if (inner !== null && Number(inner[1]) !== call.offset + index) {
-            throw new AuditProviderError('transcript-invalid', 'transcript Read result line anchor does not match its position', phase);
+            throw new AuditProviderError('transcript-invalid', `transcript Read result line anchor does not match its position (line index ${String(index)}, expected absolute ${String(call.offset + index)}, observed ${inner[1]})`, phase);
         }
     }
     const end = call.offset + lines.length - 1;
     const entry = context.manifestEntry(call.path);
     if (end > call.offset + call.limit - 1 || end > entry.lines) {
-        throw new AuditProviderError('transcript-invalid', 'transcript Read result does not prove its returned range', phase);
+        const requestedEnd = call.limit === Number.MAX_SAFE_INTEGER ? 'none' : String(call.offset + call.limit - 1);
+        throw new AuditProviderError('transcript-invalid', `transcript Read result does not prove its returned range (offset ${String(call.offset)}, counted ${String(lines.length)} lines, requested end ${requestedEnd}, file lines ${String(entry.lines)}, computed end ${String(end)})`, phase);
     }
     return { start: call.offset, end };
 }
