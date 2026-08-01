@@ -1782,6 +1782,70 @@ git commit -m "fix(audit): validate the real grok session transcript format"
 git push origin feat/codex-security-atlas-adapter
 ```
 
+### Task 16: Prove real large-file read ranges
+
+**Files:**
+- Modify: `src/audit-provider-grok.ts`
+- Modify: `test/fixtures/fake-grok/grok.mjs`
+- Modify: `test/audit-provider-grok.test.mjs`
+- Modify: `docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`
+
+- [ ] **Step 1: Probe the real large-file read_file format and add failing range tests**
+
+Prerequisite: a live grok login (the 0.2.82 OAuth token is short-lived;
+refresh may wipe `~/.grok/auth.json`, so re-authenticate with `grok login`
+first). With an isolated HOME, force reads against a ~500-line file: (a) a
+full read with no offset/limit, (b) offset=1 limit=100, (c) offset=200
+limit=100, (d) past-EOF. Capture verbatim anchor cadence, trailing bytes,
+and any truncation markers. Known from the 0.2.82 binary strings:
+over-budget reads ERROR ("File content (N tokens) exceeds maximum allowed
+tokens…" / "The requested line range (offset=…) contains N tokens…"),
+files are gitignore/binary rejected, and the binary contains
+"[truncated: showing first/last " and "returning un-anchored results"
+strings whose attribution (cursor vs grok_build read_file) must be
+confirmed. The pilot failure (`does not prove its returned range` on a
+494-line file) implies real large reads carry content lines the Task 15
+accounting cannot explain. Add a regression test with a ~500-line snapshot
+file mirroring the pilot's read pattern once the format is measured.
+
+```bash
+pnpm build:cli
+node --test test/audit-provider-grok.test.mjs
+```
+
+- [ ] **Step 2: Confirm RED**
+
+The large-file regression fails against the Task 15 proof with
+`transcript-invalid: transcript Read result does not prove its returned
+range`, matching the consumer-pilot failure.
+
+- [ ] **Step 3: Fix the read-range proof to the measured contract**
+
+In `src/audit-provider-grok.ts` correct `proveTranscriptReadInterval` to
+the measured large-file format (anchor cadence, truncation markers,
+no-arg full reads, past-EOF behavior), keeping the proof sound: only
+genuinely proven ranges are accepted, unrecognized content still fails
+closed. Update the fixture double to emit the measured large-file format
+and add a large-file case; keep every failure mode working.
+
+- [ ] **Step 4: Align the spec transcript-proof text**
+
+Update the line-anchor range proof description in
+`docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`
+to the measured large-file contract.
+
+- [ ] **Step 5: Verify and commit**
+
+```bash
+pnpm build:cli
+node --test test/audit-provider-grok.test.mjs
+pnpm test
+pnpm typecheck
+git add src/audit-provider-grok.ts test/fixtures/fake-grok/grok.mjs test/audit-provider-grok.test.mjs docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md docs/superpowers/plans/2026-07-29-audit-platform-v3-and-producers.md
+git commit -m "fix(audit): prove real large-file read ranges"
+git push origin feat/codex-security-atlas-adapter
+```
+
 ## Final requirement review
 
 - [x] V1/V2 remain readable but every new write is V3.
