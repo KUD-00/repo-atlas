@@ -5,6 +5,9 @@
 // - records every invocation (argv/env/cwd/stdin/prompt) into invocations/ next
 //   to this script;
 // - answers `--version`, `--help`, and `inspect --json` probes;
+// - validates analysis-run argv against the real grok 0.2.82 (clap) option
+//   contract: value-taking flags require a value, unknown flags are rejected,
+//   and violations exit 2 with the real error shapes before any side effect;
 // - for analysis runs, writes the adapter-contract session transcript at
 //   $XDG_DATA_HOME/grok/sessions/<session-id>/chat_history.jsonl and emits
 //   bounded streaming-json on stdout whose terminal response is byte-identical
@@ -93,6 +96,88 @@ if (argv[0] === 'inspect') {
   }
   process.stdout.write(`${JSON.stringify(inspect)}\n`)
   process.exit(0)
+}
+
+// ---------------------------------------------------------------------------
+// Real-CLI argv contract (grok 0.2.82, clap). The fake emulates only the
+// headless single-turn surface the adapter uses; anything outside it is a
+// usage error: exit 2 with the real clap error shapes, recorded as a
+// 'run-rejected' invocation, before any prompt read, transcript, or stdout
+// event. `-p, --single <PROMPT>` notably REQUIRES a value — a bare `--single`
+// is how the real binary rejected the original adapter argv.
+// ---------------------------------------------------------------------------
+
+// Long name -> value placeholder, mirroring `grok --help`. Short aliases map
+// to their long name because clap reports the long name in its errors.
+const VALUE_FLAGS = new Map([
+  ['--single', '<PROMPT>'],
+  ['--permission-mode', '<MODE>'],
+  ['--tools', '<TOOLS>'],
+  ['--output-format', '<OUTPUT_FORMAT>'],
+  ['--model', '<MODEL>'],
+  ['--session-id', '<SESSION_ID>'],
+  ['--cwd', '<CWD>'],
+  ['--prompt-file', '<PATH>'],
+])
+const SHORT_ALIASES = new Map([
+  ['-p', '--single'],
+  ['-m', '--model'],
+  ['-s', '--session-id'],
+])
+const BOOLEAN_FLAGS = new Set([
+  '--no-plan',
+  '--no-memory',
+  '--no-subagents',
+  '--disable-web-search',
+])
+
+function usageError(message, tip) {
+  finishRecord({ kind: 'run-rejected', error: message })
+  let text = `error: ${message}\n`
+  if (tip !== undefined) text += `\n  tip: ${tip}\n\nUsage: grok [OPTIONS] [PROMPT] [COMMAND]\n`
+  text += `\nFor more information, try '--help'.\n`
+  process.stderr.write(text)
+  process.exit(2)
+}
+
+for (let index = 0; index < argv.length; index += 1) {
+  let token = argv[index]
+  if (!token.startsWith('-')) {
+    // The double emulates headless single-turn runs only; it has no TUI and
+    // therefore no positional-PROMPT entry point.
+    usageError(
+      `unexpected argument '${token}' found`,
+      `to pass '${token}' as a value, use '-- ${token}'`,
+    )
+  }
+  let inlineValue
+  const equals = token.indexOf('=')
+  if (token.startsWith('--') && equals >= 0) {
+    inlineValue = token.slice(equals + 1)
+    token = token.slice(0, equals)
+  }
+  const long = SHORT_ALIASES.get(token) ?? token
+  if (BOOLEAN_FLAGS.has(long)) {
+    if (inlineValue !== undefined) {
+      usageError(`unexpected value '${inlineValue}' for '${long}' found`)
+    }
+    continue
+  }
+  const placeholder = VALUE_FLAGS.get(long)
+  if (placeholder === undefined) {
+    usageError(
+      `unexpected argument '${token}' found`,
+      `to pass '${token}' as a value, use '-- ${token}'`,
+    )
+  }
+  if (inlineValue !== undefined) continue
+  const next = argv[index + 1]
+  if (next === undefined || next.startsWith('-')) {
+    // Verbatim clap 0.2.82 shape, e.g.:
+    // error: a value is required for '--single <PROMPT>' but none was supplied
+    usageError(`a value is required for '${long} ${placeholder}' but none was supplied`)
+  }
+  index += 1
 }
 
 const sessionId = argValue('--session-id')

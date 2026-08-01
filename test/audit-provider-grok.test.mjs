@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -377,7 +377,6 @@ test('an explicit run completes in an isolated environment with exact argv and a
     assert.deepEqual(
       run.argv,
       [
-        '--single',
         '--no-plan',
         '--permission-mode',
         'dontAsk',
@@ -448,6 +447,104 @@ test('an explicit run completes in an isolated environment with exact argv and a
       'the temporary snapshot is deleted after transcript validation',
     )
   }
+})
+
+test('the adapter never passes a bare --single, and the fake CLI enforces the real 0.2.82 option contract', async (t) => {
+  // The adapter argv carries no `--single`/`-p`: in grok 0.2.82 that flag
+  // requires an inline prompt value, and `--prompt-file` alone already
+  // selects the single-turn headless mode.
+  const fake = makeFakeGrok(t, { mode: 'ok' })
+  const root = makeRepo(t, { 'src/a.ts': makeSource(6, 'a') })
+  const result = await runAuditProviderInvocation(
+    makeRequest(root, makePolicy(fake), ['src/a.ts']),
+    createGrokAuditProvider(),
+  )
+  assert.equal(result.status, 'completed', 'the enforcing double accepts the corrected argv')
+  const runs = fake.invocations().filter((invocation) => invocation.kind === 'run')
+  assert.ok(runs.length > 0)
+  for (const run of runs) {
+    assert.ok(!run.argv.includes('--single'), 'argv must not contain --single')
+    assert.ok(!run.argv.includes('-p'), 'argv must not contain -p')
+    assert.ok(run.argv.includes('--prompt-file'), 'the prompt rides --prompt-file alone')
+  }
+
+  // Hand-crafted invocations that violate the real 0.2.82 contract fail
+  // closed: exit 2 with the real clap error shape, no streaming stdout, no
+  // session transcript, nothing published.
+  const xdgData = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-fake-grok-xdg-'))
+  t.after(() => fs.rmSync(xdgData, { recursive: true, force: true }))
+  const promptPath = path.join(xdgData, 'prompt.md')
+  fs.writeFileSync(promptPath, 'prompt')
+  const runEnv = { PATH: process.env.PATH, HOME: xdgData, XDG_DATA_HOME: xdgData }
+  const validTail = [
+    '--no-plan',
+    '--permission-mode',
+    'dontAsk',
+    '--tools',
+    'Read,Grep,Glob',
+    '--no-memory',
+    '--no-subagents',
+    '--disable-web-search',
+    '--output-format',
+    'streaming-json',
+    '--model',
+    'grok-4.5',
+    '--session-id',
+    '11111111-2222-3333-4444-555555555555',
+    '--cwd',
+    root,
+    '--prompt-file',
+    promptPath,
+  ]
+
+  const baselineRecords = fake.invocations().length
+  const bareSingle = spawnSync(process.execPath, [fake.binPath, '--single', ...validTail], {
+    env: runEnv,
+    encoding: 'utf8',
+  })
+  assert.equal(bareSingle.status, 2)
+  assert.match(
+    bareSingle.stderr,
+    /error: a value is required for '--single <PROMPT>' but none was supplied/,
+    'the original adapter argv shape is rejected like the real binary rejects it',
+  )
+  assert.equal(bareSingle.stdout, '')
+
+  const bareShort = spawnSync(process.execPath, [fake.binPath, '-p'], {
+    env: runEnv,
+    encoding: 'utf8',
+  })
+  assert.equal(bareShort.status, 2)
+  assert.match(
+    bareShort.stderr,
+    /error: a value is required for '--single <PROMPT>' but none was supplied/,
+  )
+
+  const unknown = spawnSync(process.execPath, [fake.binPath, '--zzz-qqq', ...validTail], {
+    env: runEnv,
+    encoding: 'utf8',
+  })
+  assert.equal(unknown.status, 2)
+  assert.match(unknown.stderr, /error: unexpected argument '--zzz-qqq' found/)
+  assert.equal(unknown.stdout, '')
+
+  // A real-but-dangerous flag the double does not emulate fails closed too.
+  const dangerous = spawnSync(process.execPath, [fake.binPath, '--always-approve', ...validTail], {
+    env: runEnv,
+    encoding: 'utf8',
+  })
+  assert.equal(dangerous.status, 2)
+  assert.match(dangerous.stderr, /error: unexpected argument '--always-approve' found/)
+
+  // Rejected invocations leave no session tree and no output beyond their
+  // rejection records.
+  assert.ok(
+    !fs.existsSync(path.join(xdgData, 'grok')),
+    'a rejected invocation writes no transcript or session state',
+  )
+  const rejected = fake.invocations().slice(baselineRecords)
+  assert.equal(rejected.length, 4)
+  assert.ok(rejected.every((invocation) => invocation.kind === 'run-rejected'))
 })
 
 test('ambient hooks, plugins, MCP, and config stay out of the isolated home; only the auth record is copied', async (t) => {

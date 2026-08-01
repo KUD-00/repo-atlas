@@ -21,8 +21,11 @@ export const GROK_RULESET_ID = 'atlas-security-v3';
 export const GROK_PROMPT_BUILTIN_VERSION = 'atlas-security-prompt-v1';
 export const GROK_VALIDATION_RUBRIC_VERSION = 'atlas-security-validation-rubric-v1';
 const GROK_TOOLS = ['Read', 'Grep', 'Glob'];
+// Spawn-able flag allowlist, verified against grok CLI 0.2.82 `--help`. Note
+// that `-p, --single <PROMPT>` is deliberately absent: in 0.2.82 it requires
+// an inline prompt value, and `--prompt-file` alone already selects the
+// single-turn headless mode.
 const GROK_PERMISSION_FLAGS = [
-    '--single',
     '--no-plan',
     '--permission-mode',
     '--tools',
@@ -746,8 +749,10 @@ async function runGrokAnalysisUnit(context, options) {
     const home = path.join(context.tempRoot, 'home');
     const env = isolatedEnvironment(context, home);
     const sessionId = randomUUID();
+    // No bare `--single`: grok 0.2.82 parses `-p, --single <PROMPT>` as a
+    // value-taking option and exits 2 when the value is missing. Prompt
+    // delivery stays `--prompt-file`, which implies single-turn headless mode.
     const argv = [
-        '--single',
         '--no-plan',
         '--permission-mode',
         'dontAsk',
