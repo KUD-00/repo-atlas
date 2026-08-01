@@ -734,6 +734,7 @@ test('the stdout terminal contract follows the real 0.2.82 streaming-json vocabu
   const cases = [
     ['no-terminal-end', 'a missing terminal end event'],
     ['bad-stop-reason', 'a non-EndTurn stop reason'],
+    ['bad-session-id', 'an end event from another session'],
     ['events-after-end', 'events after the terminal end'],
     ['stdout-error', 'an in-band error event'],
     ['empty-response', 'an end event with no text response'],
@@ -753,6 +754,40 @@ test('the stdout terminal contract follows the real 0.2.82 streaming-json vocabu
     const atlasWrites = listFiles(path.join(caseRoot, '.atlas'))
     assert.ok(atlasWrites.every((entry) => entry.startsWith('.runtime/')))
   }
+})
+
+test('the session transcript follows the real 0.2.82 layout and vocabulary', async (t) => {
+  // The double writes only the real session layout: $HOME/.grok/sessions/
+  // <encodeURIComponent(--cwd)>/<session-id>/chat_history.jsonl (XDG_DATA_HOME
+  // is ignored by the real CLI). A completed run proves the adapter reads
+  // exactly that path and binds the stdout end.sessionId to it.
+  const fake = makeFakeGrok(t, { mode: 'ok' })
+  const root = makeRepo(t, { 'src/a.ts': makeSource(12, 'a') })
+  const result = await runAuditProviderInvocation(
+    makeRequest(root, makePolicy(fake), ['src/a.ts']),
+    createGrokAuditProvider(),
+  )
+  assert.equal(result.status, 'completed')
+
+  const inspect = fake.invocations().find((invocation) => invocation.kind === 'inspect')
+  const run = fake.invocations().find((invocation) => invocation.kind === 'run')
+  const sessionId = run.argv[run.argv.indexOf('--session-id') + 1]
+  const snapshotRoot = run.argv[run.argv.indexOf('--cwd') + 1]
+  assert.equal(
+    run.transcriptPath,
+    path.join(
+      inspect.env.HOME,
+      '.grok',
+      'sessions',
+      encodeURIComponent(snapshotRoot),
+      sessionId,
+    ),
+    'the double wrote the transcript at the real session layout',
+  )
+  // The run also pins the real vocabulary end to end: read_file calls with
+  // JSON-string arguments, anchored read results (a 12-line file exercises
+  // the every-tenth-line anchor), mid-turn assistant narration joining the
+  // stdout byte-equality check, and one final assistant message.
 })
 
 test('a missing per-file receipt prevents publication', async (t) => {

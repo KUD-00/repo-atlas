@@ -21,6 +21,16 @@ export const GROK_RULESET_ID = 'atlas-security-v3';
 export const GROK_PROMPT_BUILTIN_VERSION = 'atlas-security-prompt-v1';
 export const GROK_VALIDATION_RUBRIC_VERSION = 'atlas-security-validation-rubric-v1';
 const GROK_TOOLS = ['Read', 'Grep', 'Glob'];
+// The real tool names behind the argv allowlist, verified against live
+// 0.2.82 sessions: with `--tools Read,Grep,Glob` the exposed tools are
+// read_file, grep, and list_dir (no dedicated glob tool is exposed; the
+// model uses list_dir for directory listings). Transcript tool calls use
+// these snake_case names.
+const GROK_TRANSCRIPT_TOOLS = new Map([
+    ['read_file', 'Read'],
+    ['grep', 'Grep'],
+    ['list_dir', 'Glob'],
+]);
 // Spawn-able flag allowlist, verified against grok CLI 0.2.82 `--help`. Note
 // that `-p, --single <PROMPT>` is deliberately absent: in 0.2.82 it requires
 // an inline prompt value, and `--prompt-file` alone already selects the
@@ -52,6 +62,7 @@ const MAX_BINARY_BYTES = 256 * 1024 * 1024;
 const MAX_PROBE_OUTPUT_BYTES = 1024 * 1024;
 const MAX_AUTH_RECORD_BYTES = 64 * 1024;
 const MAX_STDOUT_LINES = 65_536;
+const MAX_TOOL_ARGUMENT_BYTES = 16 * 1024;
 const PROBE_TIMEOUT_CAP_MS = 60_000;
 const GROK_REVIEW_PROMPT = `You are performing a READ-ONLY security audit of an exact byte snapshot of repository source files. This prompt is one bounded sub-review dispatched by the Repo Atlas orchestrator; sibling sub-reviews cover other files in parallel. The ruleset is atlas-security-v3.
 
@@ -492,7 +503,7 @@ function renderUnitPrompt(context, unitBlock, template) {
 // in-band `error` event (usually paired with a nonzero exit). Unknown
 // non-terminal event types are ignored; a missing or non-EndTurn terminal,
 // an error event, or anything after the terminal fails closed.
-function parseStreamingStdout(stdout, context, phase) {
+function parseStreamingStdout(stdout, context, phase, sessionId) {
     const lines = stdout.split('\n').filter((line) => line.trim().length > 0);
     if (lines.length === 0 || lines.length > MAX_STDOUT_LINES) {
         throw new AuditProviderError('output-invalid', 'grok stdout is not a bounded streaming-json sequence', phase);
@@ -540,6 +551,9 @@ function parseStreamingStdout(stdout, context, phase) {
     if (terminal.stopReason !== 'EndTurn') {
         throw new AuditProviderError('output-invalid', 'grok stdout terminal end event is not a successful EndTurn', phase);
     }
+    if (terminal.sessionId !== sessionId) {
+        throw new AuditProviderError('output-invalid', 'grok stdout terminal end event does not belong to the run session', phase);
+    }
     const response = textChunks.join('');
     if (response.length === 0) {
         throw new AuditProviderError('output-invalid', 'grok stdout produced an empty response', phase);
@@ -570,113 +584,191 @@ function normalizeTranscriptPath(value, context, phase) {
     }
     return normalized;
 }
+// grep.path and list_dir.target_directory may name the snapshot root itself
+// or any directory inside it; unlike a Read target they are not required to
+// be manifest files, but they must stay inside the snapshot.
+function normalizeTranscriptDirectory(value, context, phase) {
+    if (typeof value !== 'string' || value.length === 0) {
+        throw new AuditProviderError('transcript-invalid', 'transcript tool call is missing a path', phase);
+    }
+    let relative = value;
+    if (path.isAbsolute(value)) {
+        if (value === context.snapshotRoot)
+            return '.';
+        const snapshotPrefix = context.snapshotRoot + path.sep;
+        if (!value.startsWith(snapshotPrefix)) {
+            throw new AuditProviderError('transcript-invalid', 'transcript tool path escapes the snapshot', phase);
+        }
+        relative = value.slice(snapshotPrefix.length).split(path.sep).join('/');
+    }
+    if (relative === '.')
+        return '.';
+    try {
+        return normalizeAuditRepoPath(relative);
+    }
+    catch {
+        throw new AuditProviderError('transcript-invalid', 'transcript tool path is not a safe snapshot-relative path', phase);
+    }
+}
+// A read_file result is raw file bytes with line anchors: the first returned
+// line is prefixed `<start>→` and every tenth returned line carries its
+// absolute line number as a `<n>→` prefix (verified against live 0.2.82
+// sessions). The anchors plus the returned line count prove the exact range
+// the tool returned, mirroring the old startLine/endLine proof.
+function proveTranscriptReadInterval(content, call, context, phase) {
+    const anchor = /^(\d+)→/.exec(content);
+    if (anchor === null || Number(anchor[1]) !== call.offset) {
+        throw new AuditProviderError('transcript-invalid', 'transcript Read result does not prove its start line', phase);
+    }
+    const lines = content.slice(anchor[0].length).split('\n');
+    if (lines.length > 0 && lines[lines.length - 1] === '')
+        lines.pop();
+    if (lines.length === 0) {
+        throw new AuditProviderError('transcript-invalid', 'transcript Read result returned no lines', phase);
+    }
+    for (const [index, line] of lines.entries()) {
+        const inner = /^(\d+)→/.exec(line);
+        if (inner !== null && Number(inner[1]) !== call.offset + index) {
+            throw new AuditProviderError('transcript-invalid', 'transcript Read result line anchor does not match its position', phase);
+        }
+    }
+    const end = call.offset + lines.length - 1;
+    const entry = context.manifestEntry(call.path);
+    if (end > call.offset + call.limit - 1 || end > entry.lines) {
+        throw new AuditProviderError('transcript-invalid', 'transcript Read result does not prove its returned range', phase);
+    }
+    return { start: call.offset, end };
+}
+// Real grok 0.2.82 session transcript contract, verified against the live
+// CLI. `system`, `user`, and `reasoning` events are ambient and ignored.
+// `assistant` events carry text content plus optional tool_calls (whose
+// arguments are a bounded JSON string); `tool_result` events link back via
+// tool_call_id and signal errors with an "Error:" content prefix. The final
+// assistant message is the last event, has non-empty content, and no tool
+// calls; the concatenation of every assistant content in order is
+// byte-identical to the stdout text stream. Anything else fails closed.
 function validateSessionTranscript(events, context, claimedFiles, phase) {
     if (events.length === 0 || events.length > context.policy.maxTranscriptEvents) {
         throw new AuditProviderError('transcript-invalid', 'transcript event count is out of bounds', phase);
     }
     const calls = new Map();
     const reads = new Map();
-    let terminalResponse;
+    const responseParts = [];
+    let responseBytes = 0;
+    let terminalFound = false;
     for (const [index, rawEvent] of events.entries()) {
         if (!isPlainObject(rawEvent) || typeof rawEvent.type !== 'string') {
             throw new AuditProviderError('transcript-invalid', `transcript event ${index} is malformed`, phase);
         }
-        if (rawEvent.type === 'tool_call') {
-            if (terminalResponse !== undefined) {
-                throw new AuditProviderError('transcript-invalid', 'transcript continues after its terminal result', phase);
+        if (rawEvent.type === 'system' || rawEvent.type === 'user' || rawEvent.type === 'reasoning') {
+            continue;
+        }
+        if (rawEvent.type === 'assistant') {
+            const content = rawEvent.content;
+            if (typeof content !== 'string') {
+                throw new AuditProviderError('transcript-invalid', 'transcript assistant content is malformed', phase);
             }
-            const id = rawEvent.id;
-            const tool = rawEvent.tool;
-            if (typeof id !== 'string' || id.length === 0 || calls.has(id)) {
-                throw new AuditProviderError('transcript-invalid', 'transcript tool call id is missing or duplicated', phase);
+            const toolCalls = rawEvent.tool_calls;
+            if (toolCalls !== undefined && !Array.isArray(toolCalls)) {
+                throw new AuditProviderError('transcript-invalid', 'transcript assistant tool calls are malformed', phase);
             }
-            if (typeof tool !== 'string' || !GROK_TOOLS.includes(tool)) {
-                throw new AuditProviderError('transcript-invalid', `transcript used a forbidden tool: ${String(tool)}`, phase);
-            }
-            const input = rawEvent.input;
-            if (!isPlainObject(input)) {
-                throw new AuditProviderError('transcript-invalid', 'transcript tool call input is malformed', phase);
-            }
-            let toolPath;
-            if (input.path !== undefined) {
-                toolPath = normalizeTranscriptPath(input.path, context, phase);
-            }
-            if (tool === 'Read') {
-                if (toolPath === undefined) {
-                    throw new AuditProviderError('transcript-invalid', 'transcript Read call is missing a path', phase);
+            if (toolCalls === undefined || toolCalls.length === 0) {
+                // An assistant message without tool calls is the final answer: it
+                // must carry content and be the last transcript event.
+                if (content.length === 0 || index !== events.length - 1) {
+                    throw new AuditProviderError('transcript-invalid', 'transcript must contain exactly one final assistant message at the end', phase);
                 }
-                const offset = input.offset === undefined ? 1 : input.offset;
-                const limit = input.limit === undefined ? Number.MAX_SAFE_INTEGER : input.limit;
-                if (typeof offset !== 'number' ||
-                    !Number.isSafeInteger(offset) ||
-                    offset < 1 ||
-                    typeof limit !== 'number' ||
-                    !Number.isSafeInteger(limit) ||
-                    limit < 1) {
-                    throw new AuditProviderError('transcript-invalid', 'transcript Read call has an invalid offset/limit', phase);
-                }
-                calls.set(id, { tool, path: toolPath, offset, limit });
+                terminalFound = true;
             }
-            else {
-                calls.set(id, { tool, path: toolPath, offset: 1, limit: 1 });
+            if (content.length > 0) {
+                responseBytes += Buffer.byteLength(content, 'utf8');
+                if (responseBytes > context.policy.maxResponseBytes) {
+                    throw new AuditProviderError('transcript-invalid', 'transcript final response exceeds the size bound', phase);
+                }
+                responseParts.push(content);
+            }
+            for (const rawCall of toolCalls ?? []) {
+                if (!isPlainObject(rawCall)) {
+                    throw new AuditProviderError('transcript-invalid', 'transcript tool call is malformed', phase);
+                }
+                const id = rawCall.id;
+                if (typeof id !== 'string' || id.length === 0 || calls.has(id)) {
+                    throw new AuditProviderError('transcript-invalid', 'transcript tool call id is missing or duplicated', phase);
+                }
+                const tool = typeof rawCall.name === 'string'
+                    ? GROK_TRANSCRIPT_TOOLS.get(rawCall.name)
+                    : undefined;
+                if (tool === undefined) {
+                    throw new AuditProviderError('transcript-invalid', `transcript used a forbidden tool: ${String(rawCall.name)}`, phase);
+                }
+                if (typeof rawCall.arguments !== 'string') {
+                    throw new AuditProviderError('transcript-invalid', 'transcript tool call arguments are malformed', phase);
+                }
+                let input;
+                try {
+                    input = parseBoundedAuditJsonBytes(new Uint8Array(Buffer.from(rawCall.arguments, 'utf8')), MAX_TOOL_ARGUMENT_BYTES, 'transcript tool call arguments');
+                }
+                catch {
+                    throw new AuditProviderError('transcript-invalid', 'transcript tool call arguments are not bounded JSON', phase);
+                }
+                if (!isPlainObject(input)) {
+                    throw new AuditProviderError('transcript-invalid', 'transcript tool call input is malformed', phase);
+                }
+                if (tool === 'Read') {
+                    const toolPath = normalizeTranscriptPath(input.target_file, context, phase);
+                    const offset = input.offset === undefined ? 1 : input.offset;
+                    const limit = input.limit === undefined ? Number.MAX_SAFE_INTEGER : input.limit;
+                    if (typeof offset !== 'number' ||
+                        !Number.isSafeInteger(offset) ||
+                        offset < 1 ||
+                        typeof limit !== 'number' ||
+                        !Number.isSafeInteger(limit) ||
+                        limit < 1) {
+                        throw new AuditProviderError('transcript-invalid', 'transcript Read call has an invalid offset/limit', phase);
+                    }
+                    calls.set(id, { tool, path: toolPath, offset, limit });
+                }
+                else if (tool === 'Grep') {
+                    const directory = input.path === undefined
+                        ? undefined
+                        : normalizeTranscriptDirectory(input.path, context, phase);
+                    calls.set(id, { tool, path: directory, offset: 1, limit: 1 });
+                }
+                else {
+                    const directory = input.target_directory === undefined
+                        ? undefined
+                        : normalizeTranscriptDirectory(input.target_directory, context, phase);
+                    calls.set(id, { tool, path: directory, offset: 1, limit: 1 });
+                }
             }
             continue;
         }
         if (rawEvent.type === 'tool_result') {
-            const id = rawEvent.id;
+            const id = rawEvent.tool_call_id;
             if (typeof id !== 'string' || !calls.has(id)) {
                 throw new AuditProviderError('transcript-invalid', 'transcript tool result is not linked to a tool call', phase);
             }
             const call = calls.get(id);
             calls.delete(id);
-            if (rawEvent.ok !== true) {
+            const content = rawEvent.content;
+            if (typeof content !== 'string') {
+                throw new AuditProviderError('transcript-invalid', 'transcript tool result is malformed', phase);
+            }
+            if (content.startsWith('Error:')) {
                 throw new AuditProviderError('transcript-invalid', 'transcript contains a tool error', phase);
             }
             if (call.tool === 'Read' && call.path !== undefined) {
-                const output = rawEvent.output;
-                if (!isPlainObject(output)) {
-                    throw new AuditProviderError('transcript-invalid', 'transcript Read result is malformed', phase);
-                }
-                const resultPath = normalizeTranscriptPath(output.path, context, phase);
-                if (resultPath !== call.path) {
-                    throw new AuditProviderError('transcript-invalid', 'transcript Read result path differs from its call', phase);
-                }
-                const startLine = output.startLine;
-                const endLine = output.endLine;
-                const entry = context.manifestEntry(call.path);
-                if (typeof startLine !== 'number' ||
-                    !Number.isSafeInteger(startLine) ||
-                    typeof endLine !== 'number' ||
-                    !Number.isSafeInteger(endLine) ||
-                    startLine !== call.offset ||
-                    endLine < startLine ||
-                    endLine > call.offset + call.limit - 1 ||
-                    endLine > entry.lines) {
-                    throw new AuditProviderError('transcript-invalid', 'transcript Read result does not prove its returned range', phase);
-                }
+                const interval = proveTranscriptReadInterval(content, { path: call.path, offset: call.offset, limit: call.limit }, context, phase);
                 const intervals = reads.get(call.path) ?? [];
-                intervals.push({ start: startLine, end: endLine });
+                intervals.push(interval);
                 reads.set(call.path, intervals);
             }
             continue;
         }
-        if (rawEvent.type === 'result') {
-            if (terminalResponse !== undefined || index !== events.length - 1) {
-                throw new AuditProviderError('transcript-invalid', 'transcript must contain exactly one terminal result at the end', phase);
-            }
-            if (rawEvent.status !== 'success' || typeof rawEvent.response !== 'string') {
-                throw new AuditProviderError('transcript-invalid', 'transcript terminal result is not successful', phase);
-            }
-            if (Buffer.byteLength(rawEvent.response, 'utf8') > context.policy.maxResponseBytes) {
-                throw new AuditProviderError('transcript-invalid', 'transcript final response exceeds the size bound', phase);
-            }
-            terminalResponse = rawEvent.response;
-            continue;
-        }
         throw new AuditProviderError('transcript-invalid', `transcript contains an unsupported event: ${rawEvent.type}`, phase);
     }
-    if (terminalResponse === undefined) {
-        throw new AuditProviderError('transcript-invalid', 'transcript has no terminal result', phase);
+    if (!terminalFound) {
+        throw new AuditProviderError('transcript-invalid', 'transcript has no final assistant message', phase);
     }
     if (calls.size > 0) {
         throw new AuditProviderError('transcript-invalid', 'transcript has tool calls without results', phase);
@@ -696,7 +788,7 @@ function validateSessionTranscript(events, context, claimedFiles, phase) {
             throw new AuditProviderError('transcript-invalid', `transcript does not prove full-range reads for ${file.path}`, phase);
         }
     }
-    return terminalResponse;
+    return responseParts.join('');
 }
 function checkJsonDepth(value, depth, maxDepth) {
     if (depth > maxDepth)
@@ -818,8 +910,12 @@ async function runGrokAnalysisUnit(context, options) {
         phase,
     });
     classifyProcessResult(result, `grok ${options.kind} unit ${options.unit.unit}`, secrets, phase);
-    const stdoutResponse = parseStreamingStdout(result.stdout, context, phase);
-    const transcriptPath = path.join(env.XDG_DATA_HOME ?? path.join(home, 'data'), 'grok', 'sessions', sessionId, 'chat_history.jsonl');
+    const stdoutResponse = parseStreamingStdout(result.stdout, context, phase, sessionId);
+    // The real CLI keeps sessions under $HOME/.grok (XDG_DATA_HOME is ignored),
+    // grouped by the encodeURIComponent form of the working directory, which
+    // the adapter passes as --cwd. The end.sessionId validated above binds the
+    // stdout stream to this exact session directory.
+    const transcriptPath = path.join(home, '.grok', 'sessions', encodeURIComponent(context.snapshotRoot), sessionId, 'chat_history.jsonl');
     let transcriptBytes;
     try {
         const stat = fs.lstatSync(transcriptPath);

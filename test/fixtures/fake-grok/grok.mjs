@@ -8,12 +8,16 @@
 // - validates analysis-run argv against the real grok 0.2.82 (clap) option
 //   contract: value-taking flags require a value, unknown flags are rejected,
 //   and violations exit 2 with the real error shapes before any side effect;
-// - for analysis runs, writes the adapter-contract session transcript at
-//   $XDG_DATA_HOME/grok/sessions/<session-id>/chat_history.jsonl and emits
-//   bounded streaming-json on stdout in the real grok 0.2.82 vocabulary
+// - for analysis runs, writes the session transcript at the real 0.2.82
+//   location $HOME/.grok/sessions/<encodeURIComponent(--cwd)>/<session-id>/
+//   chat_history.jsonl (XDG_DATA_HOME is ignored) in the real vocabulary
+//   (system/user/reasoning ambient events, assistant messages with
+//   JSON-string tool_call arguments, tool_result messages linked by
+//   tool_call_id, one final assistant message), and emits bounded
+//   streaming-json on stdout in the real grok 0.2.82 vocabulary
 //   (thought chunks, ordered text chunks, one terminal end event; tool calls
 //   never appear on stdout) whose concatenated text response is
-//   byte-identical to the transcript terminal response.
+//   byte-identical to the concatenated transcript assistant content.
 //
 // Behavior is steered by control.json written beside this script by the test.
 // The script never touches the network.
@@ -251,22 +255,60 @@ async function main() {
     fs.appendFileSync(victim, '/* tampered by fake grok */\n')
   }
 
+  // Real 0.2.82 transcript vocabulary: ambient system/user/reasoning events,
+  // assistant messages whose tool_calls carry a JSON-string arguments
+  // payload, tool_result messages linked by tool_call_id, and one final
+  // assistant message (content, no tool calls) as the last event. The
+  // concatenation of every assistant content is byte-identical to the stdout
+  // text stream.
   const events = []
+  events.push({ type: 'system', content: 'fake grok system prompt' })
+  events.push({ type: 'user', content: [{ type: 'text', text: prompt }] })
+  events.push({
+    type: 'reasoning',
+    id: 'rs_fake_1',
+    summary: [{ type: 'summary_text', text: 'planning the bounded review' }],
+    status: 'completed',
+  })
   let callSequence = 0
-  const readCall = (rel, startLine, endLine) => {
+  let firstRead = true
+  const NARRATION = 'Reading the listed files.'
+  const assistantTurn = (content, toolCalls) => {
+    const event = {
+      type: 'assistant',
+      content,
+      model_id: 'grok-4.5-build',
+      model_fingerprint: 'fp_fake',
+    }
+    if (toolCalls.length > 0) event.tool_calls = toolCalls
+    events.push(event)
+  }
+  // A read_file result prefixes the first returned line with `<start>→` and
+  // every tenth returned line with its absolute line number.
+  const readContent = (startLine, endLine) => {
+    const lines = []
+    for (let line = startLine; line <= endLine; line += 1) {
+      const text = `fake source line ${line}`
+      lines.push((line - startLine) % 10 === 0 ? `${line}→${text}` : text)
+    }
+    return lines.join('\n')
+  }
+  const nextCallId = () => {
     callSequence += 1
-    const id = `call_${callSequence}`
-    events.push({
-      type: 'tool_call',
-      id,
-      tool: 'Read',
-      input: { path: rel, offset: startLine, limit: endLine - startLine + 1 },
-    })
+    return `call-00000000-0000-4000-8000-${String(callSequence).padStart(12, '0')}`
+  }
+  const readCall = (rel, startLine, endLine) => {
+    const id = nextCallId()
+    // The first read turn carries narration, like real mid-turn assistant
+    // text; every assistant content joins the byte-equality check.
+    assistantTurn(firstRead ? NARRATION : '', [
+      { id, name: 'read_file', arguments: JSON.stringify({ target_file: rel, offset: startLine, limit: endLine - startLine + 1 }) },
+    ])
+    firstRead = false
     events.push({
       type: 'tool_result',
-      id,
-      ok: true,
-      output: { path: rel, startLine, endLine },
+      tool_call_id: id,
+      content: readContent(startLine, endLine),
     })
   }
   const readFully = (rel, lines) => {
@@ -286,26 +328,25 @@ async function main() {
     }
   }
   if (mode === 'bad-transcript-tool') {
-    events.push({ type: 'tool_call', id: 'call_bash', tool: 'Bash', input: { command: 'id' } })
-    events.push({ type: 'tool_result', id: 'call_bash', ok: true, output: {} })
+    const id = nextCallId()
+    assistantTurn('', [{ id, name: 'bash', arguments: JSON.stringify({ command: 'id' }) }])
+    events.push({ type: 'tool_result', tool_call_id: id, content: 'uid=0(fake)' })
   }
   if (mode === 'bad-transcript-path') {
-    events.push({
-      type: 'tool_call',
-      id: 'call_escape',
-      tool: 'Read',
-      input: { path: '../../outside.txt', offset: 1, limit: 1 },
-    })
-    events.push({
-      type: 'tool_result',
-      id: 'call_escape',
-      ok: true,
-      output: { path: '../../outside.txt', startLine: 1, endLine: 1 },
-    })
+    const id = nextCallId()
+    assistantTurn('', [
+      { id, name: 'read_file', arguments: JSON.stringify({ target_file: '../../outside.txt', offset: 1, limit: 1 }) },
+    ])
+    events.push({ type: 'tool_result', tool_call_id: id, content: readContent(1, 1) })
   }
   if (mode === 'tool-error') {
-    events.push({ type: 'tool_call', id: 'call_err', tool: 'Grep', input: { pattern: 'x' } })
-    events.push({ type: 'tool_result', id: 'call_err', ok: false, error: 'simulated tool error' })
+    const id = nextCallId()
+    assistantTurn('', [{ id, name: 'grep', arguments: JSON.stringify({ pattern: 'x' }) }])
+    events.push({
+      type: 'tool_result',
+      tool_call_id: id,
+      content: 'Error: simulated tool error',
+    })
   }
   if (mode === 'unsupported-event') {
     events.push({ type: 'teleport', target: 'elsewhere' })
@@ -356,18 +397,22 @@ async function main() {
     transcriptResponse = JSON.stringify(altered)
   }
 
-  events.push({ type: 'result', status: 'success', response: transcriptResponse })
+  assistantTurn(transcriptResponse, [])
   if (mode === 'duplicate-result') {
-    events.push({ type: 'result', status: 'success', response: transcriptResponse })
+    assistantTurn(transcriptResponse, [])
   }
 
+  // The real CLI keeps sessions under $HOME/.grok (XDG_DATA_HOME is
+  // ignored), grouped by the encodeURIComponent form of --cwd.
+  const sessionDir = path.join(
+    process.env.HOME,
+    '.grok',
+    'sessions',
+    encodeURIComponent(snapshotCwd),
+    sessionId,
+  )
+  record.transcriptPath = sessionDir
   if (mode !== 'no-transcript') {
-    const sessionDir = path.join(
-      process.env.XDG_DATA_HOME,
-      'grok',
-      'sessions',
-      sessionId,
-    )
     fs.mkdirSync(sessionDir, { recursive: true })
     fs.writeFileSync(
       path.join(sessionDir, 'chat_history.jsonl'),
@@ -376,10 +421,11 @@ async function main() {
   }
 
   // Real 0.2.82 stdout vocabulary: reasoning streams as thought chunks, the
-  // final response streams as ordered text chunks (split here so the
-  // adapter's concatenation is exercised), and one terminal end event closes
-  // the turn. The concatenated text is byte-identical to the transcript
-  // terminal response. Tool calls never appear on stdout.
+  // assistant text streams as ordered text chunks (narration first, then the
+  // final response split in two so the adapter's concatenation is
+  // exercised), and one terminal end event closes the turn. The concatenated
+  // text is byte-identical to the concatenated transcript assistant content.
+  // Tool calls never appear on stdout.
   const stdoutEvents = []
   stdoutEvents.push({ type: 'thought', data: 'planning the bounded review' })
   if (control.progressMarker) {
@@ -395,6 +441,7 @@ async function main() {
     })
   } else {
     if (mode !== 'empty-response') {
+      if (mode !== 'zero-read') stdoutEvents.push({ type: 'text', data: NARRATION })
       const midpoint = Math.ceil(response.length / 2)
       stdoutEvents.push({ type: 'text', data: response.slice(0, midpoint) })
       stdoutEvents.push({ type: 'text', data: response.slice(midpoint) })
@@ -403,7 +450,7 @@ async function main() {
       stdoutEvents.push({
         type: 'end',
         stopReason: mode === 'bad-stop-reason' ? 'MaxTokens' : 'EndTurn',
-        sessionId,
+        sessionId: mode === 'bad-session-id' ? 'ffffffff-ffff-4fff-8fff-ffffffffffff' : sessionId,
         requestId: '00000000-1111-4222-8333-444444444444',
       })
     }
