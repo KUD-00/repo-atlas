@@ -1707,6 +1707,81 @@ git commit -m "fix(audit): parse the real grok streaming-json vocabulary"
 git push origin feat/codex-security-atlas-adapter
 ```
 
+### Task 15: Validate the real grok session transcript format
+
+**Files:**
+- Modify: `src/audit-provider-grok.ts`
+- Modify: `test/fixtures/fake-grok/grok.mjs`
+- Modify: `test/audit-provider-grok.test.mjs`
+- Modify: `docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`
+
+- [x] **Step 1: Probe the real session layout and add failing transcript tests**
+
+Probe the live grok 0.2.82 with an isolated HOME (auth record copied, tools
+forced): the session lands at
+`$HOME/.grok/sessions/<encodeURIComponent(--cwd)>/<session-id>/chat_history.jsonl`
+(XDG_DATA_HOME is ignored). Verified transcript vocabulary: `system`, `user`
+(content arrays), `reasoning` (summary + encrypted_content), `assistant`
+(content plus optional tool_calls with a JSON-string `arguments`; effective
+tool names behind `--tools Read,Grep,Glob` are `read_file`, `grep`,
+`list_dir`), and `tool_result` linked by `tool_call_id` (errors carry an
+`Error:` content prefix). A read_file result prefixes the first returned
+line with `<start>→` and every tenth returned line with its absolute line
+number. The final assistant message is the last event; the concatenation of
+every assistant content is byte-identical to the stdout text stream. Add a
+regression test pinning the real layout plus a `bad-session-id` stdout case.
+
+```bash
+pnpm build:cli
+node --test test/audit-provider-grok.test.mjs
+```
+
+- [x] **Step 2: Confirm RED**
+
+Every analysis run fails against the old adapter: the transcript is missing
+at the assumed `$XDG_DATA_HOME/grok/sessions/<id>/` path
+(`transcript-invalid`), matching the consumer-pilot failure that would
+follow the Task 14 fix against the real CLI.
+
+- [x] **Step 3: Rewrite transcript loading and validation**
+
+In `src/audit-provider-grok.ts` load the transcript from the real session
+layout and validate `end.sessionId` against the run's session id in
+`parseStreamingStdout`. Rewrite `validateSessionTranscript` for the real
+vocabulary while preserving every proof property: allowlist
+`system`/`user`/`reasoning` (ignored) plus `assistant`/`tool_result`; map
+the Read/Grep/Glob allowlist to `read_file`/`grep`/`list_dir`; require
+bounded JSON-string arguments; keep snapshot-contained paths (manifest
+membership for read_file targets, containment for grep/list_dir
+directories); keep call/result linkage and the no-hidden-tool-error rule
+(`Error:` content prefix); prove read ranges from the result line anchors
+and returned line count; require exactly one final assistant message as the
+last event; and keep stdout↔transcript byte equality over the concatenated
+assistant content. In `test/fixtures/fake-grok/grok.mjs` write the
+transcript double at the real layout in the real vocabulary (anchored read
+results, mid-turn narration, JSON-string arguments), record the transcript
+path in the invocation record, and keep every control.json failure mode
+working through the real shapes.
+
+- [x] **Step 4: Align the spec transcript-proof section**
+
+Rewrite the transcript-proof block in
+`docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`
+to the real session layout, the final-assistant terminal rule, the real
+tool names, the line-anchor range proof, and the session binding.
+
+- [x] **Step 5: Verify and commit**
+
+```bash
+pnpm build:cli
+node --test test/audit-provider-grok.test.mjs
+pnpm test
+pnpm typecheck
+git add src/audit-provider-grok.ts test/fixtures/fake-grok/grok.mjs test/audit-provider-grok.test.mjs docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md docs/superpowers/plans/2026-07-29-audit-platform-v3-and-producers.md
+git commit -m "fix(audit): validate the real grok session transcript format"
+git push origin feat/codex-security-atlas-adapter
+```
+
 ## Final requirement review
 
 - [x] V1/V2 remain readable but every new write is V3.

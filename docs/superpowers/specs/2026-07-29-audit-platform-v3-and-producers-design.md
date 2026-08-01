@@ -2456,16 +2456,22 @@ one-to-many, uniqueness, confidence, and uncertainty constraints.
 ### Transcript proof
 
 Streaming stdout is progress, not evidence. The adapter reads the isolated
-session's `chat_history.jsonl` and requires:
+session's `chat_history.jsonl` from the real 0.2.82 session layout —
+`$HOME/.grok/sessions/<url-encoded-cwd>/<session-id>/` (XDG paths are
+ignored by the CLI, and the stdout terminal `end.sessionId` must match the
+run's session id) — and requires:
 
-- one successful terminal result;
-- only the allowed read/grep/glob tools;
+- exactly one final assistant message, as the last transcript event;
+- only the allowed read/grep/glob tools (real transcript names `read_file`,
+  `grep`, `list_dir`);
 - no write, shell, network, MCP, memory, subagent, or unknown tool call;
 - every tool path contained in the snapshot;
 - successful tool results linked to their tool-call IDs;
-- complete line-range coverage for every file claimed `reviewed`;
+- complete line-range coverage for every file claimed `reviewed`, proven by
+  each read result's line anchors and returned line count;
 - no tool error hidden by a later prose claim;
-- a final response within size/depth bounds; and
+- a final response within size/depth bounds whose concatenated assistant
+  content is byte-identical to the concatenated stdout text stream; and
 - source blobs unchanged from the snapshot inventory.
 
 A raw tool-call count is insufficient. A `Read` call with an offset/limit must
