@@ -2374,21 +2374,24 @@ application-level boundary, not an OS security sandbox.
 The 0.2.82 adapter uses the semantic equivalent of:
 
 ```text
-grok --single \
-  --no-plan \
+grok --no-plan \
   --permission-mode dontAsk \
   --tools Read,Grep,Glob \
   --no-memory \
   --no-subagents \
   --disable-web-search \
   --output-format streaming-json \
+  --model <model> \
   --session-id <uuid> \
   --cwd <snapshot> \
   --prompt-file <generated-prompt>
 ```
 
-It never uses `--always-approve`, `bypassPermissions`, Bash, write/edit tools,
-web tools, memory, MCP, plugins, or model-managed subagents.
+Prompt delivery is `--prompt-file` alone: in 0.2.82 `-p, --single <PROMPT>`
+requires an inline prompt value (a bare `--single` is a clap usage error,
+exit 2), and the file-based prompt already selects the single-turn headless
+mode. It never uses `--always-approve`, `bypassPermissions`, Bash, write/edit
+tools, web tools, memory, MCP, plugins, or model-managed subagents.
 
 The adapter probes `--help`, `--version`, and `inspect --json`. A CLI version
 whose flags, transcript events, tool names, session layout, or permission

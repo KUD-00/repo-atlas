@@ -1566,6 +1566,73 @@ git commit -m "fix(audit): scope implicit-open gating to current occurrences"
 git push origin feat/codex-security-atlas-adapter
 ```
 
+### Task 13: Fix the Grok argv contract against the real CLI
+
+**Files:**
+- Modify: `src/audit-provider-grok.ts`
+- Modify: `test/fixtures/fake-grok/grok.mjs`
+- Modify: `test/audit-provider-grok.test.mjs`
+- Modify: `docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`
+
+- [x] **Step 1: Add failing argv-contract tests**
+
+Provider level (`test/audit-provider-grok.test.mjs`): a new regression test
+asserts every analysis-run argv the adapter builds contains no `--single` and
+no `-p` (prompt delivery rides `--prompt-file` alone, which implies the
+single-turn headless mode), then drives hand-crafted invocations straight at
+the fake CLI: a bare `--single` (the original adapter argv shape) and a bare
+`-p` must exit 2 with the real 0.2.82 clap error `error: a value is required
+for '--single <PROMPT>' but none was supplied`; an unknown flag and a
+dangerous real flag the double does not emulate (`--always-approve`) must
+exit 2 with `error: unexpected argument ... found`; every rejection leaves no
+streaming stdout, no session transcript tree, and only a `run-rejected`
+invocation record. The existing exact-argv expectation drops `--single`.
+
+```bash
+pnpm build:cli
+node --test test/audit-provider-grok.test.mjs
+```
+
+- [x] **Step 2: Confirm RED**
+
+The no-bare-`--single` assertion fails against the old argv, and the
+hand-crafted bare-`--single` invocation exits 0 against the unhardened
+fixture (it proceeds into prompt processing instead of rejecting), proving
+the double accepted the argv the real binary rejects.
+
+- [x] **Step 3: Fix the adapter argv and harden the fake CLI**
+
+In `src/audit-provider-grok.ts` remove `--single` from the spawned analysis
+argv and from `GROK_PERMISSION_FLAGS` (the spawn-able flag allowlist that the
+`--help` preflight probe requires); prompt delivery stays `--prompt-file`. In
+`test/fixtures/fake-grok/grok.mjs` validate analysis-run argv against the
+real 0.2.82 clap contract before any side effect: value-taking flags
+(`--single`/`-p`, `--permission-mode`, `--tools`, `--output-format`,
+`--model`/`-m`, `--session-id`/`-s`, `--cwd`, `--prompt-file`) require a
+following non-flag value or an inline `=value`; unknown flags, positionals,
+and values on boolean flags are rejected; violations exit 2 with the real
+clap error shapes and are recorded as `run-rejected` invocations.
+
+- [x] **Step 4: Align the spec Grok flags block**
+
+Rewrite the flag block in
+`docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`
+to match the code argv (drop `--single`, add `--model <model>`) and state
+that `-p, --single <PROMPT>` requires an inline value in 0.2.82 while
+`--prompt-file` alone selects single-turn headless mode.
+
+- [x] **Step 5: Verify and commit**
+
+```bash
+pnpm build:cli
+node --test test/audit-provider-grok.test.mjs
+pnpm test
+pnpm typecheck
+git add src/audit-provider-grok.ts test/fixtures/fake-grok/grok.mjs test/audit-provider-grok.test.mjs docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md docs/superpowers/plans/2026-07-29-audit-platform-v3-and-producers.md
+git commit -m "fix(audit): pass grok prompts via prompt-file without a bare single flag"
+git push origin feat/codex-security-atlas-adapter
+```
+
 ## Final requirement review
 
 - [x] V1/V2 remain readable but every new write is V3.
