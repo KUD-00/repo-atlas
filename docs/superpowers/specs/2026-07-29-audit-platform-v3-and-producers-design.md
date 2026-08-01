@@ -2393,6 +2393,14 @@ exit 2), and the file-based prompt already selects the single-turn headless
 mode. It never uses `--always-approve`, `bypassPermissions`, Bash, write/edit
 tools, web tools, memory, MCP, plugins, or model-managed subagents.
 
+Streaming stdout uses the real 0.2.82 streaming-json vocabulary: `thought`
+chunks (reasoning, ignored by the adapter), ordered `text` chunks whose
+concatenation is the final response, and exactly one terminal `end` event
+with `stopReason: "EndTurn"`. Tool calls never appear on stdout; they live
+only in the session transcript. An in-band `error` event, a missing terminal
+`end`, a non-`EndTurn` stop reason, an empty response, or any event after
+the terminal fails closed as `output-invalid`.
+
 The adapter probes `--help`, `--version`, and `inspect --json`. A CLI version
 whose flags, transcript events, tool names, session layout, or permission
 semantics differ is unsupported until its adapter is updated. Provider

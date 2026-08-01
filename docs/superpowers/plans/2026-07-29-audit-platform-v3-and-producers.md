@@ -1633,6 +1633,80 @@ git commit -m "fix(audit): pass grok prompts via prompt-file without a bare sing
 git push origin feat/codex-security-atlas-adapter
 ```
 
+### Task 14: Parse the real grok streaming-json vocabulary
+
+**Files:**
+- Modify: `src/audit-provider-grok.ts`
+- Modify: `test/fixtures/fake-grok/grok.mjs`
+- Modify: `test/audit-provider-grok.test.mjs`
+- Modify: `docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`
+
+- [x] **Step 1: Probe the real vocabulary and add failing terminal-contract tests**
+
+Probe the live grok 0.2.82 (`-p` with `--output-format streaming-json`,
+tiny prompts) for the no-tool, tool-using, and failure streams. Verified
+vocabulary: `{"type":"thought","data":...}` reasoning chunks, ordered
+`{"type":"text","data":...}` response chunks whose concatenation is the
+final response, one terminal
+`{"type":"end","stopReason":"EndTurn","sessionId":...,"requestId":...}`, and
+in-band `{"type":"error","message":...}` failures (paired with a nonzero
+exit). Tool calls never appear on stdout. Then add a regression test in
+`test/audit-provider-grok.test.mjs` pinning the terminal contract: the
+ok path completes with the response split across ordered text chunks, and
+new fixture modes (`no-terminal-end`, `bad-stop-reason`,
+`events-after-end`, `stdout-error`, `empty-response`) each fail closed as
+`output-invalid`.
+
+```bash
+pnpm build:cli
+node --test test/audit-provider-grok.test.mjs
+```
+
+- [x] **Step 2: Confirm RED**
+
+The new regression test fails against the made-up contract: the parser
+rejects the real `end`-terminated stream with `output-invalid: grok stdout
+has no successful terminal result`, matching the consumer-pilot failure
+against the real CLI.
+
+- [x] **Step 3: Rewrite the stdout parser and the fixture vocabulary**
+
+In `src/audit-provider-grok.ts` rewrite `parseStreamingStdout`: concatenate
+ordered `text` event data (enforcing `maxResponseBytes` incrementally),
+ignore `thought` and unknown non-terminal event types, require exactly one
+terminal `end` event with `stopReason: "EndTurn"` as the last event, and
+fail closed (`output-invalid`) on an `error` event, a missing terminal, a
+non-`EndTurn` stop reason, events after the terminal, or an empty
+concatenated response. Keep the bounded line budget. In
+`test/fixtures/fake-grok/grok.mjs` emit the real vocabulary on stdout
+(thought chunks, two ordered text chunks, terminal `end` with session and
+request ids) whose concatenation stays byte-identical to the transcript
+terminal response, and add the new failure modes. The transcript double is
+unchanged: the real session transcript layout and vocabulary
+(`~/.grok/sessions/<encoded-cwd>/<session-id>/chat_history.jsonl` with
+`system`/`user`/`reasoning`/`assistant`/`tool_result` events and
+`read_file`-style tool names) is a separate known contract gap.
+
+- [x] **Step 4: Align the spec stdout contract**
+
+In
+`docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`
+state the real streaming-json vocabulary next to the Grok flags block:
+thought/text/end events, text concatenation as the final response, no tool
+events on stdout, and the fail-closed terminal rules.
+
+- [x] **Step 5: Verify and commit**
+
+```bash
+pnpm build:cli
+node --test test/audit-provider-grok.test.mjs
+pnpm test
+pnpm typecheck
+git add src/audit-provider-grok.ts test/fixtures/fake-grok/grok.mjs test/audit-provider-grok.test.mjs docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md docs/superpowers/plans/2026-07-29-audit-platform-v3-and-producers.md
+git commit -m "fix(audit): parse the real grok streaming-json vocabulary"
+git push origin feat/codex-security-atlas-adapter
+```
+
 ## Final requirement review
 
 - [x] V1/V2 remain readable but every new write is V3.
