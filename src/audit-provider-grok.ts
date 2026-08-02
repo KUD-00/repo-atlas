@@ -936,6 +936,19 @@ function proveTranscriptReadInterval(
   context: AuditProviderContext,
   phase: AuditProviderPhaseKind,
 ): TranscriptReadInterval {
+  const entryForEmpty = context.manifestEntry(call.path)
+  if (entryForEmpty !== undefined && entryForEmpty.lines === 0) {
+    // A zero-line file cannot carry a line anchor, so demanding one made every
+    // repository with a single empty tracked file in scope unauditable — a
+    // `.gitkeep` placeholder was enough to fail an entire run, and the failure
+    // named neither the file nor the empty result. The manifest already proves
+    // the file has no lines; an empty read is the only correct result, so it is
+    // the proof. Anything non-empty coming back for a zero-line file is still a
+    // contradiction and still fails below.
+    if (content.trim() === '') {
+      return { start: call.offset, end: call.offset - 1 }
+    }
+  }
   const anchor = /^(\d+)→/.exec(content)
   if (anchor === null || Number(anchor[1]) !== call.offset) {
     // Name the file and show what actually arrived. "observed anchor none" on

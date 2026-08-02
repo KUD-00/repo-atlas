@@ -301,6 +301,7 @@ async function main() {
       const text = `fake source line ${line}`
       lines.push(line === startLine || line % 10 === 0 ? `${line}→${text}` : text)
     }
+    if (fileLines === 0) return ''
     let content = lines.join('\n')
     if (endLine === fileLines) content += '\n'
     if (emitEofPhantom && endLine === fileLines && (fileLines + 1) % 10 === 0) {
@@ -341,6 +342,15 @@ async function main() {
     })
   }
   const readFully = (rel, lines) => {
+    // A zero-line file still gets read once, and the result is empty — verified
+    // against real grok on a `.gitkeep`. The loop below cannot express that, and
+    // the fixture used to emit no read at all for such a file, so the interval
+    // proof's inability to accept an empty result went untested until a real
+    // repository with one empty tracked file could not be audited at all.
+    if (lines === 0) {
+      readCall(rel, 1, 0, 0)
+      return
+    }
     const chunk = 400
     for (let start = 1; start <= lines; start += chunk) {
       readCall(rel, start, Math.min(lines, start + chunk - 1), lines)

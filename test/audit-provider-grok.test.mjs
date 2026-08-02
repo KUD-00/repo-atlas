@@ -817,6 +817,27 @@ test('large-file reads with decade anchors and an EOF phantom anchor prove their
   assertReceiptChain(result.receipt)
 })
 
+test('an empty tracked file is proven by an empty read', async (t) => {
+  // A `.gitkeep` placeholder. The manifest already exempts zero-line files from
+  // range coverage, but the read proof used to demand a line anchor that such a
+  // file can never carry — so one empty tracked file made a whole repository
+  // unauditable.
+  const fake = makeFakeGrok(t, { mode: 'ok' })
+  const files = {
+    'src/generated/.gitkeep': '',
+    'src/a.ts': makeSource(6, 'a'),
+  }
+  const root = makeRepo(t, files)
+  const result = await runAuditProviderInvocation(
+    makeRequest(root, makePolicy(fake, { maxBatchFiles: 2 }), Object.keys(files)),
+    createGrokAuditProvider(),
+  )
+  assert.equal(result.status, 'completed')
+  assert.equal(result.files.length, 2)
+  for (const file of result.files) assert.equal(file.status, 'reviewed')
+  assertReceiptChain(result.receipt)
+})
+
 test('a missing per-file receipt prevents publication', async (t) => {
   const fake = makeFakeGrok(t, { mode: 'missing-receipt' })
   const root = makeRepo(t, {
