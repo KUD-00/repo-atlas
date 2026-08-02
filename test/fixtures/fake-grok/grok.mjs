@@ -32,12 +32,16 @@ const control = JSON.parse(fs.readFileSync(path.join(here, 'control.json'), 'utf
 // same unit succeeds when asked again. Only the first analysis run misbehaves,
 // which is what distinguishes a retried transient from a deterministic fault.
 let mode = control.mode ?? 'ok'
-if (mode === 'flaky-review-once') {
+const FLAKY_ONCE = {
+  'flaky-review-once': 'bad-transcript-coverage',
+  'flaky-receipt-once': 'extra-receipt',
+}
+if (FLAKY_ONCE[mode] !== undefined) {
   const marker = path.join(here, 'flaky-fired')
   if (fs.existsSync(marker)) mode = 'ok'
   else {
     fs.writeFileSync(marker, '1')
-    mode = 'bad-transcript-coverage'
+    mode = FLAKY_ONCE[mode]
   }
 }
 

@@ -1260,7 +1260,15 @@ export function validateAuditProviderVerificationUnitOutput(
  * re-auth) does not clear by trying again; `spawn-failed` and policy/inventory
  * errors are deterministic.
  */
-const RETRYABLE_PROVIDER_CODES = new Set(['transcript-invalid', 'output-invalid'])
+const RETRYABLE_PROVIDER_CODES = new Set([
+  'transcript-invalid',
+  'output-invalid',
+  // Receipts that do not match the requested file set — an extra file, or a
+  // missing one — are the same failure in a different shape: the generator
+  // answered a question other than the one asked. Leaving this out meant a
+  // model naming one file outside its batch still aborted a completed run.
+  'missing-file-receipt',
+])
 
 function isRetryableProviderFailure(error: unknown): boolean {
   return (
