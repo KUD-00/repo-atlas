@@ -2468,7 +2468,12 @@ run's session id) — and requires:
 - every tool path contained in the snapshot;
 - successful tool results linked to their tool-call IDs;
 - complete line-range coverage for every file claimed `reviewed`, proven by
-  each read result's line anchors and returned line count;
+  each read result's line anchors (the first returned line plus absolute
+  decade lines) and returned line count, tolerating only the verified
+  no-argument full-read phantom anchor for the line after the file when
+  that line number is a multiple of ten (read_file silently caps results
+  at 1000 lines per call, so the prompts require explicit offset/limit
+  chunks for larger files);
 - no tool error hidden by a later prose claim;
 - a final response within size/depth bounds whose concatenated assistant
   content is byte-identical to the concatenated stdout text stream; and

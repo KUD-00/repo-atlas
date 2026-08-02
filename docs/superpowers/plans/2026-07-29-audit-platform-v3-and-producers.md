@@ -1790,51 +1790,57 @@ git push origin feat/codex-security-atlas-adapter
 - Modify: `test/audit-provider-grok.test.mjs`
 - Modify: `docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`
 
-- [ ] **Step 1: Probe the real large-file read_file format and add failing range tests**
+- [x] **Step 1: Probe the real large-file read_file format and add failing range tests**
 
-Prerequisite: a live grok login (the 0.2.82 OAuth token is short-lived;
-refresh may wipe `~/.grok/auth.json`, so re-authenticate with `grok login`
-first). With an isolated HOME, force reads against a ~500-line file: (a) a
-full read with no offset/limit, (b) offset=1 limit=100, (c) offset=200
-limit=100, (d) past-EOF. Capture verbatim anchor cadence, trailing bytes,
-and any truncation markers. Known from the 0.2.82 binary strings:
-over-budget reads ERROR ("File content (N tokens) exceeds maximum allowed
-tokens…" / "The requested line range (offset=…) contains N tokens…"),
-files are gitignore/binary rejected, and the binary contains
-"[truncated: showing first/last " and "returning un-anchored results"
-strings whose attribution (cursor vs grok_build read_file) must be
-confirmed. The pilot failure (`does not prove its returned range` on a
-494-line file) implies real large reads carry content lines the Task 15
-accounting cannot explain. Add a regression test with a ~500-line snapshot
-file mirroring the pilot's read pattern once the format is measured.
+With an isolated HOME, force reads against a ~500-line file: (a) a full
+read with no offset/limit, (b) offset=1 limit=100, (c) offset=200
+limit=100, (d) past-EOF. Verified live: anchors mark the first returned
+line plus absolute decade lines; content carries the file's trailing
+newline only when the range reaches EOF; past-EOF reads return empty
+content; ranged reads never emit trailing markers; and a NO-ARGUMENT full
+read of a file whose next line number is a multiple of ten appends a
+phantom `<lines+1>→` anchor (a 129-line file ends with `130→`) — the
+consumer-pilot failure (`does not prove its returned range (offset 1,
+counted 130, file lines 129)` on `.github/dependabot.yml`). Over-budget
+reads error instead of truncating. Add a regression test with a 129-line
+and a 500-line snapshot file mirroring the pilot's read pattern.
 
 ```bash
 pnpm build:cli
 node --test test/audit-provider-grok.test.mjs
 ```
 
-- [ ] **Step 2: Confirm RED**
+- [x] **Step 2: Confirm RED**
 
-The large-file regression fails against the Task 15 proof with
+The 129-line phantom case fails against the Task 15 proof with
 `transcript-invalid: transcript Read result does not prove its returned
-range`, matching the consumer-pilot failure.
+range`, matching the consumer-pilot failure byte for byte.
 
-- [ ] **Step 3: Fix the read-range proof to the measured contract**
+- [x] **Step 3: Fix the read-range proof to the measured contract**
 
-In `src/audit-provider-grok.ts` correct `proveTranscriptReadInterval` to
-the measured large-file format (anchor cadence, truncation markers,
-no-arg full reads, past-EOF behavior), keeping the proof sound: only
-genuinely proven ranges are accepted, unrecognized content still fails
-closed. Update the fixture double to emit the measured large-file format
-and add a large-file case; keep every failure mode working.
+In `src/audit-provider-grok.ts` teach `proveTranscriptReadInterval` the
+measured contract: absolute decade anchors, and the no-argument full-read
+EOF phantom anchor (dropped only when its number is one past the manifest
+line count and a multiple of ten — it is not file content, so coverage
+cannot be fabricated through it). Everything else still fails closed.
+read_file also silently caps results at 1000 lines per call (verified: a
+no-argument full read of an 1141-line file returns exactly lines 1-1000
+with no marker), so harden the review and verification prompts to require
+explicit offset/limit chunks for files over 1000 lines and to forbid any
+read/list/grep/glob outside the snapshot root (the real model otherwise
+orients itself by listing the temp parent, which fails closed as an
+out-of-snapshot path). Update the fixture
+double to emit decade anchors, trailing-newline-at-EOF, no-argument
+whole-file reads, and the phantom; add a `bad-phantom` mode for fabricated
+non-decade phantoms; keep every failure mode working.
 
-- [ ] **Step 4: Align the spec transcript-proof text**
+- [x] **Step 4: Align the spec transcript-proof text**
 
 Update the line-anchor range proof description in
 `docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`
 to the measured large-file contract.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 pnpm build:cli
