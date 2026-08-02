@@ -938,11 +938,21 @@ function proveTranscriptReadInterval(
 ): TranscriptReadInterval {
   const anchor = /^(\d+)→/.exec(content)
   if (anchor === null || Number(anchor[1]) !== call.offset) {
+    // Name the file and show what actually arrived. "observed anchor none" on
+    // its own says a read was unproven without saying which read, and the
+    // journal records only the message — so diagnosing it meant guessing file
+    // classes (empty, blank first line, BOM, control prefix, CRLF, oversized)
+    // and re-running a whole audit per guess. A tool result that is an error
+    // string rather than anchored content is indistinguishable from a
+    // fabricated one until you can see it.
+    const preview = content.slice(0, 120).replace(/\n/g, '\\n')
     throw new AuditProviderError(
       'transcript-invalid',
-      `transcript Read result does not prove its start line (expected offset ${String(
-        call.offset,
-      )}, observed anchor ${anchor === null ? 'none' : anchor[1]})`,
+      `transcript Read result does not prove its start line (path ${
+        call.path
+      }, expected offset ${String(call.offset)}, observed anchor ${
+        anchor === null ? 'none' : anchor[1]
+      }, result starts: ${JSON.stringify(preview)})`,
       phase,
     )
   }
