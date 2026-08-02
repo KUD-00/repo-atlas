@@ -1,0 +1,59 @@
+{
+  "schema": "relayos-design-scan/v1",
+  "note": "Fixture per-file design-reasonableness scan record. Each entry binds to EXACT file content via git_blob_sha1. REPORT ONLY — this scan never edits code.",
+  "ruleset": {
+    "id": "relayos-design-v1",
+    "categories": [
+      "optionality",
+      "redundant-fields",
+      "first-principles",
+      "over-abstraction",
+      "over-complication",
+      "dead-forward-compat",
+      "masking-default"
+    ]
+  },
+  "scanner": {
+    "by": "fixture-scanner",
+    "method": "fixture read-only audit, full-file read plus call-site grep per candidate",
+    "run": "fixture-round-1"
+  },
+  "scans": [
+    {
+      "path": "packages/example/core/src/types.ts",
+      "git_blob_sha1": "2c7bc1d6a8f35e0b94a1d7e2f6b05c831a4d9e72",
+      "lines": 40,
+      "scanned_at": "2026-07-01",
+      "scanned_by": "fixture-scanner",
+      "ruleset": "relayos-design-v1",
+      "status": "findings",
+      "max_severity": "medium",
+      "finding_count": 1,
+      "findings_ref": "findings.md"
+    },
+    {
+      "path": "packages/example/core/src/util.ts",
+      "git_blob_sha1": "3d8cd2e7b9a46f1ca5b2e8f3a7c16d942b5eaf83",
+      "lines": 18,
+      "scanned_at": "2026-07-01",
+      "scanned_by": "fixture-scanner",
+      "ruleset": "relayos-design-v1",
+      "status": "clean",
+      "max_severity": null,
+      "finding_count": 0,
+      "findings_ref": null
+    },
+    {
+      "path": "packages/example/app/src/format.ts",
+      "git_blob_sha1": "1b6ab0c5f7e24d9a83f0c6d1e5a94b720f3c8d61",
+      "lines": 24,
+      "scanned_at": "2026-07-01",
+      "scanned_by": "fixture-scanner",
+      "ruleset": "relayos-design-v1",
+      "status": "findings",
+      "max_severity": "low",
+      "finding_count": 1,
+      "findings_ref": "findings.md"
+    }
+  ]
+}

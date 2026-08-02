@@ -1,0 +1,60 @@
+{
+  "formatVersion": 2,
+  "format": "atlas-audit-v2",
+  "domain": "design",
+  "reviewState": "complete",
+  "slug": "design-fixture-layer",
+  "title": "Fixture layer design review (round 1)",
+  "ruleset": "relayos-design-v1",
+  "scanned_at": "2026-07-01",
+  "scope_hash": "0493deab223d0a6c79adda6e0a503057a90d7eda",
+  "file_count": 3,
+  "files": [
+    "packages/example/app/src/format.ts",
+    "packages/example/core/src/types.ts",
+    "packages/example/core/src/util.ts"
+  ],
+  "hashes": {
+    "packages/example/app/src/format.ts": "1b6ab0c5f7e24d9a83f0c6d1e5a94b720f3c8d61",
+    "packages/example/core/src/types.ts": "2c7bc1d6a8f35e0b94a1d7e2f6b05c831a4d9e72",
+    "packages/example/core/src/util.ts": "3d8cd2e7b9a46f1ca5b2e8f3a7c16d942b5eaf83"
+  },
+  "evidenceRefs": [
+    "audits/design-scan/ledger.json",
+    "audits/design-scan/findings.md"
+  ],
+  "findings": [
+    {
+      "severity": "medium",
+      "category": "optionality",
+      "title": "FixturePort.enabled is optional but always set",
+      "locations": [
+        "packages/example/core/src/types.ts:12"
+      ],
+      "evidence": "`FixturePort.enabled?: boolean` is optional, but its sole producer `flattenFixturePort` always sets it, and the upstream contract field is non-optional.",
+      "fix": "make it a non-optional `boolean`.",
+      "confidence": "high",
+      "disposition": "open"
+    },
+    {
+      "severity": "low",
+      "category": "dead-forward-compat",
+      "title": "LegacyFormatAlias has zero references",
+      "locations": [
+        "packages/example/app/src/format.ts:3",
+        "packages/example/app/src/format.ts:9"
+      ],
+      "evidence": "`LegacyFormatAlias` has zero references repo-wide and only renames `FixtureFormat`.",
+      "fix": "delete the alias.",
+      "confidence": "high",
+      "disposition": "open"
+    }
+  ],
+  "dropped": [
+    {
+      "subject": "**`z.unknown()` fixture outputs** (types/format)",
+      "reason": "a fixture convention for read-models whose typed shape lives in a package the fixture cannot import.",
+      "outcome": "bar-held"
+    }
+  ]
+}

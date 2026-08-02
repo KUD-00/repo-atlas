@@ -31,6 +31,16 @@ msgstr "（ディレクトリ）"
 msgid "{0} accepted risk"
 msgstr "受け入れ済みリスク {0} 件"
 
+#. placeholder {0}: semantic.deferredCount
+#: viewer/AuditCoverage.tsx
+msgid "{0} deferred"
+msgstr "{0} 件保留"
+
+#. placeholder {0}: entry.findingCount
+#: viewer/AuditCoverage.tsx
+msgid "{0} findings"
+msgstr "{0} 件の指摘"
+
 #. placeholder {0}: coverage.invalid
 #: viewer/audit-copy.ts
 msgid "{0} invalid"
@@ -46,8 +56,21 @@ msgstr "無効な証拠 {0} 件"
 msgid "{0} missing"
 msgstr "欠落 {0} 件"
 
+#. placeholder {0}: semantic.surfaces.needsFollowUp
+#: viewer/AuditCoverage.tsx
+msgid "{0} need follow-up"
+msgstr "{0} 件要フォローアップ"
+
+#. placeholder {0}: exact.reviewedFileCount
+#. placeholder {1}: exact.fileCount
+#: viewer/AuditCoverage.tsx
+msgid "{0} of {1} files reviewed"
+msgstr "{1} ファイル中 {0} ファイルをレビュー済み"
+
 #. placeholder {0}: model.openCount
+#. placeholder {0}: v3Unit.openCount
 #: viewer/audit-copy.ts
+#: viewer/AuditNav.tsx
 msgid "{0} open"
 msgstr "未対応 {0} 件"
 
@@ -76,6 +99,16 @@ msgstr "separate design {0} 件"
 #: viewer/audit-copy.ts
 msgid "{0} stale"
 msgstr "古い {0} 件"
+
+#. placeholder {0}: semantic.surfaces.total
+#: viewer/AuditCoverage.tsx
+msgid "{0} surfaces"
+msgstr "{0} 個の脅威サーフェス"
+
+#. placeholder {0}: exact.unreviewedCount
+#: viewer/AuditCoverage.tsx
+msgid "{0} unreviewed"
+msgstr "{0} 件未レビュー"
 
 #. placeholder {0}: action.impact
 #. placeholder {0}: action.severity
@@ -204,6 +237,10 @@ msgstr "確認する"
 msgid "acknowledged"
 msgstr "確認済み"
 
+#: viewer/AuditCoverage.tsx
+msgid "adapter"
+msgstr "アダプター"
+
 #: viewer/Chat.tsx
 msgid "agent connected"
 msgstr "エージェント接続済み"
@@ -307,6 +344,10 @@ msgstr "コード"
 msgid "Code"
 msgstr "コード"
 
+#: viewer/AuditCoverage.tsx
+msgid "Codex Security"
+msgstr "Codex Security"
+
 #: viewer/Preview.tsx
 msgid "collapse panel"
 msgstr "パネルを折りたたむ"
@@ -339,6 +380,10 @@ msgstr "コンセプトページ"
 #: viewer/App.tsx
 msgid "concepts"
 msgstr "コンセプト"
+
+#: viewer/AuditCoverage.tsx
+msgid "confidence"
+msgstr "確信度"
 
 #: viewer/AuditCoverage.tsx
 msgid "conflicted"
@@ -434,6 +479,10 @@ msgstr "review coverage レポートがないため coverage は不明です"
 msgid "covered"
 msgstr "カバー済み"
 
+#: viewer/AuditCoverage.tsx
+msgid "current observation"
+msgstr "現在の観測"
+
 #: viewer/Security.tsx
 msgid "dataflow"
 msgstr "データフロー："
@@ -441,6 +490,10 @@ msgstr "データフロー："
 #: viewer/Attention.tsx
 msgid "decision recorded"
 msgstr "判断を記録済み"
+
+#: viewer/AuditCoverage.tsx
+msgid "decision state unavailable — finding statuses shown as unknown"
+msgstr "判定状態を利用できません — 指摘の状態は不明として表示されます"
 
 #: viewer/Attention.tsx
 msgid "declared source scope"
@@ -493,6 +546,34 @@ msgid "evidence refs"
 msgstr "証拠参照"
 
 #: viewer/AuditCoverage.tsx
+msgid "exact"
+msgstr "厳密"
+
+#: viewer/AuditCoverage.tsx
+msgid "exact complete"
+msgstr "厳密カバレッジ完了"
+
+#: viewer/AuditCoverage.tsx
+msgid "Exact coverage"
+msgstr "厳密カバレッジ"
+
+#: viewer/AuditCoverage.tsx
+msgid "exact incomplete"
+msgstr "厳密カバレッジ不完全"
+
+#: viewer/AuditCoverage.tsx
+msgid "exact invalid"
+msgstr "厳密カバレッジ無効"
+
+#: viewer/AuditCoverage.tsx
+msgid "exact review coverage unavailable"
+msgstr "厳密なレビューカバレッジを利用できません"
+
+#: viewer/AuditCoverage.tsx
+msgid "exact unknown"
+msgstr "厳密カバレッジ不明"
+
+#: viewer/AuditCoverage.tsx
 msgid "excluded"
 msgstr "除外"
 
@@ -503,6 +584,19 @@ msgstr "パネルを開く"
 #: viewer/App.tsx
 msgid "expand sidebar"
 msgstr "サイドバーを開く"
+
+#: viewer/AuditCoverage.tsx
+msgid "expired"
+msgstr "期限切れ"
+
+#. placeholder {0}: finding.expiresAt
+#: viewer/AuditCoverage.tsx
+msgid "expires {0}"
+msgstr "有効期限 {0}"
+
+#: viewer/AuditCoverage.tsx
+msgid "false positive"
+msgstr "誤検知"
 
 #: viewer/Doc.tsx
 msgid "file"
@@ -541,6 +635,10 @@ msgstr "ファイルを絞り込み…"
 msgid "filter paths…"
 msgstr "パスをフィルター…"
 
+#: viewer/AuditCoverage.tsx
+msgid "findings"
+msgstr "指摘"
+
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
 msgid "Findings"
@@ -571,8 +669,8 @@ msgid "Fresh when first observed; these versions have no human review receipt."
 msgstr "初回観測時には最新でした。これらの版には人によるレビュー記録がありません。"
 
 #: viewer/Concept.tsx
-msgid "full walkthrough"
-msgstr "完全な解説"
+#~ msgid "full walkthrough"
+#~ msgstr "完全な解説"
 
 #: viewer/AuditCoverage.tsx
 msgid "gaps"
@@ -590,6 +688,18 @@ msgstr "用語集"
 msgid "gone from the scan"
 msgstr "スキャン対象から消えました"
 
+#: viewer/AuditCoverage.tsx
+msgid "Grok CLI"
+msgstr "Grok CLI"
+
+#: viewer/AuditCoverage.tsx
+msgid "historical"
+msgstr "履歴"
+
+#: viewer/AuditCoverage.tsx
+msgid "history ahead"
+msgstr "履歴が先行"
+
 #: viewer/Attention.tsx
 msgid "I understand"
 msgstr "理解した"
@@ -604,8 +714,8 @@ msgid "ignored — excluded by .atlas/config.json"
 msgstr "除外 — .atlas/config.json で除外されています"
 
 #: viewer/Concept.tsx
-msgid "Inside the full walkthrough"
-msgstr "完全な解説の内容"
+#~ msgid "Inside the full walkthrough"
+#~ msgstr "完全な解説の内容"
 
 #: viewer/AuditCoverage.tsx
 msgid "invalid"
@@ -636,6 +746,26 @@ msgstr "言語"
 msgid "latest scan"
 msgstr "最新スキャン"
 
+#: viewer/AuditCoverage.tsx
+msgid "lifecycle new"
+msgstr "ライフサイクル新規"
+
+#: viewer/AuditCoverage.tsx
+msgid "lifecycle persisting"
+msgstr "ライフサイクル継続"
+
+#: viewer/AuditCoverage.tsx
+msgid "lifecycle reopened"
+msgstr "ライフサイクル再開"
+
+#: viewer/AuditCoverage.tsx
+msgid "lifecycle resolved"
+msgstr "ライフサイクル解決済み"
+
+#: viewer/AuditCoverage.tsx
+msgid "lifecycle unknown"
+msgstr "ライフサイクル不明"
+
 #: viewer/Preview.tsx
 msgid "lines"
 msgstr "行"
@@ -648,6 +778,10 @@ msgstr "読み込み中…"
 msgid "Machine freshness is kept separate from human understanding. These counts diagnose Atlas artifacts only."
 msgstr ""
 
+#: viewer/AuditCoverage.tsx
+msgid "manual"
+msgstr "手動"
+
 #: viewer/Doc.tsx
 msgid "Markdown note for this path…"
 msgstr "このパスの Markdown ノート…"
@@ -659,6 +793,10 @@ msgstr "エージェントにメッセージ… (⏎ 送信、⇧⏎ 改行)"
 #: viewer/Chat.tsx
 msgid "Messages go to whichever agent session is polling <0>/chat/poll</0>."
 msgstr "メッセージは <0>/chat/poll</0> をポーリングしているエージェントセッションに送信されます。"
+
+#: viewer/AuditCoverage.tsx
+msgid "migration"
+msgstr "移行"
 
 #: viewer/App.tsx
 #: viewer/Attention.tsx
@@ -766,6 +904,7 @@ msgid "No open actions in this view"
 msgstr "この表示に未対応アクションはありません"
 
 #: viewer/audit-copy.ts
+#: viewer/AuditNav.tsx
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
 msgid "No open findings recorded"
@@ -778,6 +917,11 @@ msgstr ""
 #: viewer/Preview.tsx
 msgid "no preview — file contents are served by <0>repo-atlas serve</0>; the static build only carries descriptions"
 msgstr "プレビューなし — ファイル内容は <0>repo-atlas serve</0> で提供されます。静的ビルドには説明のみ含まれます"
+
+#: viewer/AuditCoverage.tsx
+#: viewer/Security.tsx
+msgid "No reportable findings in this evidenced scope."
+msgstr "この証跡範囲内で報告すべき指摘はありません。"
 
 #: viewer/Attention.tsx
 msgid "No review events yet."
@@ -803,11 +947,24 @@ msgstr "現行 coverage レポートで未受け入れ"
 msgid "not relevant"
 msgstr "関係なし"
 
+#: viewer/AuditCoverage.tsx
+msgid "not supplied"
+msgstr "未提供"
+
 #: viewer/Attention.tsx
 msgid "Nothing has been reviewed yet."
 msgstr "まだレビューされていません。"
 
+#: viewer/AuditCoverage.tsx
+msgid "observation"
+msgstr "観測"
+
+#: viewer/AuditCoverage.tsx
+msgid "Observation history"
+msgstr "観測履歴"
+
 #: viewer/Attention.tsx
+#: viewer/AuditCoverage.tsx
 #: viewer/Security.tsx
 #: viewer/TestAudit.tsx
 msgid "open"
@@ -847,8 +1004,8 @@ msgid "outdated — code changed since this was written"
 msgstr "古い — 書かれてからコードが変更されました"
 
 #: viewer/Concept.tsx
-msgid "overview"
-msgstr "概要"
+#~ msgid "overview"
+#~ msgstr "概要"
 
 #: viewer/AuditNav.tsx
 msgid "Overview"
@@ -874,6 +1031,10 @@ msgstr "固定された読み順"
 msgid "policy conflict"
 msgstr "ポリシー競合"
 
+#: viewer/AuditCoverage.tsx
+msgid "policy drift — decision predates current policy"
+msgstr "ポリシードリフト — 判定は現在のポリシーより前のものです"
+
 #: viewer/App.tsx
 msgid "primary"
 msgstr "メイン"
@@ -895,17 +1056,29 @@ msgstr "このディレクトリをPDFとして印刷"
 msgid "print this page as a PDF"
 msgstr "このページをPDFとして印刷"
 
+#: viewer/AuditCoverage.tsx
+msgid "producer"
+msgstr "プロデューサー"
+
+#: viewer/AuditCoverage.tsx
+msgid "Producer"
+msgstr "プロデューサー"
+
+#: viewer/AuditCoverage.tsx
+msgid "prompt"
+msgstr "プロンプト"
+
 #: viewer/Attention.tsx
 msgid "Quiet baselines"
 msgstr "静かなベースライン"
 
 #: viewer/Concept.tsx
-msgid "read the full walkthrough"
-msgstr "完全な解説を読む"
+#~ msgid "read the full walkthrough"
+#~ msgstr "完全な解説を読む"
 
 #: viewer/Concept.tsx
-msgid "reading mode"
-msgstr "閲覧モード"
+#~ msgid "reading mode"
+#~ msgstr "閲覧モード"
 
 #: viewer/Preview.tsx
 msgid "reading order"
@@ -933,11 +1106,16 @@ msgstr "記録された監査証拠"
 msgid "referenced in {0} notes"
 msgstr "{0} 件のノートで参照"
 
+#: viewer/AuditCoverage.tsx
+msgid "remediated"
+msgstr "修復済み"
+
 #: viewer/Attention.tsx
 msgid "reopen"
 msgstr "再開"
 
 #: viewer/Attention.tsx
+#: viewer/AuditCoverage.tsx
 msgid "reopened"
 msgstr "再開済み"
 
@@ -1027,6 +1205,10 @@ msgstr "ルールセット"
 msgid "rulesets"
 msgstr "ルールセット"
 
+#: viewer/AuditCoverage.tsx
+msgid "run"
+msgstr "実行"
+
 #: viewer/Doc.tsx
 msgid "save"
 msgstr "保存"
@@ -1061,10 +1243,31 @@ msgstr "Security"
 msgid "security audit"
 msgstr "セキュリティ監査"
 
+#: viewer/AuditCoverage.tsx
+msgid "semantic"
+msgstr "意味"
+
+#: viewer/AuditCoverage.tsx
+msgid "Semantic coverage"
+msgstr "意味カバレッジ"
+
+#: viewer/AuditCoverage.tsx
+msgid "semantic covered"
+msgstr "意味カバレッジ充足"
+
+#: viewer/AuditCoverage.tsx
+msgid "semantic gap"
+msgstr "意味カバレッジにギャップ"
+
+#: viewer/AuditCoverage.tsx
+msgid "semantic unknown"
+msgstr "意味カバレッジ不明"
+
 #: viewer/Chat.tsx
 msgid "send"
 msgstr "送信"
 
+#: viewer/AuditCoverage.tsx
 #: viewer/Security.tsx
 msgid "separate design"
 msgstr "separate design"
@@ -1106,6 +1309,14 @@ msgstr "並べ替え: a–z"
 msgid "sort: reading"
 msgstr "並べ替え: 読み順"
 
+#: viewer/AuditCoverage.tsx
+msgid "source"
+msgstr "ソース"
+
+#: viewer/AuditCoverage.tsx
+msgid "source contract"
+msgstr "ソースコントラクト"
+
 #: viewer/Concept.tsx
 msgid "sources →"
 msgstr "ソース →"
@@ -1127,6 +1338,10 @@ msgstr "古い監査証拠 — 再監査が必要"
 msgid "stale evidence"
 msgstr "古い証拠"
 
+#: viewer/AuditCoverage.tsx
+msgid "stale exact bytes — re-audit needed"
+msgstr "厳密バイトが古い — 再監査が必要"
+
 #: viewer/Concept.tsx
 #: viewer/Doc.tsx
 msgid "stamped"
@@ -1137,12 +1352,20 @@ msgid "start reading ↘"
 msgstr "読み始める ↘"
 
 #: viewer/AuditCoverage.tsx
+msgid "state"
+msgstr "状態"
+
+#: viewer/AuditCoverage.tsx
 msgid "status"
 msgstr "状態"
 
 #: viewer/Attention.tsx
 msgid "Structure"
 msgstr "構造"
+
+#: viewer/AuditCoverage.tsx
+msgid "superseded"
+msgstr "置き換え済み"
 
 #: viewer/Attention.tsx
 msgid "system health"
@@ -1186,6 +1409,10 @@ msgstr "このソース版はまだレビューが必要です。"
 msgid "This version was fresh when first observed; no human review receipt exists."
 msgstr "この版は初回確認時点で最新でした。人によるレビュー記録はありません。"
 
+#: viewer/AuditCoverage.tsx
+msgid "transcript digest"
+msgstr "トランスクリプトダイジェスト"
+
 #: viewer/App.tsx
 msgid "tree layout: alphabetical or reading order"
 msgstr "ツリーのレイアウト: アルファベット順または読み順"
@@ -1215,6 +1442,7 @@ msgid "Units"
 msgstr "ユニット"
 
 #: viewer/audit-copy.ts
+#: viewer/AuditCoverage.tsx
 msgid "unknown"
 msgstr "不明"
 
@@ -1244,6 +1472,10 @@ msgstr "外側のツリーへ"
 #: viewer/Doc.tsx
 msgid "uses →"
 msgstr "使用先 →"
+
+#: viewer/AuditCoverage.tsx
+msgid "V3 observations"
+msgstr "V3 観測"
 
 #: viewer/Concept.tsx
 msgid "view receipt"

@@ -940,3 +940,291 @@ export function auditSidebarRows(model) {
     }));
     return [...fixed, ...units];
 }
+function emptyV3StatusCounts() {
+    return {
+        open: 0,
+        accepted: 0,
+        expired: 0,
+        reopened: 0,
+        remediated: 0,
+        'false-positive': 0,
+        superseded: 0,
+        'separate-design': 0,
+        unknown: 0,
+    };
+}
+function v3ExactPresentation(observation) {
+    const exactCoverage = observation.exactCoverage;
+    const completeness = exactCoverage.completeness;
+    const state = completeness === 'unknown'
+        ? 'unknown'
+        : completeness === 'partial' || exactCoverage.unreviewed.length > 0
+            ? 'incomplete'
+            : 'complete';
+    return {
+        state,
+        completeness,
+        fileCount: observation.scope.identityBasis === 'exact-inventory'
+            ? observation.scope.fileCount
+            : null,
+        reviewedFileCount: completeness === 'unknown' ? null : exactCoverage.reviewedFileCount,
+        unreviewedCount: completeness === 'unknown' ? 0 : exactCoverage.unreviewed.length,
+    };
+}
+function v3InvalidExactPresentation() {
+    return {
+        state: 'invalid',
+        completeness: 'unknown',
+        fileCount: null,
+        reviewedFileCount: null,
+        unreviewedCount: 0,
+    };
+}
+function v3SemanticPresentation(observation) {
+    const semantic = observation.semanticCoverage;
+    const surfaces = {
+        total: semantic.surfaces.length,
+        reported: 0,
+        noIssueFound: 0,
+        rejected: 0,
+        notApplicable: 0,
+        needsFollowUp: 0,
+    };
+    for (const surface of semantic.surfaces) {
+        if (surface.disposition === 'reported')
+            surfaces.reported += 1;
+        else if (surface.disposition === 'no_issue_found')
+            surfaces.noIssueFound += 1;
+        else if (surface.disposition === 'rejected')
+            surfaces.rejected += 1;
+        else if (surface.disposition === 'not_applicable')
+            surfaces.notApplicable += 1;
+        else if (surface.disposition === 'needs_follow_up')
+            surfaces.needsFollowUp += 1;
+    }
+    const state = semantic.completeness === 'unknown'
+        ? 'unknown'
+        : semantic.completeness === 'partial' ||
+            semantic.deferred.length > 0 ||
+            surfaces.needsFollowUp > 0
+            ? 'gap'
+            : 'covered';
+    return {
+        state,
+        completeness: semantic.completeness,
+        surfaces,
+        deferredCount: semantic.deferred.length,
+        migrated: observation.producer.kind === 'migration',
+    };
+}
+function v3UnknownSemanticPresentation() {
+    return {
+        state: 'unknown',
+        completeness: 'unknown',
+        surfaces: {
+            total: 0,
+            reported: 0,
+            noIssueFound: 0,
+            rejected: 0,
+            notApplicable: 0,
+            needsFollowUp: 0,
+        },
+        deferredCount: 0,
+        migrated: false,
+    };
+}
+function v3ProducerPresentation(producer) {
+    const shared = {
+        kind: producer.kind,
+        name: producer.name,
+        version: producer.version,
+        adapter: producer.adapter,
+        adapterVersion: producer.adapterVersion,
+        runId: producer.runId,
+        identityDigest: producer.identityDigest,
+    };
+    if (producer.identityBasis === 'codex-contract') {
+        return {
+            ...shared,
+            identityBasis: 'codex-contract',
+            ruleset: null,
+            prompt: null,
+            transcriptDigest: null,
+            sourceContract: {
+                namespace: producer.sourceContract.namespace,
+                sealedAt: producer.sourceContract.sealedAt,
+            },
+        };
+    }
+    return {
+        ...shared,
+        identityBasis: 'ruleset',
+        ruleset: { id: producer.ruleset.id, digest: producer.ruleset.digest },
+        prompt: producer.prompt
+            ? {
+                builtinVersion: producer.prompt.builtinVersion,
+                digest: producer.prompt.digest,
+                extraPath: producer.prompt.extraPath ?? null,
+            }
+            : null,
+        transcriptDigest: producer.transcriptDigest ?? null,
+        sourceContract: null,
+    };
+}
+function v3FindingStatus(effective) {
+    if (effective === undefined) {
+        return {
+            status: 'unknown',
+            lifecycle: 'unknown',
+            blocking: true,
+            derivation: 'decision-state-unavailable',
+            expiresAt: null,
+            expiryState: 'not-applicable',
+            reopenAcknowledged: false,
+            policyDrift: false,
+        };
+    }
+    const status = effective.derivation === 'carry-invalidated' && effective.expiryState === 'expired'
+        ? 'expired'
+        : effective.disposition === 'accepted-risk'
+            ? 'accepted'
+            : effective.disposition;
+    return {
+        status,
+        lifecycle: effective.lifecycle,
+        blocking: effective.blocking,
+        derivation: effective.derivation,
+        expiresAt: effective.expiresAt,
+        expiryState: effective.expiryState,
+        reopenAcknowledged: effective.reopenAcknowledged,
+        policyDrift: effective.derivation === 'carry-invalidated' &&
+            effective.expiryState !== 'expired',
+    };
+}
+function v3FindingPresentation(finding, effective) {
+    return {
+        findingId: finding.findingId,
+        occurrenceId: finding.occurrenceId,
+        title: finding.title,
+        severity: finding.severity.level,
+        severityScore: finding.severity.score ?? null,
+        confidence: finding.confidence?.level ?? null,
+        category: finding.taxonomy.category,
+        ...v3FindingStatus(effective),
+        provenance: {
+            source: finding.provenance.source,
+            producerSource: finding.provenance.producerSource ?? null,
+            sourceFindingId: finding.provenance.sourceFindingId ?? null,
+            sourceOccurrenceId: finding.provenance.sourceOccurrenceId ?? null,
+        },
+        locations: finding.locations.map((location) => `${location.path}:${location.startLine}`),
+    };
+}
+function v3ObservationRef(observationId, observedAt, digest, findingCount, publicationState) {
+    return { observationId, observedAt, digest, findingCount, publicationState };
+}
+/** `.atlas/audits/<slug>.json[/json-pointer]` → slug, else null. */
+function v3SlugFromDiagnosticPath(path) {
+    const match = /^\.atlas\/audits\/([^/]+)\.json(?:\/|$)/.exec(path);
+    return match ? match[1] : null;
+}
+/**
+ * Pure V3 presentation derivation. Exact coverage, semantic coverage, finding
+ * lifecycle, producer integrity, and history are independent states — no state
+ * substitutes for another, and absent evidence is never upgraded.
+ */
+export function deriveAuditV3Portfolio(input) {
+    const historyBySlug = new Map(input.histories.map((history) => [history.slug, history]));
+    const historyAhead = [...input.historyAhead].sort(compareText);
+    const historyAheadSet = new Set(historyAhead);
+    const diagnostics = input.diagnostics.map((diagnostic) => ({ ...diagnostic }));
+    const invalidSlugs = new Map();
+    for (const diagnostic of diagnostics) {
+        const slug = v3SlugFromDiagnosticPath(diagnostic.path);
+        if (slug === null)
+            continue;
+        const rows = invalidSlugs.get(slug) ?? [];
+        rows.push(diagnostic);
+        invalidSlugs.set(slug, rows);
+    }
+    const units = [];
+    for (const ledger of input.observations) {
+        const observation = ledger.current;
+        const effectiveFindings = input.decisionState?.findings;
+        const findings = observation.findings.map((finding) => v3FindingPresentation(finding, effectiveFindings?.get(finding.findingId)));
+        const countsByStatus = emptyV3StatusCounts();
+        for (const finding of findings)
+            countsByStatus[finding.status] += 1;
+        const history = historyBySlug.get(ledger.slug);
+        const currentIndex = history
+            ? history.entries.findIndex((entry) => entry.observationId === observation.observationId)
+            : -1;
+        const historyRefs = (history?.entries ?? []).map((entry, index) => v3ObservationRef(entry.observationId, entry.observation.observedAt, entry.entryDigest, entry.observation.findings.length, index === currentIndex
+            ? 'current'
+            : historyAheadSet.has(ledger.slug) && index > currentIndex
+                ? 'history-ahead'
+                : 'historical'));
+        units.push({
+            slug: ledger.slug,
+            title: ledger.title,
+            conceptSlug: ledger.conceptSlug ?? null,
+            exact: v3ExactPresentation(observation),
+            semantic: v3SemanticPresentation(observation),
+            staleExactBytes: input.staleBySlug.get(ledger.slug) ?? false,
+            policyDrift: findings.some((finding) => finding.policyDrift),
+            producer: v3ProducerPresentation(observation.producer),
+            current: v3ObservationRef(observation.observationId, observation.observedAt, ledger.currentDigest, observation.findings.length, 'current'),
+            history: historyRefs,
+            historyAhead: historyAheadSet.has(ledger.slug),
+            findings,
+            countsByStatus,
+            openCount: countsByStatus.open + countsByStatus.expired + countsByStatus.reopened,
+            zeroFindings: observation.findings.length === 0,
+        });
+        invalidSlugs.delete(ledger.slug);
+    }
+    // Structurally invalid ledgers stay visible as invalid exact units; they are
+    // never silently dropped behind the valid portfolio.
+    for (const slug of [...invalidSlugs.keys()].sort(compareText)) {
+        units.push({
+            slug,
+            title: slug,
+            conceptSlug: null,
+            exact: v3InvalidExactPresentation(),
+            semantic: v3UnknownSemanticPresentation(),
+            staleExactBytes: false,
+            policyDrift: false,
+            producer: null,
+            current: null,
+            history: [],
+            historyAhead: false,
+            findings: [],
+            countsByStatus: emptyV3StatusCounts(),
+            openCount: 0,
+            zeroFindings: false,
+        });
+    }
+    units.sort((left, right) => compareText(left.slug, right.slug));
+    const totals = {
+        units: units.length,
+        findings: 0,
+        openCount: 0,
+        countsByStatus: emptyV3StatusCounts(),
+    };
+    for (const unit of units) {
+        totals.findings += unit.findings.length;
+        totals.openCount += unit.openCount;
+        for (const status of Object.keys(unit.countsByStatus)) {
+            totals.countsByStatus[status] += unit.countsByStatus[status];
+        }
+    }
+    return {
+        generatedAt: input.now,
+        policyDigest: input.policyDigest,
+        decisionStateAvailable: input.decisionState !== null,
+        diagnostics,
+        historyAhead,
+        units,
+        totals,
+    };
+}

@@ -218,3 +218,121 @@ test('legacy payload without review coverage fails closed instead of crashing', 
   assert.equal(localized.reviewCoverage.state, 'missing')
   assert.equal(localized.reviewCoverage.report, null)
 })
+
+// ---------------------------------------------------------------------------
+// V3 viewer chrome localization catalogs
+// ---------------------------------------------------------------------------
+
+import fs from 'node:fs'
+
+const V3_CHROME_MSGIDS = [
+  // Exact coverage states — distinct from semantic coverage vocabulary.
+  'exact complete',
+  'exact incomplete',
+  'exact invalid',
+  'exact unknown',
+  // Semantic coverage states.
+  'semantic covered',
+  'semantic gap',
+  'semantic unknown',
+  // Finding lifecycle statuses beyond the V1/V2 disposition vocabulary.
+  'expired',
+  'reopened',
+  'remediated',
+  'false positive',
+  'superseded',
+  // Lifecycle labels (new/persisting/resolved/reopened/unknown).
+  'lifecycle new',
+  'lifecycle persisting',
+  'lifecycle resolved',
+  'lifecycle reopened',
+  'lifecycle unknown',
+  // Confidence honesty: absent evidence renders "not supplied", never low.
+  'confidence',
+  'not supplied',
+  // Producer / provenance / transcript proof chrome.
+  'producer',
+  'Producer',
+  'run',
+  'adapter',
+  'prompt',
+  'transcript digest',
+  'source contract',
+  'source',
+  'Grok CLI',
+  'Codex Security',
+  'migration',
+  'manual',
+  // Sections and table columns.
+  'V3 observations',
+  'Exact coverage',
+  'Semantic coverage',
+  'Observation history',
+  'exact',
+  'semantic',
+  'findings',
+  '{0} findings',
+  // Current observation versus history.
+  'current observation',
+  'history ahead',
+  'observation',
+  'state',
+  'historical',
+  // Stale exact bytes and policy drift stay visually prominent.
+  'stale exact bytes — re-audit needed',
+  'policy drift — decision predates current policy',
+  'decision state unavailable — finding statuses shown as unknown',
+  // Zero findings is scoped honesty, never "safe".
+  'No reportable findings in this evidenced scope.',
+  // Exact/semantic panel facts.
+  '{0} of {1} files reviewed',
+  'exact review coverage unavailable',
+  '{0} unreviewed',
+  '{0} surfaces',
+  '{0} deferred',
+  '{0} need follow-up',
+  'expires {0}',
+]
+
+function parsePoEntries(text) {
+  const entries = new Map()
+  let msgid = null
+  let msgstr = null
+  let state = null
+  const unquote = (line) => {
+    const match = line.match(/^\s*(?:msgid|msgstr)?\s*"((?:[^"\\]|\\.)*)"\s*$/)
+    if (!match) return null
+    return match[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\')
+  }
+  for (const line of text.split('\n')) {
+    if (line.startsWith('msgid ')) {
+      if (msgid !== null && msgstr !== null) entries.set(msgid, msgstr)
+      msgid = unquote(line) ?? ''
+      msgstr = null
+      state = 'msgid'
+    } else if (line.startsWith('msgstr ')) {
+      msgstr = unquote(line) ?? ''
+      state = 'msgstr'
+    } else if (line.startsWith('"') && state !== null) {
+      const part = unquote(line) ?? ''
+      if (state === 'msgid') msgid += part
+      else msgstr += part
+    }
+  }
+  if (msgid !== null && msgstr !== null) entries.set(msgid, msgstr)
+  return entries
+}
+
+test('V3 viewer chrome is present and translated in every locale catalog', () => {
+  for (const locale of ['en', 'ja', 'zh', 'ko']) {
+    const file = new URL(`../viewer/locales/${locale}/messages.po`, import.meta.url)
+    const entries = parsePoEntries(fs.readFileSync(file, 'utf8'))
+    for (const id of V3_CHROME_MSGIDS) {
+      assert.ok(entries.has(id), `${locale} catalog is missing msgid ${JSON.stringify(id)}`)
+      assert.ok(
+        entries.get(id).trim().length > 0,
+        `${locale} catalog leaves msgid ${JSON.stringify(id)} untranslated`,
+      )
+    }
+  }
+})

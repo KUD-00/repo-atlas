@@ -5,6 +5,10 @@ import { marked } from 'marked';
 import { fillGlossaryRefs } from './glossary.js';
 import { buildAttentionPayload } from './attention.js';
 import { missingReviewCoverage } from './review-coverage.js';
+import { loadAuditObservations, loadAuditObservationHistory } from './audit-v3.js';
+import { buildAuditDecisionIndex, loadAuditDecisionLedgers, reduceAuditDecisionState, } from './audit-decisions.js';
+import { loadAuditReviewPolicy } from './audit-policy.js';
+import { deriveAuditV3Portfolio, } from './audit-assurance.js';
 const VENDOR = path.join(path.dirname(fileURLToPath(import.meta.url)), '../src/vendor');
 function readVendor(name) {
     const file = path.join(VENDOR, name);
@@ -21,9 +25,71 @@ let mermaidJs = null;
 function loadMermaid() {
     return (mermaidJs ??= fs.readFileSync(path.join(VENDOR, 'mermaid.js'), 'utf8'));
 }
+/**
+ * Load the repository's V3 audit state and derive the shared presentation
+ * model. Both the static build and the live server call this so their
+ * payloads present the same V3 model; all derivation beyond loading and
+ * decision reduction is pure in audit-assurance.ts. Returns null only when
+ * the repository holds no V3 state at all — invalid V3 state returns a
+ * model with diagnostics instead of disappearing.
+ */
+export function loadAuditV3Presentation(root, securityUnits, now = new Date().toISOString()) {
+    const observations = loadAuditObservations(root);
+    const histories = loadAuditObservationHistory(root);
+    const decisions = loadAuditDecisionLedgers(root);
+    const diagnostics = [
+        ...observations.diagnostics,
+        ...histories.diagnostics,
+        ...decisions.diagnostics,
+    ];
+    if (observations.observations.length === 0 &&
+        histories.histories.length === 0 &&
+        decisions.ledgers.length === 0 &&
+        diagnostics.length === 0) {
+        return null;
+    }
+    const policy = loadAuditReviewPolicy(root);
+    const decisionPolicy = policy.policy?.securityDecisions ?? null;
+    if (decisionPolicy === null) {
+        for (const diagnostic of policy.diagnostics) {
+            diagnostics.push({
+                code: diagnostic.code,
+                path: diagnostic.path ?? '.atlas/review-policy.json',
+                message: diagnostic.message,
+            });
+        }
+    }
+    const staleBySlug = new Map(securityUnits
+        .filter((unit) => unit.formatVersion === 3)
+        .map((unit) => [unit.slug, unit.stale]));
+    let decisionState = null;
+    if (decisionPolicy !== null) {
+        try {
+            const index = buildAuditDecisionIndex(observations.observations, histories.histories, decisions.ledgers);
+            decisionState = reduceAuditDecisionState(index, decisionPolicy, now);
+        }
+        catch (error) {
+            diagnostics.push({
+                code: 'audit-decision-reduction-failed',
+                path: '.atlas/audit-decisions',
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
+    return deriveAuditV3Portfolio({
+        observations: observations.observations,
+        histories: histories.histories,
+        decisionState,
+        policyDigest: decisionPolicy?.policyDigest ?? null,
+        staleBySlug,
+        historyAhead: observations.historyAhead,
+        diagnostics,
+        now,
+    });
+}
 /** The data the viewer runs on — also served as JSON by `serve`'s /data so
  * open pages can refresh in place instead of reloading. */
-export function buildPayload({ repoName, commit, status, graph = null, glossary = [], basePoints = [], artifacts = [], audits = [], testAudits = [], reviewCoverage = missingReviewCoverage(), defaultLocale = 'en', auditSourceLocale = 'en', auditLocalizations = {}, attention, }) {
+export function buildPayload({ repoName, commit, status, graph = null, glossary = [], basePoints = [], artifacts = [], audits = [], testAudits = [], reviewCoverage = missingReviewCoverage(), defaultLocale = 'en', auditSourceLocale = 'en', auditLocalizations = {}, auditV3 = null, attention, }) {
     const generatedAt = new Date().toISOString();
     const byPath = new Map(status.entries.map((e) => [e.path, e]));
     const makeNode = (p) => {
@@ -118,6 +184,7 @@ export function buildPayload({ repoName, commit, status, graph = null, glossary 
         defaultLocale,
         auditSourceLocale,
         auditLocalizations,
+        auditV3,
     };
 }
 export function buildHtml(input) {

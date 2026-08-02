@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "note": "Fixture egress boundary policy. RelayOS-owned product input; Repo Atlas seals but never interprets it.",
+  "boundaries": [
+    {
+      "id": "fixture-llm-egress",
+      "hosts": ["api.fixture.invalid"],
+      "classification": "credentialed"
+    }
+  ]
+}

@@ -1,0 +1,1779 @@
+{
+  "schema": "relayos-security-scan/dispositions/v1",
+  "dispositions": [
+    {
+      "id": "SEC-0160E25BB573",
+      "sourceBlob": "175d635e2807f2f8fc77f37a5a049cf12071a413",
+      "owner": "runner-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/d25e9c16aa67f647.json",
+        "HTTP >=400 failure summary includes truncate(response.body, 240) — still remediated. Re-read: the >=400 path still builds its diagnostic through safeDiagnostic with only capabilityId and status metadata (L11, L144); no response body reaches the run summary. This round's only edit is in the AbortSignal combiner, where `signals[0]!` under `signals.length === 1` became a destructured sole signal."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: On HTTP ≥400 the failure summary includes truncate(response.body, 240).",
+      "fixBlob": "f3c15957032b75b5669da5d7db4214db663b0600",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/d25e9c16aa67f647.json",
+        "fixBlob": "f3c15957032b75b5669da5d7db4214db663b0600"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "capability HTTP containment suite",
+        "command": "pnpm --filter @relayos/execution-provider-capability-http test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-0450C72FA933",
+      "sourceBlob": "4f2a127145f0099331c5e3a5bfb47693ae59bd56",
+      "owner": "runner-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/87106b98887cd0cb.json",
+        "configOverride (lines 34-36) encodes all values with JSON.stringify; providerConfigFlags, model_reasoning_effort, developer_instructions, and mcp server urls all go through it. Quote/newline value-break/injection into -c strings is closed. Provider id remains caller-supplied key path segment but production driver hardcodes id \"relay\"."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Codex -c overrides interpolate values without config escaping.",
+      "fixBlob": "d08ae59e954eaae1ee8676dea0d32b34fcf46856",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/87106b98887cd0cb.json",
+        "fixBlob": "d08ae59e954eaae1ee8676dea0d32b34fcf46856"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "Codex driver bounded-output suite",
+        "command": "pnpm --filter @relayos/driver-codex test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-0BCB1D23E0AE",
+      "sourceBlob": "2309729c7020be2a48f57508cedf63b40699e2b1",
+      "owner": "runner-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/004ef7423b2fb0b7.json",
+        "cursor[segment.name] permits __proto__/constructor/prototype — still remediated. Re-read: FORBIDDEN_PROP_NAMES still holds all three (L23), assertAllowedPropName is still called for both dot and quoted segments (L33, L87) and still throws (L59-60), and traversal still reads own keys only via Object.prototype.hasOwnProperty.call (L37). This round's only edits replace three `path[i]!` character reads in the tokeniser with `path.charAt(i)`, which returns \"\" out of range rather than undefined; no property name, guard or traversal step is in the diff."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Property access cursor[segment.name] permits __proto__, constructor, prototype.",
+      "fixBlob": "0739afa1b7df3b0cdc762d37e61b1335e9d0e3cd",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/004ef7423b2fb0b7.json",
+        "fixBlob": "0739afa1b7df3b0cdc762d37e61b1335e9d0e3cd"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "capability HTTP containment suite",
+        "command": "pnpm --filter @relayos/execution-provider-capability-http test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-1247FFFBB664",
+      "sourceBlob": "1b0916eb9ce475785c5115eb2d1f4eb9b81fd825",
+      "owner": "cli-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/3493b0baf9d6618d.json",
+        "writeSecretFile (config.ts:135-193) no longer creates/writes the final credentials path then chmod's it. Temp is openSync(O_WRONLY|O_CREAT|O_EXCL, 0o600) at :146-150, fchmodSync(fd, 0o600) before content at :152-154, writeFileSync+fsyncSync+closeSync at :155-158, then renameSync to final path at :159; post-rename mode must be 0o600 or throw (:180-184). Parent is 0700 (:137-140). saveCredentials normalizes daemonUrl before any write (:98-103)."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Credentials written then chmod'd (TOCTOU window).",
+      "fixBlob": "694b5f8c35fc99f3137b0092cfae38cebec2f2cb",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/3493b0baf9d6618d.json",
+        "fixBlob": "694b5f8c35fc99f3137b0092cfae38cebec2f2cb"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "CLI security boundary suite",
+        "command": "pnpm --filter @relayos/cli test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-130CB1D83415",
+      "sourceBlob": "175d635e2807f2f8fc77f37a5a049cf12071a413",
+      "owner": "runner-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/d25e9c16aa67f647.json",
+        "fetch uses default redirect: follow — still remediated. Re-read: capabilityHttpRequest still passes `redirect: \"error\"` (L261), so a 3xx is never followed to an internal or metadata host. This round's only edit is in the AbortSignal combiner, where `signals[0]!` under `signals.length === 1` became a destructured sole signal."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: fetch(request.url, …) uses default redirect: \"follow\".",
+      "fixBlob": "f3c15957032b75b5669da5d7db4214db663b0600",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/d25e9c16aa67f647.json",
+        "fixBlob": "f3c15957032b75b5669da5d7db4214db663b0600"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "capability HTTP containment suite",
+        "command": "pnpm --filter @relayos/execution-provider-capability-http test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-16CADC16A870",
+      "sourceBlob": "3095724710b98815d5fad67e589836139bc57464",
+      "owner": "runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/f09732eb703ce228.json",
+        "On registry miss (dispatcher.ts:203-230), CAPABILITY_NOT_FOUND is returned only after prepareMetadataRequest/resolveContext and authorizeMetadata/role+scope checks (same metadataPermission gate as GET /rpc/_meta). Unauthenticated callers hit the auth boundary before 404 and cannot distinguish unknown vs registered names by status alone."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Capability existence oracle before authentication.",
+      "fixBlob": "349c20de0d319305b5a393bcf64380ecf3f180bb",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/f09732eb703ce228.json",
+        "fixBlob": "349c20de0d319305b5a393bcf64380ecf3f180bb"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "RPC authentication-before-disclosure suite",
+        "command": "pnpm --filter @relayos/control-http test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-18FB80BED208",
+      "sourceBlob": "fb2f3941d0581f83cfe444ddf046fd579ecc9698",
+      "owner": "marketplace-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/5ed6be787e6cad4b.json",
+        "listRevisions emits signature: revision.signature (not hard-coded empty); publish stores verified signature on the revision record."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Every resolved closure entry is emitted with hard-coded signature:'' — the consumer half of the missing-signature gap.",
+      "fixBlob": "d8c90199c97089175694efb7c12bb197f7af42f7",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/5ed6be787e6cad4b.json",
+        "fixBlob": "d8c90199c97089175694efb7c12bb197f7af42f7"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "marketplace integrity and resource suite",
+        "command": "pnpm --filter @relayos/marketplace-core test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-1A0AE591161D",
+      "sourceBlob": "8b426422f1294baf8c585d41d9e7a9bf3f5f12dc",
+      "owner": "cli-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-29/post-fix/e2d12c98fdc89a99.json",
+        "Still remediated. Re-read at blob 8efa1a46: runInstall continues to validate every graph entry through validateResolvedEntry (EXTENSION_ID_PATTERN, path-like rejection, isValidDigest) and to require defineManifest(entry.manifest).id === entry.id and the matching version before any download; the cache path is still join(cacheRoot, entry.digest) under marketplaceServerIdentity(storeDir) with a sidecar .manifest.json, and `entry.id.replace` appears nowhere in the file. This round's edits are the argument loop and the graph root: `argv[i]!` became a read plus a named argv_hole_at_index throw, flag values now go through a helper that throws missing_value_for_flag instead of passing undefined to resolvePath, and `resolved.graph.at(-1)!` became a check that throws resolution_produced_no_root. None of them touches entry validation, digest computation, or the cache path — the third actually removes a way for an unvalidated undefined to reach node:path."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: resolved.graph is trusted as typed JSON, and the bundle cache path is built from entry.id.replace(\"/\", \"-\"), which only replaces the first slash and does not assert entry.id === defineManifest(entry.manifest).id.",
+      "fixBlob": "8efa1a46b75f1ed79bf4164c1519b6b3aeafdf8e",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-29/post-fix/e2d12c98fdc89a99.json",
+        "fixBlob": "8efa1a46b75f1ed79bf4164c1519b6b3aeafdf8e"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "CLI security boundary suite",
+        "command": "pnpm --filter @relayos/cli test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-1CB4ACA694E3",
+      "sourceBlob": "e3b5bb332a83dd2d0bf00693317844bd1f421484",
+      "owner": "cli-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/893e0d721a6494fc.json",
+        "downloadBundle (L190-191) and request (L274-278) both call assertMarketplaceRequestUrl against this.allowedOrigins; constructor (L155-165) allowlists only validated base origin plus optional cdnOrigins after credential and isCredentialSafeHttpUrl checks; non-allowlisted origins throw marketplace_url_origin_not_allowed and fetch is not issued; redirect is forced to error."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: downloadBundle fetches arbitrary absolute URLs (SSRF).",
+      "fixBlob": "8234822189d468ff63627e697050d61cd1736334",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/893e0d721a6494fc.json",
+        "fixBlob": "8234822189d468ff63627e697050d61cd1736334"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "CLI security boundary suite",
+        "command": "pnpm --filter @relayos/cli test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-21E55CB9A289",
+      "sourceBlob": "5bd630a153fcce9302e730d7682eb8033a19c84c",
+      "owner": "identity-access",
+      "evidence": [
+        "audits/security-scan/rescan/round-33/post-fix/8791fef209b5a151.json",
+        "readSignupInput measures the post-trim displayName (L107), rejects values over the shared 160-code-unit bound (L109-111), and applies IdentityDisplayNameSchema (L112-114) before challenge, admission, or enqueue; the store independently reapplies the same schema."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Signup accepts unbounded displayName (contract max 160).",
+      "fixBlob": "3340a21cd5f2a4916602830e1cedeac52ec8b5a6",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-33/post-fix/8791fef209b5a151.json",
+        "fixBlob": "3340a21cd5f2a4916602830e1cedeac52ec8b5a6"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "bounded signup identity fields",
+        "command": "pnpm --filter @relayos/daemon exec vitest run src/service-plane/gateway/routes/signup.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-225E4959574B",
+      "sourceBlob": "3f820bb700b479a1909a23c04cf4e2ca8c1c9599",
+      "owner": "runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/6d0e1bc1aa947bac.json",
+        "runGit caps totalBytes at GIT_DIFF_MAX_OUTPUT_BYTES (1_048_576), sets GIT_DIFF_TIMEOUT_MS (5_000) wall clock, terminates process group on overflow/timeout, rejects with budget/timeout errors instead of unbounded string accumulation."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: git diff stdout/stderr are accumulated into unbounded strings and there is no timeout.",
+      "fixBlob": "32f86e71243950f3a3ebe566f1344fb0cd4d4ba5",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/6d0e1bc1aa947bac.json",
+        "fixBlob": "32f86e71243950f3a3ebe566f1344fb0cd4d4ba5"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "workspace-confined bounded git diff",
+        "command": "pnpm exec vitest run packages/extensions/core-platform/src/providers/git-diff-fetcher.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-25CB87B62E1E",
+      "sourceBlob": "30327b9f57af5c21185afeba948b81a4ed7a50b7",
+      "owner": "identity-access",
+      "evidence": [
+        "audits/security-scan/rescan/round-17/post-fix/c3efaa10b2d5521e.json",
+        "Unauthenticated-origin returnUrl becomes Stripe success/cancel redirect — still remediated. The merge replaced the zod TopUpBodySchema with hand-written admitTopUpAmountMicros (L99-113): the body must be a non-array object whose key set is exactly [\"amountMicros\"] (L104-107), so any body carrying returnUrl is rejected at L176-181 with 400 invalid_request before provider work. The redirect pair is still derived solely from serverOwnedTopUpRedirectUrls(deps.daemonPublicUrl) (L182), and a missing configuration fails closed with 500 billing_misconfigured (L183-186). The exact-key check is strictly narrower than the zod .strict() it replaced."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Unauthenticated-origin returnUrl becomes Stripe success/cancel redirect.",
+      "fixBlob": "a8919d5a8b911ee2c666c46a4ac6e1a50e75cfc1",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-17/post-fix/c3efaa10b2d5521e.json",
+        "fixBlob": "a8919d5a8b911ee2c666c46a4ac6e1a50e75cfc1"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "server-owned billing redirects",
+        "command": "pnpm --filter @relayos/daemon exec vitest run src/service-plane/gateway/routes/billing.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-27811F24BC4B",
+      "sourceBlob": "32a298a40a3dd913524a3ef68bd7f1c1248c23fe",
+      "owner": "daemon-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/2a1c150d18cad6b6.json",
+        "bundle-store.ts:45-54 extract(digest, manifest, archive) recomputes actual = await computeManifestDigest(manifest, archive) and throws bundle_digest_mismatch before mkdir/unpack/rename. Caller-supplied digest is no longer trusted as an unverified content-address dir name."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: extract(digest, archive) trusts the caller-supplied digest as the content-address dir name and does NOT recompute computeManifestDigest over the bytes before extracting.",
+      "fixBlob": "3a9190d0aca2b83b8e6f6e6e2a3d7f666ed1a238",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/review-r11-bundle-store.json",
+        "fixBlob": "3a9190d0aca2b83b8e6f6e6e2a3d7f666ed1a238"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "bundle digest verification before writes",
+        "command": "pnpm --filter @relayos/daemon exec vitest run src/store/bundle-store.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-297D9B3ED501",
+      "sourceBlob": "f62df2511ce98f1048fe4c485ca3b3d89927726a",
+      "owner": "developer-infrastructure",
+      "evidence": [
+        "audits/security-scan/rescan/round-25/post-fix/87db21a973eed4fe.json",
+        "workflow_dispatch version input interpolated into shell before validation — still remediated. Re-read at blob 6bfb3c2c: inputs.version is assigned to the env INPUT_VERSION at L51, the shell reads VERSION=\"$INPUT_VERSION\" at L62, and parse_release_version (defined L57) gates it at L66 before any registry, package, or network use. This round's edit is a Dependabot github-actions group bump and nothing else: actions/checkout v6->v7, actions/setup-node v6->v7, actions/cache and actions/cache/restore v5->v6, chromaui/action v17->v18. Only `uses:` version strings changed — no trigger, no runs-on, no permissions block, no env entry, no run script. Checked against the upstream actions rather than assumed: actions/checkout keeps persist-credentials defaulting to true in both v6 and v7 (action.yml at each tag), so the bump neither adds nor removes the in-repo credential that checkout leaves in .git/config. The one security-relevant change in checkout v7.0.0 is 'block checking out fork pr for pull_request_target and workflow_run' — a hardening that does not apply here, because this workflow triggers on pull_request, not pull_request_target."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: workflow_dispatch version input interpolated into shell before validation.",
+      "fixBlob": "6bfb3c2c691d79be61aa568f411e4a4f5ddd5583",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-25/post-fix/87db21a973eed4fe.json",
+        "fixBlob": "6bfb3c2c691d79be61aa568f411e4a4f5ddd5583"
+      },
+      "regression": {
+        "kind": "guardrail",
+        "name": "workflow security invariant fixtures",
+        "command": "pnpm exec vitest run scripts/checks/check-security-invariants.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-2FF0C9B42489",
+      "sourceBlob": "e3b5bb332a83dd2d0bf00693317844bd1f421484",
+      "owner": "cli-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/893e0d721a6494fc.json",
+        "yankRevision (L251-252) builds the path with encodeDigestSegment(contentDigest); encodeDigestSegment (L124-129) rejects non-matching digests via isValidDigest (/^[0-9a-f]{64}$/) then applies a single encodeURIComponent pass before embedding the segment."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: contentDigest path segment not URL-encoded.",
+      "fixBlob": "8234822189d468ff63627e697050d61cd1736334",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/893e0d721a6494fc.json",
+        "fixBlob": "8234822189d468ff63627e697050d61cd1736334"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "CLI security boundary suite",
+        "command": "pnpm --filter @relayos/cli test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-30FFE1BB06E1",
+      "sourceBlob": "d29c8e199a9ac1bb4075ff2db2d31d04a0ce8ee4",
+      "owner": "telemetry-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-17/post-fix/bcb196f800e6d1ee.json",
+        "Sensitive-key denylist misses client_secret and related OAuth fields — still remediated. The denylist carries both spellings of every field the finding names: '*.clientSecret' and '*.client_secret' (L62-63), '*.accessToken' / '*.access_key' / '*.accessKey', '*.refreshToken', '*.token', '*.apiKey' / '*.api_key', '*.sessionToken' / '*.session_token', '*.secret', '*.secretAccessKey', '*.privateKey' / '*.private_key' (L56-72), alongside the authorization/cookie entries (L50-54) and the pino-http conventions (L75-77)."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Sensitive-key denylist misses client_secret and related OAuth fields.",
+      "fixBlob": "1fcd84247146d1fb49320421d749580aac2dd96a",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-17/post-fix/bcb196f800e6d1ee.json",
+        "fixBlob": "1fcd84247146d1fb49320421d749580aac2dd96a"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "telemetry redaction suite",
+        "command": "pnpm --filter @relayos/telemetry-core test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-3187A5B1829B",
+      "sourceBlob": "7e9ebd0b05f6cc92fb1d5e9353ceea1a8bbb41b4",
+      "owner": "telemetry-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-31/post-fix/e0a38bf5bf47df7b.json",
+        "The browser telemetry API describes exporterHeaders as suitable for bearer tokens — still remediated at blob 2064dd47. Re-read at L42-49: the doc comment still states the bytes are public to users and developer tools, still permits only public ingestion identifiers or explicitly proxy-scoped revocable tokens, and still requires long-lived provider/backend credentials to terminate at a server or edge telemetry gateway and never be embedded here. createExporter still passes the headers straight through (L150). This branch's only edit to the file is the OpenTelemetry 2.x migration: `new Resource(attrs)` became `resourceFromAttributes(attrs)` and the import changed to match, because 2.x exports `Resource` as a type only. No header, URL or credential handling is in the diff."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: The browser telemetry API describes exporterHeaders as suitable for bearer tokens for paid drivers.",
+      "fixBlob": "2064dd47b2e23489c19ecd38f61726ed60ae2602",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-31/post-fix/e0a38bf5bf47df7b.json",
+        "fixBlob": "2064dd47b2e23489c19ecd38f61726ed60ae2602"
+      },
+      "regression": {
+        "kind": "guardrail",
+        "name": "browser telemetry public-contract typecheck",
+        "command": "pnpm --filter @relayos/telemetry-browser check",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-38214277AD19",
+      "sourceBlob": "3037f2b1fc529c581196a58c816bc940cc45fb7a",
+      "owner": "marketplace-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/72b756eee2861eb5.json",
+        "constructor still builds SignatureVerifier with knownKeys: new Map() and fetchPublicKey: (namespace) => this.fetchPublisherKey(namespace) (client.ts:73-76). fetchPublisherKey GETs /v1/publishers/${encodePath(namespace)}/key from the marketplace and returns body.publicKey with no operator pin set or out-of-band trust root (client.ts:197-205). assertRevisionSigned uses that verifier only (client.ts:175-193). Compromised marketplace can supply attacker keys on first use (and again after process restart, since pins are in-memory only), so signature checks pass for attacker-signed digests.",
+        "docs/superpowers/specs/2026-07-19-security-hardening-and-guardrails-design.md",
+        "Explicit separate-design item: durable publisher trust and full package attestation."
+      ],
+      "status": "separate_design",
+      "rationale": "Durable publisher trust must bind canonical manifest permissions/imports and bundle bytes into one attestation with persistent key pinning and rotation.",
+      "reviewedBlob": "cf489fe971adc57d529f97d1d6ca1c97684a2b76",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/72b756eee2861eb5.json",
+        "reviewedBlob": "cf489fe971adc57d529f97d1d6ca1c97684a2b76"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-09-16T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-3BF1F3E0D625",
+      "sourceBlob": "63a6a36a63b6037d6fb1811f845b80272be7993a",
+      "owner": "identity-access",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/5745f69fb2bad9e6.json",
+        "CLI user-code info endpoint is unauthenticated and unthrottled — still remediated at blob 0c5b9156. Re-read handleCliInfoGet (L145-170): it still admits the peer through `consumeCliDeviceInfoPeerAttempt` FIRST (L151-152), then still requires an identity-global session and answers 401 session_authentication_required otherwise (L157-159), then still consumes the identity budget keyed on `hashToken(`cli_device.info.identity|${identity.id}`)` (L163-165) with a 429 on RATE_LIMITED — all three before any user-code lookup or metadata disclosure. This round's two edits to the file are the token-list cursor (read once into a local instead of two `searchParams.get(\"cursor\")` reads with the second asserted) and the user-code generator using String.charAt; neither is on this endpoint's path."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: CLI user-code info endpoint is unauthenticated and unthrottled.",
+      "fixBlob": "0c5b915692799f836d272204329d88faaa8b034d",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/5745f69fb2bad9e6.json",
+        "fixBlob": "0c5b915692799f836d272204329d88faaa8b034d"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "durable CLI device admission",
+        "command": "pnpm --filter @relayos/daemon exec vitest run src/service-plane/gateway/routes/cli-device.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-3DA1A1E583E4",
+      "sourceBlob": "cdca7ca12acdeda267ed4dd2b687313686240cc5",
+      "owner": "marketplace-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/5eebee02b24ac4dc.json",
+        "namespace.ts:19-27 still returns {namespace:'',name} for slash-free ids, but handlePublishRevision passes parsed.namespace into resolveAdminContext, and admin-auth.ts:46-48 throws namespace_not_owned 403 when !targetNamespace before any credential verification. admin-auth.test.ts asserts 'removes the legacy unnamespaced publish authority' for targetNamespace:''. Empty-namespace publishes cannot reach ensureExtension/createRevision via the HTTP publish path, so two tenants cannot overwrite the same un-namespaced id."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: parseExtensionId accepts un-namespaced ids ({namespace:'',name}); in the publish auth path an empty namespace skips the namespace→tenant ownership binding, so two tenants can both publish/overwrite the same legacy un-namespaced id (cross-tenant overwrite).",
+      "fixBlob": "cdca7ca12acdeda267ed4dd2b687313686240cc5",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/5eebee02b24ac4dc.json",
+        "fixBlob": "cdca7ca12acdeda267ed4dd2b687313686240cc5"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "marketplace integrity and resource suite",
+        "command": "pnpm --filter @relayos/marketplace-core test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-3E99A1E9C98B",
+      "sourceBlob": "e09ccdf02a87779b955ebaedbb9d6df04d707b77",
+      "owner": "runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-13/post-fix/208246cb80eb1387.json",
+        "ttlSeconds uses RunnerInviteTtlSecondsSchema (runners.ts:9-13, :47): int min MIN_RUNNER_INVITE_TTL_SECONDS=300 max MAX_RUNNER_INVITE_TTL_SECONDS=604_800. INVALID_TTL message documents the same range. Multi-year invite TTLs are rejected at schema validation."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Runner invite ttlSeconds has no upper bound.",
+      "fixBlob": "2645920fc64e50ff1bd02ca275577697657a2f2c",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-13/post-fix/208246cb80eb1387.json",
+        "fixBlob": "2645920fc64e50ff1bd02ca275577697657a2f2c"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "bounded RPC schema suite",
+        "command": "pnpm --filter @relayos/control-spec test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-41C95732CCAA",
+      "sourceBlob": "e0fc520dd08737d1d08f16bf493a7e09117fc001",
+      "owner": "developer-infrastructure",
+      "evidence": [
+        "audits/security-scan/rescan/round-25/post-fix/dc17b9bf332a0559.json",
+        "GITHUB_TOKEN interpolated into run script for docker login — still remediated. Re-read at blob b527e847: the GHCR login passes the token by env (GHCR_TOKEN at L501) and reads it from stdin with --password-stdin at L508, matching the FLY_API_TOKEN pattern at L171 and L514. The only other ${{ secrets.GITHUB_TOKEN }} in the file is a `with:` input at L472, never shell text. This round's edit is a Dependabot github-actions group bump and nothing else: actions/checkout v6->v7, actions/setup-node v6->v7, actions/cache and actions/cache/restore v5->v6, chromaui/action v17->v18. Only `uses:` version strings changed — no trigger, no runs-on, no permissions block, no env entry, no run script. Checked against the upstream actions rather than assumed: actions/checkout keeps persist-credentials defaulting to true in both v6 and v7 (action.yml at each tag), so the bump neither adds nor removes the in-repo credential that checkout leaves in .git/config. The one security-relevant change in checkout v7.0.0 is 'block checking out fork pr for pull_request_target and workflow_run' — a hardening that does not apply here, because this workflow triggers on pull_request, not pull_request_target."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: GITHUB_TOKEN interpolated into run script for docker login.",
+      "fixBlob": "b527e847bf43d7a7062d3da5bbd1740747a01edb",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-25/post-fix/dc17b9bf332a0559.json",
+        "fixBlob": "b527e847bf43d7a7062d3da5bbd1740747a01edb"
+      },
+      "regression": {
+        "kind": "guardrail",
+        "name": "workflow security invariant fixtures",
+        "command": "pnpm exec vitest run scripts/checks/check-security-invariants.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-46771CF02E04",
+      "sourceBlob": "1d48cc2b970c9a7f90510c045e2dcc9a0fa2deed",
+      "owner": "workspace-runtime",
+      "evidence": [
+        "audits/security-scan/rescan/round-32/post-fix/9a46a90847e05944.json",
+        "history and recent enumerate all tenant artifacts ignoring principal — still a separate-design item. Re-read at blob f2b6592f: history() still opens with an unfiltered listArtifacts() (L122) and recent() still calls listRecentArtifacts(5) (L197); neither takes a principalId, unlike inbox(principalId) (L68). This round's only edit to the file is one line inside projectInboxInterrupt: `interruptId: detail.activeInterruptId ?? null` became `interruptId: detail.activeInterruptId`, because ArtifactDetail.activeInterruptId is now a required `string | null` rather than `?: string | null`, which makes the `?? null` an identity. No query, limit, principal parameter or permission check is in the diff."
+      ],
+      "status": "separate_design",
+      "rationale": "Workspace projection authorization, principal visibility, and pagination must be designed together around the Identity/tenant/principal separation model.",
+      "reviewedBlob": "f2b6592f05ed825b89d6f7b6014edaee352a2689",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/round-32/post-fix/9a46a90847e05944.json",
+        "reviewedBlob": "f2b6592f05ed825b89d6f7b6014edaee352a2689"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-09-16T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-471D864A4992",
+      "sourceBlob": "9abd4757005cbe7eab169c4c66109d87379ccd9b",
+      "owner": "storage-runtime",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/a141482a7cb9564b.json",
+        "put (local-filesystem.ts:40-80) still accepts Uint8Array | ReadableStream with no maxBytes. Stream path calls streamToFileWithDigest (183-219), which increments size and writes every chunk with no upper bound. expectedSize (62-64) only compares after the full write completes. Digest path uses isValidDigest for get/has/delete; no path-traversal via digest, but volume fill via put remains open.",
+        "docs/superpowers/specs/2026-07-19-security-hardening-and-guardrails-design.md",
+        "Explicit separate-design item: artifact/blob resource accounting."
+      ],
+      "status": "separate_design",
+      "rationale": "Artifact and blob accounting needs type-specific streaming limits, quotas, backpressure, and cleanup semantics across transports and stores.",
+      "reviewedBlob": "9abd4757005cbe7eab169c4c66109d87379ccd9b",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/a141482a7cb9564b.json",
+        "reviewedBlob": "9abd4757005cbe7eab169c4c66109d87379ccd9b"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-09-30T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-477965D52626",
+      "sourceBlob": "2cf89496c622bcdac15ecd9984d96f4b92cfd2bb",
+      "owner": "runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-13/post-fix/bffa6da55bc07a58.json",
+        "jobs.list limit uses JobsListLimitSchema (jobs.ts:9-13, :59-61): z.number().int().min(MIN_JOBS_LIST_LIMIT=1).max(MAX_JOBS_LIST_LIMIT=100). Unbounded/non-int limits fail schema validation before the handler."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: jobs.list limit is unbounded z.number().",
+      "fixBlob": "98e9d5fd2b63d7ead152018e3f4fe043fdebaf11",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-13/post-fix/bffa6da55bc07a58.json",
+        "fixBlob": "98e9d5fd2b63d7ead152018e3f4fe043fdebaf11"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "bounded RPC schema suite",
+        "command": "pnpm --filter @relayos/control-spec test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-48AABC8B1EB6",
+      "sourceBlob": "f329e4ab865c4a9bc489054ab8c2795a5ba6d290",
+      "owner": "runtime-architecture",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/663c240e2b352d0b.json",
+        "nextRoundState (transition.ts:4-14) still only transitions in_gate+approve→closed and in_gate+(changes_requested|take_over)→drafting; all other pairs return current (total fail-safe no-op). allowedResolutionKindsForState still lists take_over under drafting (state-machine.ts:5) but nextRoundState never changes state on drafting+take_over. No principal/role/authority parameters or checks.",
+        "docs/superpowers/specs/2026-07-19-security-hardening-and-guardrails-design.md",
+        "The function accepts no actor or grant and production authorization is owned by Identity & Access; table harmonization is code-quality work, not an auth bypass in this primitive."
+      ],
+      "status": "accepted_risk",
+      "rationale": "nextRoundState is a fail-safe pure state projection, not an authority check; unhandled pairs are no-ops and authorization remains at the service boundary.",
+      "reviewedBlob": "f329e4ab865c4a9bc489054ab8c2795a5ba6d290",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/663c240e2b352d0b.json",
+        "reviewedBlob": "f329e4ab865c4a9bc489054ab8c2795a5ba6d290"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-10-14T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-4CC5512848FD",
+      "sourceBlob": "d187ed07b60f0e1019533a9008dd442129296d24",
+      "owner": "daemon-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/f20e5652cfc7d7e7.json",
+        "resolveProvider still records config.inputs (pipeline.ts:283-288) and loadProviderData still passes request.inputs into runner.invoke without validating that schema (212-217); only provider output is checked via previewDataSchema (218-225). No RPC exposes PreviewPipeline.render; production path projectReviewBodyForArtifact builds inputs from store artifact metadata (workspace.ts:95-100), not client body fields. No current untrusted-input abuse path."
+      ],
+      "status": "false_positive",
+      "rationale": "Current source and call-site review found no concrete security abuse path for the original report.",
+      "sourceEvidence": "resolveProvider still records config.inputs (pipeline.ts:288) and loadProviderData still passes request.inputs into runner.invoke without validating that schema (212-217); only provider output is checked via previewDataSchema (219-225, schema at 265). No RPC exposes PreviewPipeline.render; the production path builds inputs from store artifact metadata via projectReviewBodyForArtifact (composition/knowledge-artifact-provider.ts:74), not client input. Re-verified 2026-07-29 at blob 078842d5.",
+      "reviewedBlob": "078842d5470a3b5405d0273112efb4fbd4f2f5b0",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/f20e5652cfc7d7e7.json",
+        "reviewedBlob": "078842d5470a3b5405d0273112efb4fbd4f2f5b0"
+      },
+      "fixBlob": null,
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-4FB4785A06CA",
+      "sourceBlob": "e21fc8c63ddbd3fc1bbfb9d2467caf5c03df6e89",
+      "owner": "identity-access",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/1f0aa9aa0ddf8ed3.json",
+        "runGateway ownership documentation now states that /rpc/* runs mutation transport policy only and defers capability-aware authentication and trusted header injection to prepareCapabilityRequest, matching the executable handoff."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: runGateway JSDoc claims /rpc/* is authenticated here, but code only enforces transport policy.",
+      "fixBlob": "38fbfe4ce389239888151a7c495ef1f2d4a56a62",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/1f0aa9aa0ddf8ed3.json",
+        "fixBlob": "38fbfe4ce389239888151a7c495ef1f2d4a56a62"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "gateway trust-boundary ownership",
+        "command": "pnpm --filter @relayos/daemon exec vitest run src/service-plane/gateway/middleware.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-52CA82FAA733",
+      "sourceBlob": "e67028584db5b2687ef77650b6668e6852cd8536",
+      "owner": "storage-runtime",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/963a8681c23d5970.json",
+        "readAllBytes (digest.ts:24-45) still accumulates every chunk into chunks[] with only total length tracking and no maxBytes/cap argument. InMemoryBlobStore.put (in-memory.ts:19-20) still does `content instanceof Uint8Array ? content : await readAllBytes(content)`, so streamed put can allocate arbitrarily large buffers. No maxBytes symbol exists anywhere under packages/kernel/blob-store.",
+        "docs/superpowers/specs/2026-07-19-security-hardening-and-guardrails-design.md",
+        "Explicit separate-design item: artifact/blob resource accounting."
+      ],
+      "status": "separate_design",
+      "rationale": "Artifact and blob accounting needs type-specific streaming limits, quotas, backpressure, and cleanup semantics across transports and stores.",
+      "reviewedBlob": "e67028584db5b2687ef77650b6668e6852cd8536",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/963a8681c23d5970.json",
+        "reviewedBlob": "e67028584db5b2687ef77650b6668e6852cd8536"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-09-30T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-5AF1970CCC81",
+      "sourceBlob": "38d381fc6c04a8689fb7c7431e075e06574983d7",
+      "owner": "runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/6f36d3a39fbddffd.json",
+        "Unhandled capability errors embed full stack traces in failure.message — still remediated at blob 815f1034. Re-read: the outer catch (L180) still calls `toUnhandledCapabilityResult(err)` (L181) from capability-diagnostics.js (imported at L28), which sets failure.message to the opaque diagnostic summary rather than `${err.message}\\n${err.stack}`. Neither the catch nor the diagnostics helper is in this round's diff. The only edit to the file captures `parentPort` into a local immediately after the existing module-level `if (!parentPort) throw` guard, and the two `parentPort!.postMessage` calls now use that local — a module-level narrowing does not reach into the functions below, which is what the assertions were for. No error text, diagnostic, or message payload changed."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Unhandled capability errors embed full stack traces in failure.message.",
+      "fixBlob": "815f1034f8ff5c853d9a7947d083675567772a1b",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/6f36d3a39fbddffd.json",
+        "fixBlob": "815f1034f8ff5c853d9a7947d083675567772a1b"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "extension SDK security contracts",
+        "command": "pnpm exec vitest run packages/protocols/extension-sdk/src/capability-worker.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-60787F727285",
+      "sourceBlob": "c0c172dd3d780544234231bab98192523b9439bf",
+      "owner": "daemon-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/b44caabda4b339ba.json",
+        "runnersInviteBinding still only rejects non-finite/non-positive ttlSeconds (index.ts:18-21) and multiplies to ttlMs, but runnersInvite.input uses RunnerInviteTtlSecondsSchema min 300 max 604_800 (packages/rpc/spec/src/capabilities/runners.ts:4-13,45-46), and ControlPlaneService.createMachineInvite calls assertRunnerInviteTtlMs which rejects values outside that range with invalid_runner_invite_ttl (control-plane/service.ts:176-182,505-519), mapped to INVALID_TTL (index.ts:42-43). Years-long invite mint path is closed."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Runner invite TTL has no upper bound.",
+      "fixBlob": "c0c172dd3d780544234231bab98192523b9439bf",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/b44caabda4b339ba.json",
+        "fixBlob": "c0c172dd3d780544234231bab98192523b9439bf"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "runner invite TTL admission",
+        "command": "pnpm exec vitest run packages/rpc/spec/src/capabilities/runners.test.ts apps/daemon/src/control-plane/create-machine-invite.ttl.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-61CC1119ADA8",
+      "sourceBlob": "5ea1bc8d136eb05633a085636016d23aa8dda6c8",
+      "owner": "cli-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-29/post-fix/fead7a687a9dfd07.json",
+        "Still remediated. Re-read at blob d06e139d: runLockVerify still requires the external `${path}.manifest.json` (L30), runs it through defineManifest (L39), and compares computeManifestDigest(manifest, bytes) against the lock digest (L47) — the same external-manifest contract install writes. No unpackBundle and no expectation of an in-archive manifest.json. This round's edits are the argument loop (`argv[i]!` → a read plus a named throw) and the `--lock` flag value, which now throws missing_value_for_flag instead of calling resolvePath(undefined); neither touches the manifest or digest path."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: relayos lock verify unpacks lock bundles using the CLI's legacy tar/gzip unpackBundle() and expects manifest.json inside the archive, while the current publish/install path uses packArchive() with the manifest outside the archive and computes computeManifestDigest(manifest, bundle).",
+      "fixBlob": "d06e139d6eb0039f67df776f8d756d6d3c536e24",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-29/post-fix/fead7a687a9dfd07.json",
+        "fixBlob": "d06e139d6eb0039f67df776f8d756d6d3c536e24"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "CLI security boundary suite",
+        "command": "pnpm --filter @relayos/cli test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-633A1B734BCB",
+      "sourceBlob": "de36f294cb78f976788a5ce9a6b857978a141315",
+      "owner": "runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-13/post-fix/0058e2331e7cbe82.json",
+        "Input ids use ArtifactAnchorTypeSchema (min 1, max 64, regex ^[a-z][a-z0-9_]{0,63}$) and ArtifactAnchorIdSchema (trim, min 1, max 256) at artifact-anchors.ts:17-27. Command/query inputs at :77-81, :95, :107-110, :121, :133-136 all apply these schemas; empty and overlong values fail schema validation before handlers."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: All id fields (anchorType/anchorId/artifactId/runId) are unconstrained z.string() — empty + arbitrarily long values pass.",
+      "fixBlob": "cfb7994e3b9d4da54e6f499641c8a23e05aa4821",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-13/post-fix/0058e2331e7cbe82.json",
+        "fixBlob": "cfb7994e3b9d4da54e6f499641c8a23e05aa4821"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "bounded RPC schema suite",
+        "command": "pnpm --filter @relayos/control-spec test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-681B75432D1F",
+      "sourceBlob": "63dcb97533dc6be9220248b92ff10f1966a17192",
+      "owner": "managed-agent-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-17/post-fix/relocation-anthropic-managed-agent-client.json",
+        "client.ts was deleted in 5aa12f542cb4b8fbeda9ab280b0fdcc82eb628cf, a deletion that removed exactly the audited blob cd6ada131ecc4d47ee5d4730cc32dd77d8e78ac8. The behaviours it carried were re-verified in their new homes rather than assumed resolved by deletion: (a) inbound MCP authorization / x-api-key / host / cookie headers can no longer be forwarded at all — the outbound header builder in apps/daemon/src/inference-relay/secure-outbound-transport.ts throws inference_transport_headers_invalid on any of them (L1052-1069), and the only credential placed on the wire is the one applyAuthHeader injects from its own secretBytes (L1073, L1107-1117); (b) stream buffering is bounded by DEFAULT_MAX_SSE_EVENT_BYTES and DEFAULT_MAX_STREAM_TOTAL_BYTES (L56-61); (c) redirects are never followed — any 3xx status fails with inference_transport_redirect_blocked (L1481-1484), which is stricter than the redirect:\"manual\" the finding asked for; (d) the managed-agent driver no longer provisions an environment or executes anything — provider.execute throws inference_request_boundary_unavailable (L145-150) and PostgresManagedAgentLifecycle only cancels sessions created by earlier RelayOS versions. OPEN GAP recorded deliberately: apps/daemon/src/inference-relay/secure-outbound-transport.ts and apps/runner/src/inference-proxy.ts are new on this branch, post-date the last sweep, and have no ledger scan yet — the relocated behaviours are verified here, but those two files still owe a first scan of their own."
+      ],
+      "status": "superseded",
+      "rationale": "MCP authorization tokens and headers forwarded to Anthropic: the audited file was deleted, and the behaviour was re-verified in the module that now owns it (see noReplacementEvidence). No successor finding is opened because the relocated code refuses the behaviour outright.",
+      "reviewedBlob": "792aa029484fab61a3136da1f88764541efe31cd",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/round-13/post-fix/2c254d7bc9c3ac2e.json",
+        "reviewedBlob": "792aa029484fab61a3136da1f88764541efe31cd"
+      },
+      "fixBlob": null,
+      "expiresAt": null,
+      "deletionCommit": "5aa12f542cb4b8fbeda9ab280b0fdcc82eb628cf",
+      "replacementId": null,
+      "noReplacementEvidence": "client.ts was deleted in 5aa12f542cb4b8fbeda9ab280b0fdcc82eb628cf, a deletion that removed exactly the audited blob cd6ada131ecc4d47ee5d4730cc32dd77d8e78ac8. The behaviours it carried were re-verified in their new homes rather than assumed resolved by deletion: (a) inbound MCP authorization / x-api-key / host / cookie headers can no longer be forwarded at all — the outbound header builder in apps/daemon/src/inference-relay/secure-outbound-transport.ts throws inference_transport_headers_invalid on any of them (L1052-1069), and the only credential placed on the wire is the one applyAuthHeader injects from its own secretBytes (L1073, L1107-1117); (b) stream buffering is bounded by DEFAULT_MAX_SSE_EVENT_BYTES and DEFAULT_MAX_STREAM_TOTAL_BYTES (L56-61); (c) redirects are never followed — any 3xx status fails with inference_transport_redirect_blocked (L1481-1484), which is stricter than the redirect:\"manual\" the finding asked for; (d) the managed-agent driver no longer provisions an environment or executes anything — provider.execute throws inference_request_boundary_unavailable (L145-150) and PostgresManagedAgentLifecycle only cancels sessions created by earlier RelayOS versions. OPEN GAP recorded deliberately: apps/daemon/src/inference-relay/secure-outbound-transport.ts and apps/runner/src/inference-proxy.ts are new on this branch, post-date the last sweep, and have no ledger scan yet — the relocated behaviours are verified here, but those two files still owe a first scan of their own."
+    },
+    {
+      "id": "SEC-6C818287BA5A",
+      "sourceBlob": "88e31ba410b1f9c00e8d117dd096e356793f9b2d",
+      "owner": "marketplace-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/432387d5f1acb010.json",
+        "resolveClosure still trusts the DB-sourced, non-integrity-bound manifest: contentDigest and signature still cover bundle bytes only, the store lookup still copies revision.manifest and revision.signature without binding or verifying them, and resolveClosure still walks chosenEntry.manifest.imports and aggregates permissions without recomputing a manifest+bundle digest. Same separate-design item. This round's only edit replaces `describeCanonical`'s ad-hoc `entry.id.split(\"/\")` plus two assertions with `parseExtensionId`, the validating counterpart to `formatCanonicalId` in the same package; no traversal, limit or trust decision is in the diff."
+      ],
+      "status": "separate_design",
+      "rationale": "Durable publisher trust must bind canonical manifest permissions/imports and bundle bytes into one attestation with persistent key pinning and rotation.",
+      "reviewedBlob": "f63ee6ac20c0fa43f24e0b0a90259f4f0d155ec2",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/432387d5f1acb010.json",
+        "reviewedBlob": "f63ee6ac20c0fa43f24e0b0a90259f4f0d155ec2"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-09-30T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-6E22EABD2E26",
+      "sourceBlob": "04f77b5da8851e5fc54895c89bf57d79e41a6643",
+      "owner": "runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-17/post-fix/6dab6425ce38aab4.json",
+        "extension.author.reply text has no max length — still remediated. ExtensionConversationTextSchema (L12-15) trims, requires non-empty, and caps at MAX_EXTENSION_CONVERSATION_TEXT_LENGTH = 16_000 (L6); extension.author.reply binds it to `text` (L112). Diffing the audited blob against this one shows the conversation-text contract is a pure context line: the merge's changes to this file add ModelRefSchema and the inference-binding shape and reshape ExtensionAuthorExecutionOverrideSchema, and do not touch the length cap."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: extension.author.reply text has no max length.",
+      "fixBlob": "141da0bcf4168b590c154144373e4bf0a9558e38",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-17/post-fix/6dab6425ce38aab4.json",
+        "fixBlob": "141da0bcf4168b590c154144373e4bf0a9558e38"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "bounded RPC schema suite",
+        "command": "pnpm --filter @relayos/control-spec test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-6E76F0B8251E",
+      "sourceBlob": "88e31ba410b1f9c00e8d117dd096e356793f9b2d",
+      "owner": "marketplace-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/432387d5f1acb010.json",
+        "resolveClosure recurses with no depth/breadth bound — still remediated. Re-read: MAX_RESOLVE_DEPTH = 32 (L21, enforced L73-74), MAX_RESOLVE_NODES = 256 (L22, enforced L88) and MAX_RESOLVE_IMPORTS_PER_REVISION = 64 (L23) all still throw ResolveError. This round's only edit replaces `describeCanonical`'s ad-hoc `entry.id.split(\"/\")` plus two assertions with `parseExtensionId`, the validating counterpart to `formatCanonicalId` in the same package; no traversal, limit or trust decision is in the diff."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: resolveClosure recurses over imports with cycle detection but no depth/breadth cap; a deep/wide acyclic graph could drive large recursion/allocation on /v1/resolve.",
+      "fixBlob": "f63ee6ac20c0fa43f24e0b0a90259f4f0d155ec2",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/432387d5f1acb010.json",
+        "fixBlob": "f63ee6ac20c0fa43f24e0b0a90259f4f0d155ec2"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "marketplace integrity and resource suite",
+        "command": "pnpm --filter @relayos/marketplace-core test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-6EABF3280831",
+      "sourceBlob": "1d48cc2b970c9a7f90510c045e2dcc9a0fa2deed",
+      "owner": "workspace-runtime",
+      "evidence": [
+        "audits/security-scan/rescan/round-32/post-fix/9a46a90847e05944.json",
+        "history() materializes every artifact with no limit — still a separate-design item. Re-read at blob f2b6592f: listArtifacts() at L122 still takes no limit or cursor and the loop below still materializes one item per artifact ever created. This round's only edit to the file is one line inside projectInboxInterrupt: `interruptId: detail.activeInterruptId ?? null` became `interruptId: detail.activeInterruptId`, because ArtifactDetail.activeInterruptId is now a required `string | null` rather than `?: string | null`, which makes the `?? null` an identity. No query, limit, principal parameter or permission check is in the diff."
+      ],
+      "status": "separate_design",
+      "rationale": "Workspace projection authorization, principal visibility, and pagination must be designed together around the Identity/tenant/principal separation model.",
+      "reviewedBlob": "f2b6592f05ed825b89d6f7b6014edaee352a2689",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/round-32/post-fix/9a46a90847e05944.json",
+        "reviewedBlob": "f2b6592f05ed825b89d6f7b6014edaee352a2689"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-09-16T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-749FBC161DDC",
+      "sourceBlob": "3a1e2b55eb0eb2d565d3eda3c1d1d86cb49632be",
+      "owner": "developer-infrastructure",
+      "evidence": [
+        "audits/security-scan/rescan/round-28/post-fix/b803fcb7f17ed923.json",
+        "Self-hosted runners execute untrusted pull_request workflows with host access — still a separate-design item. Re-read at blob a381b5cf: on.pull_request is still declared at L9 with no environment or approval gate, and every PR-effective job still runs-on: [self-hosted, nixos] (L22, L84, L140, L222, L294, L341; the push-only lane at L401 is gated by `github.event_name == 'push' && github.ref == 'refs/heads/main'`). This round's edit is purely additive and identical in both test jobs: one `if: failure()` step that runs scripts/ci/capture-runner-diagnostics.sh. It changes no trigger, no runs-on, no permissions block, no env entry, and adds no secret reference. The script only reads — free, /proc/pressure/*, this cgroup's memory.* counters, sibling runner peaks, and the tail of the runner's own Worker_*.log — and writes to $GITHUB_STEP_SUMMARY. It grants no capability the job did not already have: every path it touches is readable by the runner user, which is why the manual investigation could read them at all. It always exits 0 so it cannot become the reported failure. Note the diagnostic reads host state that an untrusted PR job could already read by other means, so it neither widens nor narrows this finding — the isolation gap still needs an ephemeral runner topology.",
+        "docs/superpowers/specs/2026-07-19-security-hardening-and-guardrails-design.md",
+        "Explicit separate-design item: self-hosted pull-request runner isolation."
+      ],
+      "status": "separate_design",
+      "rationale": "Persistent self-hosted pull-request isolation needs an ephemeral runner topology and operations policy; workflow-local conditions cannot isolate a compromised host.",
+      "reviewedBlob": "a381b5cf92a18921815ec1ee6ff8f4547495504f",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/round-28/post-fix/b803fcb7f17ed923.json",
+        "reviewedBlob": "a381b5cf92a18921815ec1ee6ff8f4547495504f"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-09-30T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-77DE07C2A97D",
+      "sourceBlob": "f8e560ca44b2aa03bb4d8e5b76f2d153e12179ce",
+      "owner": "runner-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-14/post-fix/f3d301f13c52e664.json",
+        "No full command-line or success/failure stdout/stderr dump. runCommand (L685-727) logs only via logDriverClassification (driver/classification/durationMs/byte counts). Non-zero exit returns boundedPublicSummary without I/O contents (L481-488); toDriverError uses safeInternalDriverError/outputLimitDriverError (L671-683)."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Full codex command and stdout/stderr logged on fail and success.",
+      "fixBlob": "ea1a8fd0dea920a21f69b8f9b0b7f1be0e5116b3",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-14/post-fix/f3d301f13c52e664.json",
+        "fixBlob": "ea1a8fd0dea920a21f69b8f9b0b7f1be0e5116b3"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "Codex driver bounded-output suite",
+        "command": "pnpm --filter @relayos/driver-codex test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-7BE9E9936B51",
+      "sourceBlob": "62a54bf2059711608196d580c5ecccd34ec4c2c6",
+      "owner": "cli-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/16d87fe946df67df.json",
+        "extractBundle() writes entry.name through path.join — still remediated. Re-read: each entry still resolves through `resolveArchiveEntryUnderRoot(destDir, entry.name)` (L143) imported from @relayos/extension-sdk (L18) before any mkdir/writeFileSync, so ../ and absolute names are still rejected and targets stay under destDir. This round's only edit replaces the checksum loop's `header[i]!` with an iteration over `header.subarray(0, BLOCK)`; no path, entry name or write is in the diff."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: extractBundle() writes entry.name through path.join(destDir, entry.name) with no normalization or ../absolute-path rejection.",
+      "fixBlob": "86354adfddd373619780cc4d3e62e03a818325bc",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/16d87fe946df67df.json",
+        "fixBlob": "86354adfddd373619780cc4d3e62e03a818325bc"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "CLI security boundary suite",
+        "command": "pnpm --filter @relayos/cli test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-7C9CB451A3E8",
+      "sourceBlob": "3037f2b1fc529c581196a58c816bc940cc45fb7a",
+      "owner": "daemon-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/72b756eee2861eb5.json",
+        "downloadBundle rejects non-digests before URL build: if (!isValidDigest(contentDigest)) throw (client.ts:208-211). Path uses encodePath(contentDigest) and marketplaceRequest → buildMarketplaceUrl with segment decode checks rejecting ., .., backslash, controls, and double-encoding (client.ts:212-215, 299-358). Same isValidDigest gate on getRevision and ensureBundleCached (client.ts:125-127, 136-138). Abuse path of interpolating arbitrary contentDigest into the revision/bundle URL is closed."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: downloadBundle interpolates contentDigest into URL without isValidDigest.",
+      "fixBlob": "cf489fe971adc57d529f97d1d6ca1c97684a2b76",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/72b756eee2861eb5.json",
+        "fixBlob": "cf489fe971adc57d529f97d1d6ca1c97684a2b76"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "marketplace client request boundary",
+        "command": "pnpm --filter @relayos/daemon exec vitest run src/marketplace/client.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-7EBB85658DC3",
+      "sourceBlob": "407a816d1303c17273eaa65cc86d73b19dd10866",
+      "owner": "runner-protocol-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/02d9ec5bc9f14437.json",
+        "Install channel no longer TLS-only: fail-closed without pinned key; signed SHA256SUMS is independent integrity root for the binary (157-213). version.json is advisory for version selection only; install still requires valid detached signature over checksums."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: version.json and the checksum are all rooted solely in TLS trust of dl.relayos.work with no pinning.",
+      "fixBlob": "b62ef576e389a00fb56f195f20b10eba2ed32b00",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/02d9ec5bc9f14437.json",
+        "fixBlob": "b62ef576e389a00fb56f195f20b10eba2ed32b00"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "runner transport and lifecycle suite",
+        "command": "pnpm --filter @relayos/runner test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-7EF6E9A25216",
+      "sourceBlob": "e64fec19f56f05cfa2a373e2d4e67fcf4d2e49b0",
+      "owner": "runner-protocol-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/9ceaff34f49f95f5.json",
+        "handle() at tool-proxy.ts:144-151 builds signedPath via canonicalizeProxyTarget (not joinUrlPath+WHATWG collapse). decodePathSegments rejects '.'/'..' (279-285); assertExactPrefix requires gatewayPath prefix (306-317); traversal suffixes throw invalid_proxy_path before signRequestHeaders/forward."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: MCP path suffix allows .. traversal off the gateway binding.",
+      "fixBlob": "c45e42e628a9e4e13c129916097c45a874396624",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/9ceaff34f49f95f5.json",
+        "fixBlob": "c45e42e628a9e4e13c129916097c45a874396624"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "runner transport and lifecycle suite",
+        "command": "pnpm --filter @relayos/runner test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-8305FA18AE14",
+      "sourceBlob": "1d48cc2b970c9a7f90510c045e2dcc9a0fa2deed",
+      "owner": "workspace-runtime",
+      "evidence": [
+        "audits/security-scan/rescan/round-32/post-fix/9a46a90847e05944.json",
+        "reviewPacket has no principal/ownership authorization — still a separate-design item. Re-read at blob f2b6592f: reviewPacket (L207) still loads getArtifactDetail, getArtifactRecord and listPrincipals for ANY artifact id with no membership or acting-principal check. This round's only edit to the file is one line inside projectInboxInterrupt: `interruptId: detail.activeInterruptId ?? null` became `interruptId: detail.activeInterruptId`, because ArtifactDetail.activeInterruptId is now a required `string | null` rather than `?: string | null`, which makes the `?? null` an identity. No query, limit, principal parameter or permission check is in the diff."
+      ],
+      "status": "separate_design",
+      "rationale": "Workspace projection authorization, principal visibility, and pagination must be designed together around the Identity/tenant/principal separation model.",
+      "reviewedBlob": "f2b6592f05ed825b89d6f7b6014edaee352a2689",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/round-32/post-fix/9a46a90847e05944.json",
+        "reviewedBlob": "f2b6592f05ed825b89d6f7b6014edaee352a2689"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-09-16T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-882FA47E69F2",
+      "sourceBlob": "e1c03ad971882c82017201bb92eea509eafcffdf",
+      "owner": "marketplace-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/d847822dc8ea805c.json",
+        "hexToBytes accepts non-hex digest bytes as zero — still remediated. Re-read: decodeDigestBytes still requires exactly 64 lowercase hex characters (L129-130) and hexToBytes still rejects a non-lowercase-hex string before any parseInt (L136, L88, L106), with the signature path also checking hex and even length (L63). This round's only edit replaces the hex-encoding loop's `bytes[i]!` with an iteration over the bytes; every decode and validation path is untouched."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: hexToBytes accepts non-hex digest bytes as zero.",
+      "fixBlob": "ecf7327bf0ea4a2722f155b9746435c1f7b8b234",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/d847822dc8ea805c.json",
+        "fixBlob": "ecf7327bf0ea4a2722f155b9746435c1f7b8b234"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "marketplace integrity and resource suite",
+        "command": "pnpm --filter @relayos/marketplace-core test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-897BBA0469DC",
+      "sourceBlob": "d187ed07b60f0e1019533a9008dd442129296d24",
+      "owner": "extension-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/f20e5652cfc7d7e7.json",
+        "Same-session correction e9486a5a-c092-4aae-ae41-bc4eb3670f1e: providerMatches executes extension manifest patterns with native RegExp synchronously in the daemon before ExtensionRunner isolation; production workspace review rendering reaches this path, and publisher signature proves provenance rather than regex safety.",
+        "Re-verified 2026-07-29 at blob 078842d5: new RegExp at L414 and .test at L415 are unchanged, and the non-null-assertion edits in this file only replace positional head reads in the surrounding resolution functions."
+      ],
+      "status": "separate_design",
+      "rationale": "Replacing extension-supplied native RegExp requires a versioned linear-time match grammar/engine or isolated match worker, not a heuristic pattern blacklist.",
+      "reviewedBlob": "078842d5470a3b5405d0273112efb4fbd4f2f5b0",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/f20e5652cfc7d7e7.json",
+        "reviewedBlob": "078842d5470a3b5405d0273112efb4fbd4f2f5b0"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-09-30T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-8DBE77ED8800",
+      "sourceBlob": "4e8f52c64ee8aa2232f996b19ae538b543f39417",
+      "owner": "runner-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-14/post-fix/dbb1389be336d9ba.json",
+        "runCommand no longer concatenates unbounded chunks itself; it delegates to runBoundedProcess (L608-615). bounded-process.ts enforces DRIVER_STDOUT_MAX_BYTES=8MiB and DRIVER_STDERR_MAX_BYTES=1MiB, truncates retained buffers, terminates the process group on overflow, and raises OutputLimitExceededError—closing the unbounded memory-capture path."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Unbounded CLI stdout/stderr capture with no driver timeout.",
+      "fixBlob": "60d880f5acb055ec0e24a53eb2a11a6af0378d3e",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-14/post-fix/dbb1389be336d9ba.json",
+        "fixBlob": "60d880f5acb055ec0e24a53eb2a11a6af0378d3e"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "Claude driver bounded-output suite",
+        "command": "pnpm --filter @relayos/driver-claude-code test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-92B309081E5A",
+      "sourceBlob": "9a9c726ccb16c9bb03591d40bf5af33d7f3c5d5e",
+      "owner": "runner-protocol-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/a33fc3e4ce2f12f4.json",
+        "signed-request.ts:104 still returns true when signer.daemonPublicKey is null; buildRunnerSigner sets null when identity.daemonPublicKey is absent; runner-config resolveRunnerIdentityFromEnvOrDisk uses RELAYOS_DAEMON_PUBLIC_KEY ?? null; control-plane-client downloadInput and signedJson helpers accept bodies after verifyDaemonResponse succeeds, so unpinned runners still skip integrity/origin checks.",
+        "docs/superpowers/specs/2026-07-19-security-hardening-and-guardrails-design.md",
+        "Explicit separate-design item: runner response-signing activation."
+      ],
+      "status": "separate_design",
+      "rationale": "Failing closed on missing pins and authenticating non-OK responses requires a versioned response-signing/enrollment protocol with key rotation and recovery.",
+      "reviewedBlob": "9a9c726ccb16c9bb03591d40bf5af33d7f3c5d5e",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/a33fc3e4ce2f12f4.json",
+        "reviewedBlob": "9a9c726ccb16c9bb03591d40bf5af33d7f3c5d5e"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-09-30T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-944AD5DD2990",
+      "sourceBlob": "059c1bd6ea34f0fb7605f1549bcf5567831cdbaf",
+      "owner": "daemon-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-22/post-fix/6bdc4f917ca4898d.json",
+        "Raw SQL identifier interpolation of fixture DB name — superseded by deletion, with no replacement. apps/daemon/src/db/migration-fixture.ts was deleted because nothing imported it: `createMigrationFixture` and `MigrationFixture` had zero references in any .ts/.tsx file, and the only text hits were prose (a comment in apps/environment-service/src/integration/postgres-pipeline.test.ts:45 describing 'daemon's migration-fixture throwaway DB'). knip reported the file as unimported. The behaviour was NOT relocated: the one remaining CREATE DATABASE in the repository is scripts/dev/with-postgres.ts:146, and it interpolates the module constant DB = \"relayos_test\" (L31) — a literal, not a caller-supplied name — so the shape the original finding described (an interpolated identifier) has no untrusted input there either. No production path created a fixture database before or after this deletion. The deletion is recorded in git history at 78c20a3822938bb750b66381e591752bc3961bbc."
+      ],
+      "status": "superseded",
+      "rationale": "The audited file was deleted as unreachable dead code; the interpolation shape it carried exists nowhere else.",
+      "fixBlob": null,
+      "expiresAt": null,
+      "noReplacementEvidence": "Raw SQL identifier interpolation of fixture DB name — superseded by deletion, with no replacement. apps/daemon/src/db/migration-fixture.ts was deleted because nothing imported it: `createMigrationFixture` and `MigrationFixture` had zero references in any .ts/.tsx file, and the only text hits were prose (a comment in apps/environment-service/src/integration/postgres-pipeline.test.ts:45 describing 'daemon's migration-fixture throwaway DB'). knip reported the file as unimported. The behaviour was NOT relocated: the one remaining CREATE DATABASE in the repository is scripts/dev/with-postgres.ts:146, and it interpolates the module constant DB = \"relayos_test\" (L31) — a literal, not a caller-supplied name — so the shape the original finding described (an interpolated identifier) has no untrusted input there either. No production path created a fixture database before or after this deletion. The deletion is recorded in git history at 78c20a3822938bb750b66381e591752bc3961bbc.",
+      "replacementId": null,
+      "deletionCommit": "78c20a3822938bb750b66381e591752bc3961bbc"
+    },
+    {
+      "id": "SEC-984A854A0A6E",
+      "sourceBlob": "f8ab9eac7e9447a4540ac49e3f291afa8fb262d4",
+      "owner": "daemon-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/63b4d704df009643.json",
+        "Runner replay guard defaults to in-memory nonce store — still remediated at blob 39106a20. Re-read: L396-397 still build `executionHandshakeNonceStore` as `new PostgresNonceStore(postgresJs.sql, 60_000)` only when `executionProcessConfig.verifier` is set, and null otherwise; L399-406 still make `dispatchExecutionWorkerHandshake` undefined when that store is null, so an unconfigured deployment serves no handshake route rather than falling back to process memory; L410-412 still arm the sweep only when the store exists; and the runner path still goes through `createRunnerNonceStore` (L159). There is no in-memory fallback anywhere on either path. This round's two edits to the file are elsewhere and touch no nonce or replay code: the builtin-bundle registration loop now resolves its namespace/name through parseHumanSpec instead of `id.split(\"/\")` with two assertions, and the knowledge context is keyed off `knowledgeInvocationAudit` rather than the `knowledgeEnabled` flag it is derived from, which removes an assertion on a store the generator requires."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Runner replay guard defaults to in-memory nonce store.",
+      "fixBlob": "39106a2040ec8b61e1dea1465c835c23270cdaa7",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/63b4d704df009643.json",
+        "fixBlob": "39106a2040ec8b61e1dea1465c835c23270cdaa7"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "durable runner nonce composition",
+        "command": "pnpm --filter @relayos/daemon exec vitest run src/execution/create-runner-nonce-store.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-9BBE332A3DF4",
+      "sourceBlob": "0f264227f1a1247bf5f818800a677719b720ea60",
+      "owner": "runner-protocol-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-33/post-fix/13896f7e57db1708.json",
+        "failedDrainFromThrow (L1167-1181) still voids the throwable at L1172 with no property access and builds its result from failedResultWithTrajectory(null, ...) at L1173; fixed-shape failure paths safeOutboundFailureResult (L583) and safeDiagnostic (L1341, L1412) unchanged; this round's single edit is the modelRuntime property spelling in createDriverContext, not on an error path."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Job failure results include Error.stack in rawOutput.",
+      "fixBlob": "a488d8ed8775b9f45dfb59c0707fda9e46f458df",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-33/post-fix/13896f7e57db1708.json",
+        "fixBlob": "a488d8ed8775b9f45dfb59c0707fda9e46f458df"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "runner transport and lifecycle suite",
+        "command": "pnpm --filter @relayos/runner test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-A7E795EE4F50",
+      "sourceBlob": "3898e4babef4e1f60689b9333edbdc112df35f08",
+      "owner": "identity-access",
+      "evidence": [
+        "audits/security-scan/rescan/round-33/post-fix/91aa58c919f0f402.json",
+        "Both password source (L60) and legacy (L104-106) rate-limit keys use the required GatewayRequestContext.clientAddress, computed once from proof-bound proxy input or a normalized direct peer; session persistence (L114) uses the same canonical address."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Password login rate-limit key uses only socket peer IP, enabling global per-email lockout behind reverse proxies.",
+      "fixBlob": "a0c3de6ec3f9b2997e5591283d2ae59e0d9a71c7",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-33/post-fix/91aa58c919f0f402.json",
+        "fixBlob": "a0c3de6ec3f9b2997e5591283d2ae59e0d9a71c7"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "trusted client login rate keys",
+        "command": "pnpm --filter @relayos/daemon exec vitest run src/service-plane/gateway/routes/login.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-AC29A6DF2A47",
+      "sourceBlob": "9fcb8a3192a06c6f0c55815621507fc19f8d29ae",
+      "owner": "marketplace-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/b85a2acb1c1630d6.json",
+        "Telemetry batches have no size limit — still remediated. Re-read: both handlers still reject a batch above MARKETPLACE_TELEMETRY_MAX_BATCH_ITEMS = 100 (L23) before any store write, at L99 for events and L121 for items. This round's only edit replaces `match[2]!.padEnd(3, \"0\")` in the timestamp normaliser with `(match[2] ?? \"\").padEnd(3, \"0\")`, which is the same value for a pattern whose second group is optional; no telemetry, batch or stats path is in the diff."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Telemetry batches have no size limit before store writes.",
+      "fixBlob": "b71666419445475d01090a9caa8ed88e130478b0",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/b85a2acb1c1630d6.json",
+        "fixBlob": "b71666419445475d01090a9caa8ed88e130478b0"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "marketplace integrity and resource suite",
+        "command": "pnpm --filter @relayos/marketplace-core test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-AF020FAE8FC5",
+      "sourceBlob": "aa867d4c267b5ad2d48de1ec6b67755d05645597",
+      "owner": "marketplace-runtime",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/80d8576de41dbe5e.json",
+        "semver.ts:44-46 still returns true for any parseSemver-valid version when range==='latest'; pickBestVersion then selects the highest. resolve.ts visits range selectors via pickBestVersion; parseHumanSpec defaults missing range to 'latest'. No floor/cap was added. Install lock digests pin after install, but re-resolve of bare id/@latest still floats to a newly published high version from an authorized publisher.",
+        "docs/superpowers/specs/2026-07-19-security-hardening-and-guardrails-design.md",
+        "The publish boundary authenticates namespace ownership, and lock/install records pin the resolved digest; no untrusted party can publish solely by choosing a high semver."
+      ],
+      "status": "accepted_risk",
+      "rationale": "The selector latest intentionally means the highest authorized stable publisher version; consumers that need immutability use the resolved lock digest.",
+      "reviewedBlob": "aa867d4c267b5ad2d48de1ec6b67755d05645597",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/80d8576de41dbe5e.json",
+        "reviewedBlob": "aa867d4c267b5ad2d48de1ec6b67755d05645597"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-09-30T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-B1FBD6466C12",
+      "sourceBlob": "7dd82076697d7e5f836d20883be4b80f64b02d52",
+      "owner": "daemon-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-17/post-fix/5337c27765ae9a32.json",
+        "Install errors echo raw marketplace failure strings to the client — still remediated. classifyInstallError (L30-69) maps every marketplace-originated string enumerated in the module docblock (L25-27) to an enum code, with 'marketplace_request_failed' as a trailing catch-all (L56-58) so no marketplace_request_failed escapes classification; the client-facing summary comes from packagesInstall.errors[code].message via safeDiagnostic (L97-101). Diffing the audited blob against this one shows the merge's only changes are passing input.bindingContributions into installPackage and admitting the new staged_configuration_required outcome — the classifier and the error path are untouched."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Install errors echo raw marketplace failure strings to the client.",
+      "fixBlob": "3d45509b418c2b495c9b85cb772bb6fa29335a50",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-17/post-fix/5337c27765ae9a32.json",
+        "fixBlob": "3d45509b418c2b495c9b85cb772bb6fa29335a50"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "package install diagnostics",
+        "command": "pnpm --filter @relayos/daemon exec vitest run src/capabilities/packages/extras.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-B3B909CF7850",
+      "sourceBlob": "9fcb8a3192a06c6f0c55815621507fc19f8d29ae",
+      "owner": "marketplace-product-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/b85a2acb1c1630d6.json",
+        "Open telemetry can still forge install and run ranking stats: recordInstallEvents and recordUsageRollups still accept any UUID installationId and format-valid extensionId with no store-existence check and no per-identity anti-abuse, so invented installationIds can still inflate installs/activeInstalls/runs/trending. The batch cap bounds one request, not the aggregate. Same separate-design item. This round's only edit replaces `match[2]!.padEnd(3, \"0\")` in the timestamp normaliser with `(match[2] ?? \"\").padEnd(3, \"0\")`, which is the same value for a pattern whose second group is optional; no telemetry, batch or stats path is in the diff."
+      ],
+      "status": "separate_design",
+      "rationale": "Public ranking integrity needs authenticated replay-resistant daemon events or removal of unverifiable popularity claims; request-size limits cannot establish truth.",
+      "reviewedBlob": "b71666419445475d01090a9caa8ed88e130478b0",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/b85a2acb1c1630d6.json",
+        "reviewedBlob": "b71666419445475d01090a9caa8ed88e130478b0"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-09-16T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-B619C8AA1A7A",
+      "sourceBlob": "2309729c7020be2a48f57508cedf63b40699e2b1",
+      "owner": "runner-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/004ef7423b2fb0b7.json",
+        "Number.parseInt allows large indices — still a false positive for the same reason: index segments are used for read-only array indexing, so an out-of-range index yields undefined with no assignment, no prototype mutation and no control-flow abuse. The character reads in the tokeniser changed from `path[i]!` to `path.charAt(i)`, which cannot widen what an index segment can address. This round's only edits replace three `path[i]!` character reads in the tokeniser with `path.charAt(i)`, which returns \"\" out of range rather than undefined; no property name, guard or traversal step is in the diff."
+      ],
+      "status": "false_positive",
+      "rationale": "Current source and call-site review found no concrete security abuse path for the original report.",
+      "sourceEvidence": "Index segments still use Number.parseInt (117) but access is read-only array indexing (42-45). Out-of-range indices return undefined with no assignment, prototype mutation, or control-flow abuse; no concrete injection/RCE/DoS path.",
+      "reviewedBlob": "0739afa1b7df3b0cdc762d37e61b1335e9d0e3cd",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/004ef7423b2fb0b7.json",
+        "reviewedBlob": "0739afa1b7df3b0cdc762d37e61b1335e9d0e3cd"
+      },
+      "fixBlob": null,
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-B729BD7BA38D",
+      "sourceBlob": "407a816d1303c17273eaa65cc86d73b19dd10866",
+      "owner": "runner-protocol-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/02d9ec5bc9f14437.json",
+        "runUpdate requires releasePublicKey() (RELAYOS_RELEASE_PUBKEY) or refuses (157-169). Fetches SHA256SUMS + SHA256SUMS.sig (190-213), verifyChecksumSignature against baked Ed25519 key before trusting checksum or replacing binary (215-224). Compromised dl host alone cannot supply matching .sig without release private key."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Self-update downloads the runner binary and verifies it against SHA256SUMS, but SHA256SUMS is fetched over the same TLS channel from the same host (dl.relayos.work) with NO independent/detached signature (no code-signing/Ed25519/PGP).",
+      "fixBlob": "b62ef576e389a00fb56f195f20b10eba2ed32b00",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/02d9ec5bc9f14437.json",
+        "fixBlob": "b62ef576e389a00fb56f195f20b10eba2ed32b00"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "runner transport and lifecycle suite",
+        "command": "pnpm --filter @relayos/runner test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-B95B3FDEDB97",
+      "sourceBlob": "80836b20e4981043cf92d105b1c2e36c5ac0df6d",
+      "owner": "storage-runtime",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/fb5f0a2c980903df.json",
+        "PutOptions (types.ts:18-22) still only exposes mimeType?, expectedDigest?, expectedSize?. BlobStore.put (29-36) documents expectedDigest verification but no maxBytes. Package-wide grep finds zero maxBytes references; storage primitive cannot fail closed for oversized streams.",
+        "docs/superpowers/specs/2026-07-19-security-hardening-and-guardrails-design.md",
+        "Explicit separate-design item: artifact/blob resource accounting."
+      ],
+      "status": "separate_design",
+      "rationale": "Artifact and blob accounting needs type-specific streaming limits, quotas, backpressure, and cleanup semantics across transports and stores.",
+      "reviewedBlob": "80836b20e4981043cf92d105b1c2e36c5ac0df6d",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/fb5f0a2c980903df.json",
+        "reviewedBlob": "80836b20e4981043cf92d105b1c2e36c5ac0df6d"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-09-30T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-BADE934C7FAB",
+      "sourceBlob": "04f77b5da8851e5fc54895c89bf57d79e41a6643",
+      "owner": "runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-17/post-fix/6dab6425ce38aab4.json",
+        "extension.author.start brief has no max length — still remediated. The same ExtensionConversationTextSchema is bound to `brief` (L97); the shared contract for both fields is documented at L9-10 and is unchanged from the audited blob."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: extension.author.start brief has no max length.",
+      "fixBlob": "141da0bcf4168b590c154144373e4bf0a9558e38",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-17/post-fix/6dab6425ce38aab4.json",
+        "fixBlob": "141da0bcf4168b590c154144373e4bf0a9558e38"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "bounded RPC schema suite",
+        "command": "pnpm --filter @relayos/control-spec test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-BB52F74AF015",
+      "sourceBlob": "1c842e00a2046d0286648d4083a405d5df6f31cc",
+      "owner": "marketplace-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/d70fc5df1504df10.json",
+        "The marketplace content digest still covers bundle bytes only, not manifest+bundle together — digest.ts still just hashes caller-supplied bytes, and the publish path still stores contentDigest from the bundle while the manifest is persisted separately. The deferral stands: binding them needs a package attestation format, not a local change. This round's only edit replaces the hex loop's `bytes[i]!` with an iteration over the bytes; the hashing input and output are byte-identical."
+      ],
+      "status": "separate_design",
+      "rationale": "Durable publisher trust must bind canonical manifest permissions/imports and bundle bytes into one attestation with persistent key pinning and rotation.",
+      "reviewedBlob": "3b67d21a8d2238988f419043f890975a429fc1ae",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/d70fc5df1504df10.json",
+        "reviewedBlob": "3b67d21a8d2238988f419043f890975a429fc1ae"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-09-16T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-BF0D0D1DC0B7",
+      "sourceBlob": "63dcb97533dc6be9220248b92ff10f1966a17192",
+      "owner": "runner-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-17/post-fix/relocation-anthropic-managed-agent-client.json",
+        "client.ts was deleted in 5aa12f542cb4b8fbeda9ab280b0fdcc82eb628cf, a deletion that removed exactly the audited blob cd6ada131ecc4d47ee5d4730cc32dd77d8e78ac8. The behaviours it carried were re-verified in their new homes rather than assumed resolved by deletion: (a) inbound MCP authorization / x-api-key / host / cookie headers can no longer be forwarded at all — the outbound header builder in apps/daemon/src/inference-relay/secure-outbound-transport.ts throws inference_transport_headers_invalid on any of them (L1052-1069), and the only credential placed on the wire is the one applyAuthHeader injects from its own secretBytes (L1073, L1107-1117); (b) stream buffering is bounded by DEFAULT_MAX_SSE_EVENT_BYTES and DEFAULT_MAX_STREAM_TOTAL_BYTES (L56-61); (c) redirects are never followed — any 3xx status fails with inference_transport_redirect_blocked (L1481-1484), which is stricter than the redirect:\"manual\" the finding asked for; (d) the managed-agent driver no longer provisions an environment or executes anything — provider.execute throws inference_request_boundary_unavailable (L145-150) and PostgresManagedAgentLifecycle only cancels sessions created by earlier RelayOS versions. OPEN GAP recorded deliberately: apps/daemon/src/inference-relay/secure-outbound-transport.ts and apps/runner/src/inference-proxy.ts are new on this branch, post-date the last sweep, and have no ledger scan yet — the relocated behaviours are verified here, but those two files still owe a first scan of their own."
+      ],
+      "status": "superseded",
+      "rationale": "SSE reader buffers events without size/count caps: the audited file was deleted, and the behaviour was re-verified in the module that now owns it (see noReplacementEvidence). No successor finding is opened because the relocated code refuses the behaviour outright.",
+      "fixBlob": null,
+      "expiresAt": null,
+      "deletionCommit": "5aa12f542cb4b8fbeda9ab280b0fdcc82eb628cf",
+      "replacementId": null,
+      "noReplacementEvidence": "client.ts was deleted in 5aa12f542cb4b8fbeda9ab280b0fdcc82eb628cf, a deletion that removed exactly the audited blob cd6ada131ecc4d47ee5d4730cc32dd77d8e78ac8. The behaviours it carried were re-verified in their new homes rather than assumed resolved by deletion: (a) inbound MCP authorization / x-api-key / host / cookie headers can no longer be forwarded at all — the outbound header builder in apps/daemon/src/inference-relay/secure-outbound-transport.ts throws inference_transport_headers_invalid on any of them (L1052-1069), and the only credential placed on the wire is the one applyAuthHeader injects from its own secretBytes (L1073, L1107-1117); (b) stream buffering is bounded by DEFAULT_MAX_SSE_EVENT_BYTES and DEFAULT_MAX_STREAM_TOTAL_BYTES (L56-61); (c) redirects are never followed — any 3xx status fails with inference_transport_redirect_blocked (L1481-1484), which is stricter than the redirect:\"manual\" the finding asked for; (d) the managed-agent driver no longer provisions an environment or executes anything — provider.execute throws inference_request_boundary_unavailable (L145-150) and PostgresManagedAgentLifecycle only cancels sessions created by earlier RelayOS versions. OPEN GAP recorded deliberately: apps/daemon/src/inference-relay/secure-outbound-transport.ts and apps/runner/src/inference-proxy.ts are new on this branch, post-date the last sweep, and have no ledger scan yet — the relocated behaviours are verified here, but those two files still owe a first scan of their own."
+    },
+    {
+      "id": "SEC-BF8D8B56E91D",
+      "sourceBlob": "40005eedfe84ba91cafb87093a66533e978ec911",
+      "owner": "runtime-architecture",
+      "evidence": [
+        "audits/security-scan/rescan/round-26/post-fix/33c5b571d870d1df.json",
+        "Advisory-only transition table — accepted risk unchanged. Re-read at blob ca3b37b7 (the file is now 12 lines): STATE_TRANSITIONS (L4-L8) is still a plain Record<RoundState, ResolutionKind[]>, and allowedResolutionKindsForState (L10-L12) still takes only a RoundState and returns the array — no principal, role, or principal-kind parameter exists to check. CORE_INVARIANTS (runtime/invariants.ts L1-L9) is still an `as const` array of three strings with no enforcement, and nothing in state-machine.ts references it.\nThis round's edit removes one line: `export const allowedDecisionsForState = allowedResolutionKindsForState`, a rename leftover that knip flagged as a duplicate export and that had no reference outside its own definition. That strengthens rather than weakens the accepted risk — after the edit there is exactly one exported name here and still zero production callers, so nothing treats this table as an authorization decision. Authority remains with daemon Identity & Access. The owed follow-up is unchanged and unaddressed by this edit: a daemon-side test asserting a non-declared principal cannot resolve/approve a gate.",
+        "docs/superpowers/specs/2026-07-19-security-hardening-and-guardrails-design.md",
+        "Repository architecture explicitly assigns authority to Identity & Access and no production caller treats allowedResolutionKindsForState as an authorization decision."
+      ],
+      "status": "accepted_risk",
+      "rationale": "This package is a pure advisory transition vocabulary and is not an authorization boundary; daemon Identity & Access remains the sole authority owner.",
+      "reviewedBlob": "ca3b37b77493e8d784ca3361380cf738c7650f29",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/round-26/post-fix/33c5b571d870d1df.json",
+        "reviewedBlob": "ca3b37b77493e8d784ca3361380cf738c7650f29"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-10-14T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-C107FA35EF0B",
+      "sourceBlob": "63dcb97533dc6be9220248b92ff10f1966a17192",
+      "owner": "runner-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-17/post-fix/relocation-anthropic-managed-agent-client.json",
+        "client.ts was deleted in 5aa12f542cb4b8fbeda9ab280b0fdcc82eb628cf, a deletion that removed exactly the audited blob cd6ada131ecc4d47ee5d4730cc32dd77d8e78ac8. The behaviours it carried were re-verified in their new homes rather than assumed resolved by deletion: (a) inbound MCP authorization / x-api-key / host / cookie headers can no longer be forwarded at all — the outbound header builder in apps/daemon/src/inference-relay/secure-outbound-transport.ts throws inference_transport_headers_invalid on any of them (L1052-1069), and the only credential placed on the wire is the one applyAuthHeader injects from its own secretBytes (L1073, L1107-1117); (b) stream buffering is bounded by DEFAULT_MAX_SSE_EVENT_BYTES and DEFAULT_MAX_STREAM_TOTAL_BYTES (L56-61); (c) redirects are never followed — any 3xx status fails with inference_transport_redirect_blocked (L1481-1484), which is stricter than the redirect:\"manual\" the finding asked for; (d) the managed-agent driver no longer provisions an environment or executes anything — provider.execute throws inference_request_boundary_unavailable (L145-150) and PostgresManagedAgentLifecycle only cancels sessions created by earlier RelayOS versions. OPEN GAP recorded deliberately: apps/daemon/src/inference-relay/secure-outbound-transport.ts and apps/runner/src/inference-proxy.ts are new on this branch, post-date the last sweep, and have no ledger scan yet — the relocated behaviours are verified here, but those two files still owe a first scan of their own."
+      ],
+      "status": "superseded",
+      "rationale": "fetch follows redirects while sending x-api-key: the audited file was deleted, and the behaviour was re-verified in the module that now owns it (see noReplacementEvidence). No successor finding is opened because the relocated code refuses the behaviour outright.",
+      "fixBlob": null,
+      "expiresAt": null,
+      "deletionCommit": "5aa12f542cb4b8fbeda9ab280b0fdcc82eb628cf",
+      "replacementId": null,
+      "noReplacementEvidence": "client.ts was deleted in 5aa12f542cb4b8fbeda9ab280b0fdcc82eb628cf, a deletion that removed exactly the audited blob cd6ada131ecc4d47ee5d4730cc32dd77d8e78ac8. The behaviours it carried were re-verified in their new homes rather than assumed resolved by deletion: (a) inbound MCP authorization / x-api-key / host / cookie headers can no longer be forwarded at all — the outbound header builder in apps/daemon/src/inference-relay/secure-outbound-transport.ts throws inference_transport_headers_invalid on any of them (L1052-1069), and the only credential placed on the wire is the one applyAuthHeader injects from its own secretBytes (L1073, L1107-1117); (b) stream buffering is bounded by DEFAULT_MAX_SSE_EVENT_BYTES and DEFAULT_MAX_STREAM_TOTAL_BYTES (L56-61); (c) redirects are never followed — any 3xx status fails with inference_transport_redirect_blocked (L1481-1484), which is stricter than the redirect:\"manual\" the finding asked for; (d) the managed-agent driver no longer provisions an environment or executes anything — provider.execute throws inference_request_boundary_unavailable (L145-150) and PostgresManagedAgentLifecycle only cancels sessions created by earlier RelayOS versions. OPEN GAP recorded deliberately: apps/daemon/src/inference-relay/secure-outbound-transport.ts and apps/runner/src/inference-proxy.ts are new on this branch, post-date the last sweep, and have no ledger scan yet — the relocated behaviours are verified here, but those two files still owe a first scan of their own."
+    },
+    {
+      "id": "SEC-CA3BAF804AA2",
+      "sourceBlob": "63a6a36a63b6037d6fb1811f845b80272be7993a",
+      "owner": "identity-access",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/5745f69fb2bad9e6.json",
+        "Unauthenticated CLI device init has no rate limit or row purge — still remediated at blob 0c5b9156. Re-read: handleCliInitPost still consumes the peer budget via `deps.identityAccess.consumeCliDeviceInitAttempt({ peerRateLimitKey })` (L29) BEFORE any body parsing or allocation, the info and poll paths still consume their own peer and identity budgets (L152, L163, L358), and the shared limiter still keys on `hashToken(`${action}|${clientAddress}`)` (L341). createCliDeviceAuthorization's advisory locking, bounded expired-row cleanup and capacity check are in the store, not this file, and are untouched. This round's two edits are: the token-list cursor is read once into a local instead of `searchParams.get(\"cursor\")` twice with the second read asserted, and the user-code generator uses `String.charAt` for an index `randomInt` already bounds. Neither is on a rate-limit or purge path."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Unauthenticated CLI device init has no rate limit or row purge.",
+      "fixBlob": "0c5b915692799f836d272204329d88faaa8b034d",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/5745f69fb2bad9e6.json",
+        "fixBlob": "0c5b915692799f836d272204329d88faaa8b034d"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "durable CLI device admission",
+        "command": "pnpm --filter @relayos/daemon exec vitest run src/service-plane/gateway/routes/cli-device.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-CCBC97718161",
+      "sourceBlob": "b0f894f310a77d735f9b904906db2464a71d7734",
+      "owner": "daemon-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/6df3f342fca78b61.json",
+        "transformTags.a (sanitize.ts:86-94) forces attribs.rel = 'noopener noreferrer nofollow' whenever attribs.target is set, matching the documented same-document opener fix (L9-11, L86-87). target/rel remain allowlisted attrs (L65) but rel is overwritten on output, so <a target=_blank> cannot retain a host window.opener handle."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: <a target rel> allowed but rel not forced to noopener.",
+      "fixBlob": "0647b53e6257e395192bec8e2fcfcf4114eb3b58",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/6df3f342fca78b61.json",
+        "fixBlob": "0647b53e6257e395192bec8e2fcfcf4114eb3b58"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "preview HTML host-document isolation",
+        "command": "pnpm --filter @relayos/daemon exec vitest run src/preview-pipeline/sanitize.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-CFDEACB1A0C9",
+      "sourceBlob": "175d635e2807f2f8fc77f37a5a049cf12071a413",
+      "owner": "runner-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/d25e9c16aa67f647.json",
+        "Request URL is buildUrl(baseUrl, renderText(pathTemplate, inputs)) — still remediated. Re-read: buildCapabilityUrl (L288) still encodes untrusted path placeholders with encodeURIComponent (L344) and still ends by calling assertSameOriginAndBasePath (L315), present at L450, which requires matching protocol/host/port/origin plus base-path containment. This round's only edit to the file is in the AbortSignal combiner, where `signals[0]!` under `signals.length === 1` became a destructured sole signal — no URL, header, cap or body read is in the diff."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Request URL is buildUrl(baseUrl, renderText(pathTemplate, inputs)).",
+      "fixBlob": "f3c15957032b75b5669da5d7db4214db663b0600",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/d25e9c16aa67f647.json",
+        "fixBlob": "f3c15957032b75b5669da5d7db4214db663b0600"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "capability HTTP containment suite",
+        "command": "pnpm --filter @relayos/execution-provider-capability-http test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-D807DDDB8E4B",
+      "sourceBlob": "3a1e2b55eb0eb2d565d3eda3c1d1d86cb49632be",
+      "owner": "developer-infrastructure",
+      "evidence": [
+        "audits/security-scan/rescan/round-28/post-fix/b803fcb7f17ed923.json",
+        "TURBO_TOKEN available to same-repo pull_request jobs — still remediated. Re-read at blob a381b5cf: TURBO_TOKEN appears exactly once as a value, L413, inside the environment-e2e-main job whose `if` restricts it to push-to-main; the comments at L23 and L311 still record why the pull_request-effective lanes must not receive it. This round's edit is purely additive and identical in both test jobs: one `if: failure()` step that runs scripts/ci/capture-runner-diagnostics.sh. It changes no trigger, no runs-on, no permissions block, no env entry, and adds no secret reference. The script only reads — free, /proc/pressure/*, this cgroup's memory.* counters, sibling runner peaks, and the tail of the runner's own Worker_*.log — and writes to $GITHUB_STEP_SUMMARY. It grants no capability the job did not already have: every path it touches is readable by the runner user, which is why the manual investigation could read them at all. It always exits 0 so it cannot become the reported failure. No job-level env was added or moved, so no PR-effective lane gained the remote-cache secret."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: TURBO_TOKEN available to same-repo pull_request jobs.",
+      "fixBlob": "a381b5cf92a18921815ec1ee6ff8f4547495504f",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-28/post-fix/b803fcb7f17ed923.json",
+        "fixBlob": "a381b5cf92a18921815ec1ee6ff8f4547495504f"
+      },
+      "regression": {
+        "kind": "guardrail",
+        "name": "workflow security invariant fixtures",
+        "command": "pnpm exec vitest run scripts/checks/check-security-invariants.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-DB3DB4203580",
+      "sourceBlob": "b0f894f310a77d735f9b904906db2464a71d7734",
+      "owner": "daemon-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/6df3f342fca78b61.json",
+        "ALLOWED_TAGS (sanitize.ts:19-61) spreads sanitizeHtml.defaults.allowedTags and adds structural/SVG tags only; 'style' is not present. Header comment (L13-17) documents intentional ban of <style> blocks because sanitize-html would pass CSS unfiltered into same-document injection. Only the inline style= attribute remains on '*' (L64), constrained by allowedStyles with url() blocked (L96-127). pipeline.ts still sanitizes non-iframe html before host dangerouslySetInnerHTML, so the unfiltered <style> abuse path is closed."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: 'style' is in ALLOWED_TAGS without allowVulnerableTags.",
+      "fixBlob": "0647b53e6257e395192bec8e2fcfcf4114eb3b58",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/6df3f342fca78b61.json",
+        "fixBlob": "0647b53e6257e395192bec8e2fcfcf4114eb3b58"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "preview HTML host-document isolation",
+        "command": "pnpm --filter @relayos/daemon exec vitest run src/preview-pipeline/sanitize.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-DD06755D664E",
+      "sourceBlob": "175d635e2807f2f8fc77f37a5a049cf12071a413",
+      "owner": "runner-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/d25e9c16aa67f647.json",
+        "await response.text() reads the full body with no size cap — still remediated. Re-read: the response is still read through readResponseBodyLimited (L471) against CAPABILITY_HTTP_MAX_RESPONSE_BYTES = 1 MiB (L17, applied at L263), and an oversized body still throws capability_http_response_too_large (L485) after cancelling the reader. This round's only edit to the file is in the AbortSignal combiner, where `signals[0]!` under `signals.length === 1` became a destructured sole signal — no URL, header, cap or body read is in the diff."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: await response.text() reads the full body with no size cap; a hostile/large response can exhaust memory.",
+      "fixBlob": "f3c15957032b75b5669da5d7db4214db663b0600",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/d25e9c16aa67f647.json",
+        "fixBlob": "f3c15957032b75b5669da5d7db4214db663b0600"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "capability HTTP containment suite",
+        "command": "pnpm --filter @relayos/execution-provider-capability-http test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-DF373D000F92",
+      "sourceBlob": "4f2a127145f0099331c5e3a5bfb47693ae59bd56",
+      "owner": "runner-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/87106b98887cd0cb.json",
+        "sessionId is still a positional resume argv (line 65) without format validation, but it is not shell-interpolated and there is no cross-session reachability from this file alone; malformed ids only yield CLI failure, not a concrete security abuse path."
+      ],
+      "status": "false_positive",
+      "rationale": "Current source and call-site review found no concrete security abuse path for the original report.",
+      "sourceEvidence": "sessionId is still a positional resume argv (line 65) without format validation, but it is not shell-interpolated and there is no cross-session reachability from this file alone; malformed ids only yield CLI failure, not a concrete security abuse path.",
+      "reviewedBlob": "d08ae59e954eaae1ee8676dea0d32b34fcf46856",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/87106b98887cd0cb.json",
+        "reviewedBlob": "d08ae59e954eaae1ee8676dea0d32b34fcf46856"
+      },
+      "fixBlob": null,
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-E647A443467E",
+      "sourceBlob": "73bc9ca99839fcac6968c71d6df01930d3e925a1",
+      "owner": "telemetry-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/2cf07a279a01d292.json",
+        "headersToCarrier (lines 162-168) only copies traceparent and tracestate; baggage is never placed on the carrier. Middleware comment (lines 44-46) states public client baggage is intentionally excluded and server RuntimeContext is the only re-propagation source. runWithRuntimeContext({ requestId }) still seeds ALS from server-chosen request id only. Smoke test drops-all-untrusted-inbound-baggage asserts spoofed relayos.account_id/run_id are not reinjected."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Client W3C baggage is extracted into active OTel context.",
+      "fixBlob": "70fb2f10b8b0bc425b983f795e2c31b3eefe57a8",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/2cf07a279a01d292.json",
+        "fixBlob": "70fb2f10b8b0bc425b983f795e2c31b3eefe57a8"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "telemetry inbound context suite",
+        "command": "pnpm --filter @relayos/telemetry-node test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-E734B3C5CBE1",
+      "sourceBlob": "89c37337b73a6b7750c73455c383888a8cfa988f",
+      "owner": "runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-30/post-fix/ad9e0b258c23d737.json",
+        "validLocalNavigationHref (L1074-1080) still requires a leading '/', rejects '//', rejects backslashes and rejects C0/DEL controls; validMemoryEvidenceRef applies it at L1071 with the navigationTarget key set pinned to ['href'] at L1069. Lines moved +1 from round 24 because requireRunnerJobEnvelope's deadline extraction went from 8 to 9 lines; the memory-evidence path itself is untouched."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Memory evidence href allows protocol-relative open redirect.",
+      "fixBlob": "030cf60b2fe7dfa991cd58f31f737ec2ba3c633c",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-30/post-fix/ad9e0b258c23d737.json",
+        "fixBlob": "030cf60b2fe7dfa991cd58f31f737ec2ba3c633c"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "agent runtime contract suite",
+        "command": "pnpm --filter @relayos/agent-runtime-contracts test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-EDA6832C5062",
+      "sourceBlob": "4e8f52c64ee8aa2232f996b19ae538b543f39417",
+      "owner": "runner-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-14/post-fix/dbb1389be336d9ba.json",
+        "No console.log of argv/prompt or JSON.stringify of stdout/stderr. runCommand (L596-638) calls runBoundedProcess then logDriverClassification with only classification/durationMs/stdoutBytes/stderrBytes. Failure paths return boundedPublicSummary without dumping I/O (L486-493); errors use safeInternalDriverError/outputLimitDriverError (L582-594)."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Full CLI command and failure I/O logged unredacted.",
+      "fixBlob": "60d880f5acb055ec0e24a53eb2a11a6af0378d3e",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-14/post-fix/dbb1389be336d9ba.json",
+        "fixBlob": "60d880f5acb055ec0e24a53eb2a11a6af0378d3e"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "Claude driver bounded-output suite",
+        "command": "pnpm --filter @relayos/driver-claude-code test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-F4BF66F19495",
+      "sourceBlob": "a8a45ad2ae91b6cd566255a3d2277928e2b18890",
+      "owner": "identity-access",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/70c1c32caf7a3844.json",
+        "handleTenantCreatePost (tenants.ts:78-113) only requires ctx.identity, trims title, then calls deps.identityAccess.createTenantForIdentity with a fresh tenant id and no rate-limit/quota check or 429 path. createTenantForIdentity (identity-access store.ts:374-443) locks the identity, INSERTs tenants + owner grant + principal_identity_links + security events, and does not count prior tenants or apply authentication_rate_limits. Gateway auth rate limits cover password/login/magic-link/CLI/intents only; routes.ts wires POST /api/auth/tenants straight to this handler.",
+        "docs/superpowers/specs/2026-07-19-security-hardening-and-guardrails-design.md",
+        "Follow-up design: per-identity tenant provisioning admission and quota policy."
+      ],
+      "status": "separate_design",
+      "rationale": "Tenant provisioning rate limits and quotas require an explicit self-service product policy, durable accounting, and operator recovery semantics.",
+      "reviewedBlob": "a8a45ad2ae91b6cd566255a3d2277928e2b18890",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/70c1c32caf7a3844.json",
+        "reviewedBlob": "a8a45ad2ae91b6cd566255a3d2277928e2b18890"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-09-30T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-F572A982F5EB",
+      "sourceBlob": "84889bece05a8f51904f58d53eda11dadcc05d8c",
+      "owner": "storage-runtime",
+      "evidence": [
+        "audits/security-scan/rescan/round-13/post-fix/daef0dd04a5307a5.json",
+        "artifacts.ts:27-33 still has body: z.unknown() with no schema size/shape bound. runAnchors is now ArtifactRunAnchorInputSchema.max(MAX_ARTIFACT_RUN_ANCHORS), but authenticated artifacts:write callers can still put nearly the full RPC body into body for storage/index amplification up to RPC_MAX_REQUEST_BODY_BYTES.",
+        "docs/superpowers/specs/2026-07-19-security-hardening-and-guardrails-design.md",
+        "Explicit separate-design item: artifact/blob resource accounting."
+      ],
+      "status": "separate_design",
+      "rationale": "Artifact and blob accounting needs type-specific streaming limits, quotas, backpressure, and cleanup semantics across transports and stores.",
+      "reviewedBlob": "bb1b9a78ff846f89b5f84813f556488f40ffe0b9",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/round-13/post-fix/daef0dd04a5307a5.json",
+        "reviewedBlob": "bb1b9a78ff846f89b5f84813f556488f40ffe0b9"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-09-30T00:00:00.000Z"
+    },
+    {
+      "id": "SEC-F8FBB4281984",
+      "sourceBlob": "f8e560ca44b2aa03bb4d8e5b76f2d153e12179ce",
+      "owner": "runner-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-14/post-fix/f3d301f13c52e664.json",
+        "runCommand uses runBoundedProcess (L697-704) with hard 8MiB stdout / 1MiB stderr budgets in codex bounded-process.ts; overflow terminates the child group and rejects with OutputLimitExceededError, so retained stream buffers cannot grow without bound."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: Unbounded codex stdout/stderr buffering without local timeout.",
+      "fixBlob": "ea1a8fd0dea920a21f69b8f9b0b7f1be0e5116b3",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/round-14/post-fix/f3d301f13c52e664.json",
+        "fixBlob": "ea1a8fd0dea920a21f69b8f9b0b7f1be0e5116b3"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "Codex driver bounded-output suite",
+        "command": "pnpm --filter @relayos/driver-codex test",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-FD3C4209F8AD",
+      "sourceBlob": "3f820bb700b479a1909a23c04cf4e2ca8c1c9599",
+      "owner": "runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/6d0e1bc1aa947bac.json",
+        "fetchGitDiffWithinWorkspace calls assertRepoInsideWorkspace(trustedWorkspaceRoot, parsed.repoPath): both sides realpathSync'd, relative(root,repo) rejects .. escapes/absolute rel; default handler uses process.cwd() as trust root, not request-only path."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: The provider resolves user-supplied file://, absolute, or home-relative repoPath, then spawns git with that path as cwd and returns parsed diff output.",
+      "fixBlob": "32f86e71243950f3a3ebe566f1344fb0cd4d4ba5",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/6d0e1bc1aa947bac.json",
+        "fixBlob": "32f86e71243950f3a3ebe566f1344fb0cd4d4ba5"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "workspace-confined bounded git diff",
+        "command": "pnpm exec vitest run packages/extensions/core-platform/src/providers/git-diff-fetcher.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-FD90BCC57191",
+      "sourceBlob": "381843dcf609562d2db3891c9fe9511f4d735023",
+      "owner": "runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/final/post-fix/edf3513870bef698.json",
+        "GitDiffPathField max 4096; GitDiffRefField max 256, rejects startsWith('-') and CONTROL_CHARS; baseRef optional under same ref field."
+      ],
+      "status": "remediated",
+      "rationale": "The final blob-bound rescan explicitly reconciles this identity as remediated at its owning boundary: GitDiffFetcherInput accepts raw repoPath, branchRef, and optional baseRef strings with no format or length limits.",
+      "fixBlob": "0add928b2ff89ba87eb120570788137ef56aa072",
+      "postFixScan": {
+        "artifact": "audits/security-scan/rescan/final/post-fix/edf3513870bef698.json",
+        "fixBlob": "0add928b2ff89ba87eb120570788137ef56aa072"
+      },
+      "regression": {
+        "kind": "test",
+        "name": "workspace-confined bounded git diff",
+        "command": "pnpm exec vitest run packages/extensions/core-platform/src/providers/git-diff-fetcher.test.ts",
+        "result": "passed"
+      },
+      "expiresAt": null
+    },
+    {
+      "id": "SEC-FE4C02E7B5AF",
+      "sourceBlob": "63dcb97533dc6be9220248b92ff10f1966a17192",
+      "owner": "runner-runtime-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-17/post-fix/relocation-anthropic-managed-agent-client.json",
+        "client.ts was deleted in 5aa12f542cb4b8fbeda9ab280b0fdcc82eb628cf, a deletion that removed exactly the audited blob cd6ada131ecc4d47ee5d4730cc32dd77d8e78ac8. The behaviours it carried were re-verified in their new homes rather than assumed resolved by deletion: (a) inbound MCP authorization / x-api-key / host / cookie headers can no longer be forwarded at all — the outbound header builder in apps/daemon/src/inference-relay/secure-outbound-transport.ts throws inference_transport_headers_invalid on any of them (L1052-1069), and the only credential placed on the wire is the one applyAuthHeader injects from its own secretBytes (L1073, L1107-1117); (b) stream buffering is bounded by DEFAULT_MAX_SSE_EVENT_BYTES and DEFAULT_MAX_STREAM_TOTAL_BYTES (L56-61); (c) redirects are never followed — any 3xx status fails with inference_transport_redirect_blocked (L1481-1484), which is stricter than the redirect:\"manual\" the finding asked for; (d) the managed-agent driver no longer provisions an environment or executes anything — provider.execute throws inference_request_boundary_unavailable (L145-150) and PostgresManagedAgentLifecycle only cancels sessions created by earlier RelayOS versions. OPEN GAP recorded deliberately: apps/daemon/src/inference-relay/secure-outbound-transport.ts and apps/runner/src/inference-proxy.ts are new on this branch, post-date the last sweep, and have no ledger scan yet — the relocated behaviours are verified here, but those two files still owe a first scan of their own."
+      ],
+      "status": "superseded",
+      "rationale": "Managed-agent environment hardcodes unrestricted networking: the audited file was deleted, and the behaviour was re-verified in the module that now owns it (see noReplacementEvidence). No successor finding is opened because the relocated code refuses the behaviour outright.",
+      "fixBlob": null,
+      "expiresAt": null,
+      "deletionCommit": "5aa12f542cb4b8fbeda9ab280b0fdcc82eb628cf",
+      "replacementId": null,
+      "noReplacementEvidence": "client.ts was deleted in 5aa12f542cb4b8fbeda9ab280b0fdcc82eb628cf, a deletion that removed exactly the audited blob cd6ada131ecc4d47ee5d4730cc32dd77d8e78ac8. The behaviours it carried were re-verified in their new homes rather than assumed resolved by deletion: (a) inbound MCP authorization / x-api-key / host / cookie headers can no longer be forwarded at all — the outbound header builder in apps/daemon/src/inference-relay/secure-outbound-transport.ts throws inference_transport_headers_invalid on any of them (L1052-1069), and the only credential placed on the wire is the one applyAuthHeader injects from its own secretBytes (L1073, L1107-1117); (b) stream buffering is bounded by DEFAULT_MAX_SSE_EVENT_BYTES and DEFAULT_MAX_STREAM_TOTAL_BYTES (L56-61); (c) redirects are never followed — any 3xx status fails with inference_transport_redirect_blocked (L1481-1484), which is stricter than the redirect:\"manual\" the finding asked for; (d) the managed-agent driver no longer provisions an environment or executes anything — provider.execute throws inference_request_boundary_unavailable (L145-150) and PostgresManagedAgentLifecycle only cancels sessions created by earlier RelayOS versions. OPEN GAP recorded deliberately: apps/daemon/src/inference-relay/secure-outbound-transport.ts and apps/runner/src/inference-proxy.ts are new on this branch, post-date the last sweep, and have no ledger scan yet — the relocated behaviours are verified here, but those two files still owe a first scan of their own."
+    },
+    {
+      "id": "SEC-FE6D901DDE05",
+      "sourceBlob": "f2c05cf43313a56e153025df227e5272436c1e13",
+      "owner": "runner-protocol-security",
+      "evidence": [
+        "audits/security-scan/rescan/round-16/post-fix/5242b568872f84b3.json",
+        "signed() lines 685-692 observes server time before auth and verifies only response.ok; non-OK flows parseResponse/classifyStatus lines 730-744,937-943; downloadInput lines 505-528 mirrors skip; completeJob lines 567-579 changes only request maxJsonBytes.",
+        "docs/superpowers/specs/2026-07-19-security-hardening-and-guardrails-design.md",
+        "Explicit separate-design item: runner response-signing activation."
+      ],
+      "status": "separate_design",
+      "rationale": "Failing closed on missing pins and authenticating non-OK responses requires a versioned response-signing/enrollment protocol with key rotation and recovery.",
+      "reviewedBlob": "150b292c2cbc53d9f7f2c1db78b3ed514211a842",
+      "currentScan": {
+        "artifact": "audits/security-scan/rescan/round-16/post-fix/5242b568872f84b3.json",
+        "reviewedBlob": "150b292c2cbc53d9f7f2c1db78b3ed514211a842"
+      },
+      "fixBlob": null,
+      "expiresAt": "2026-09-30T00:00:00.000Z"
+    }
+  ]
+}

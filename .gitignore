@@ -1,2 +1,6 @@
 node_modules
 viewer/locales/**/messages.js
+
+# Clone-local audit provider run state (journals, transcripts, receipts).
+# Never committed and never coverage evidence.
+.atlas/.runtime/

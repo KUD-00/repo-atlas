@@ -410,6 +410,261 @@ code's shape IS the point being made. A marker that no longer resolves
 degrades to plain text (`repo-atlas check` reports the rot); the static
 `build` output has no source to slice, so embeds degrade there too.
 
+## Audit platform (V3)
+
+The audit platform is the closed-world, exact-byte layer underneath the
+ledger formats described above. V3 is the only format new audit evidence is
+published in; every state operation goes through the hierarchical
+`repo-atlas audit <verb>` surface (`src/audit-cli.ts`), and all of it is
+deterministic local I/O with exactly one exception: `audit run security`,
+the only command that can launch a provider process.
+
+### State layout
+
+Committed audit state lives under `.atlas/` in the target repo:
+
+- `.atlas/audits/<slug>.json` — current observation ledgers. New writes are
+  `atlas-audit-v3`; legacy `atlas-audit-v1`/`atlas-audit-v2` ledgers share
+  the directory and stay readable (see "Live audit ledgers").
+- `.atlas/audit-history/<slug>.json` — append-only observation history
+  (`atlas-audit-history-v1`), one digest-chained entry per publication.
+- `.atlas/audit-decisions/<slug>.json` — append-only decision ledgers
+  (`atlas-audit-decisions-v1`): finding dispositions, scope retirements,
+  reconciliations.
+- `.atlas/review-policy.json` — the consumer-owned review policy
+  (`atlas-review-policy-v1`): classification rules, review units, and the
+  decision policy. You write it; the tool validates, classifies, and seals
+  its hash — it never writes this file.
+- `.atlas/review-coverage.json` — the generated closed-world coverage
+  report (`atlas-review-coverage-v1`), written only by
+  `audit coverage update` and byte-compared by `audit coverage check`.
+- `.atlas/migrations/amig_*.json` — sealed migration receipts
+  (`atlas-audit-migration-v1`).
+- `.atlas/audit-providers.json` — the consumer-owned provider policy
+  (`atlas-audit-providers/v1`) that `audit run security` requires.
+- `.atlas/.runtime/audit-runs/<invocationId>/` — clone-local provider run
+  state (receipts, transcripts, resume chunks). Gitignored, never
+  committed, and never coverage evidence.
+- `.atlas/artifacts/historical-audits/` — bounded historical artifacts
+  retained by the root-audits migrator.
+
+On the tool side, the platform is small single-purpose modules under
+`src/`: `audit-core` (canonical JSON, bounded hostile-input readers,
+deterministic IDs, atomic writes, the audit lock), `audit-v3-types` +
+`audit-v3` (the V3 model, strict parsing, publication, V1/V2 projection),
+`audit-decisions` (append-only lifecycle), `audit-policy` (policy parsing,
+tracked inventory, classification), `audit-coverage-generator` (the
+exact/semantic join), `audit-import-codex` (sealed Codex Security 1.0
+importer), `audit-migrate-relayos` + `audit-migrate-relayos-root-audits`
+(consumer migrations), `audit-providers` + `audit-provider-grok` (provider
+orchestration and the Grok adapter), `audit-cli` (the command surface).
+`qa/` carries the optional LLM note/audit pipeline and its prompt
+templates; `test/fixtures/` is bounded test data that never ships.
+
+### V1/V2 compatibility
+
+V1 (`finalPass: true` security schema) and V2 ledgers remain first-class
+readable state: `status` tracks their drift, the viewer renders their
+portfolios, and the coverage report joins them as legacy exact evidence
+under the documented restrictions (V2 needs `reviewState: "complete"` and
+a complete hashes map; V1 never becomes fresh from hashes alone). No
+command produces new V2 ledgers. The single grandfathered write is
+`audit import legacy-v1`, which converts a historical `scans[]` ledger
+into the readable V1 form while preserving its scan-time hashes — a
+compatibility conversion, not new evidence. Everything else — Codex
+imports, migrations, and any future producer publication — writes V3.
+
+### V3 guarantees
+
+- Every reviewed file carries an exact blob identity, an explicit
+  reviewed/not-reviewed status, and a clean/findings/unknown outcome —
+  unknown is never rendered as clean, and semantic coverage is never
+  manufactured from exact bytes (or vice versa).
+- Observations seal producer, target, and scope identity digests, so a
+  finding's provenance is checkable without trusting the producer's prose.
+- Current ledgers, history entries, decision events, and migration
+  receipts are canonical RFC 8785 JSON with deterministic IDs
+  (`aobs_`/`atocc_`/`adev_`/`amig_`) and digest-verified chains; `audit
+  check` revalidates every area.
+- All readers are bounded and hostile-input safe (fatal UTF-8,
+  duplicate-key/depth/member limits, symlink rejection); all writes are
+  atomic replacements under the audit lock.
+
+### Policy ownership
+
+Repo Atlas owns the *generic* machinery and no product content: the
+review-policy schema and classifier, the deterministic coverage generator,
+the decision-policy guardrails, and the provider prompt/ruleset envelope.
+The consumer repository owns its *product* policy — which paths need
+review, which units they belong to, which rulesets are accepted, and how
+decisions expire — as `.atlas/review-policy.json`, committed like code.
+The tool ships no consumer ruleset text and no consumer policy (a
+boundary the test suite greps for); the RelayOS migrators recognize the
+legacy source formats but the policy they migrate *to* always comes from
+the consumer via `--policy`.
+
+### Exact versus semantic coverage
+
+These are independent axes and the platform keeps them separate
+everywhere. **Exact coverage** is per-file proof: the reviewed bytes (Git
+blob identity) plus full-read receipts, joined by the coverage generator
+into fresh/stale/missing/invalid evidence per required path. **Semantic
+coverage** is the reviewer's claim about what the unit meaningfully covers
+(surfaces, exclusions, open questions), reported as
+covered/unknown/gap — the Codex Security 1.0 contract, for example,
+carries semantic coverage with exact coverage honestly unknown. The
+coverage report's `verdict` is `complete`, `incomplete` (honest gaps,
+visible so progress shows; enforcement still fails without
+`--allow-incomplete`), or `invalid` (structurally untrustworthy; all
+embedded claims ignored). `audit coverage check` regenerates the report in
+memory and byte-compares it against the committed file, so hand edits and
+drift both fail.
+
+### Decisions and retirement
+
+Finding lifecycle is append-only: events are added to
+`.atlas/audit-decisions/<slug>.json` and never edited or removed, so the
+full trail survives. Every event is self-contained (actor, reason, review
+context with exact blob bindings, evidence refs, proofs) and re-applying
+the same event is an idempotent no-op (`already-present`).
+
+```sh
+repo-atlas audit decision set <finding-or-occurrence> <action> --event <event.json>
+repo-atlas audit reconcile <before> <after> --event <event.json>
+repo-atlas audit retire <path> --event <event.json>
+repo-atlas audit retire --finalize-staged --event <event.json>
+```
+
+Disposition actions: `open`, `remediated`, `accepted-risk`,
+`separate-design`, `false-positive`, `superseded`, `reopened`. The policy's
+`securityDecisions` block makes them **expiry-aware** — `accepted-risk`
+and `separate-design` must carry `expiresAt` within policy maximums
+(severity overrides can tighten the ceiling and demand independent
+reviews), `false-positive` must not expire but demands reviewed-blob and
+source evidence — and **regression-aware** — `remediated` demands a fix
+blob, post-fix proof, and a passing regression of an allowed kind.
+Retirement reasons are `deleted`, `moved`, `superseded`,
+`uncommitted-snapshot-absent`, and `staged-deletion` — a staged deletion
+records the absence proof first and is later finalized by a superseding
+event that retires the same path/blob (`--finalize-staged`), so a path
+leaves coverage scope only with its history proven.
+
+### Explicit Grok execution
+
+```sh
+repo-atlas audit run security --provider grok [--unit <slug> | --all | --stale] [--resume <id>]
+```
+
+This is the only command that launches a provider, and it refuses to run
+without an explicit `--provider grok` and a valid
+`.atlas/audit-providers.json` (command, model, concurrency, batch and
+timeout limits). Default target selection is `--stale`: files whose exact
+security evidence is not fresh, derived from the coverage generator's own
+join — never a heuristic scan. Every other command, including all import,
+migration, coverage, and legacy-alias paths, is deterministic local I/O;
+the suite proves it with a recording fake `grok` that must stay silent.
+
+The provider never sees your working tree. Each run copies the selected
+files into a read-only byte-exact snapshot, spawns the CLI with
+`shell: false`, exact argv, an allowlisted environment, an isolated
+mode-0700 HOME, bounded stdout/stderr, and a timeout; session transcripts
+are parsed and validated before any output is accepted, and the source
+snapshot plus the original targets are re-verified afterwards. The sealed
+run receipt (snapshot manifest, prompt template digest, ruleset digest,
+transcript digests, per-file outcomes — no wall-clock fields) and the
+transcripts stay clone-local under `.atlas/.runtime/audit-runs/<id>/`;
+`--resume <id>` reuses completed chunks from a failed run. The CLI version
+is probed against the supported contract before any analysis starts.
+
+### Sealed Codex Security import
+
+```sh
+repo-atlas audit import codex-security <scan-dir> --slug <slug> [--apply]
+```
+
+Imports a sealed Codex Security completed-scan contract 1.0 bundle as a
+V3 semantic observation. The import is offline and digest-checked: the
+manifest must declare `codex-security.scan-manifest` schema 1.0 with
+`status: completed` and `sealedAt` equal to `completedAt`, and every
+artifact's recorded SHA-256 is verified against its exact bytes before
+anything is read further. It is loss-preserving — because the 1.0
+contract supplies no exact per-file blob receipts, the observation records
+semantic coverage and leaves exact coverage unknown rather than inventing
+receipts. Dry-run is the default; `--apply` publishes the current ledger
+and appends history under the audit lock.
+
+### RelayOS migrations
+
+```sh
+repo-atlas audit migrate relayos-security-v1 --scan-root <path> --policy <path> \
+  --source-revision <commit> --validation-revision <commit> \
+  [--include-history | --no-include-history] [--apply]
+repo-atlas audit migrate relayos-root-audits-v1 --audits-root <path> \
+  --source-revision <commit> --validation-revision <commit> [--apply]
+```
+
+Both migrators are deterministic, idempotent, and non-destructive, and
+both dry-run by default. The seam is a pure builder plus a locked apply:
+the dry run plans every output byte; `--apply` re-plans under the audit
+lock and refuses if the source or validation state changed underneath.
+The two-revision contract pins what was read (`--source-revision`) against
+what it was validated against (`--validation-revision`). The security
+migrator converts a known RelayOS scan root (ledger, candidates,
+dispositions, phase-zero provenance) into per-unit V3 observations,
+decision events, retirements, and reconciliations, including observation
+history unless `--no-include-history`. The root-audits migrator converts
+the design-scan set and historical reports, retaining the reports as
+bounded artifacts under `.atlas/artifacts/historical-audits/` with design
+parity checks. Each apply seals a canonical receipt at
+`.atlas/migrations/<migrationId>.json` whose digest covers both full
+revisions, the repository identity, the exact policy seal, the
+historical-assignment digest, the converter name/version/commit, and the
+sorted raw input seals — `audit check` revalidates receipt digests.
+
+### Audit lock and recovery
+
+Canonical audit state operations — `audit check`, `audit status`,
+`audit coverage check|update`, `audit decision set`, `audit reconcile`,
+`audit retire`, observation publication (`import --apply`), and migration
+applies — run under a single audit lock. The lock lives outside tracked
+`.atlas/` in worktree-specific Git administrative state, at the path
+printed by `git rev-parse --git-path repo-atlas/audit-state.lock`, so a
+linked worktree never fights another branch. It is an exclusive-create
+(`O_EXCL`), mode-0600 file whose canonical receipt records the pid, host,
+process start time, command, and the source HEAD snapshot, and it is
+always released when the operation settles.
+
+A conflicting acquisition fails closed: `audit state lock is already held
+by pid <pid> (<operation>)`. Atlas never steals, reclaims, or times out a
+lock automatically — there is no stale-lock recovery inside the tool. If a
+crashed run leaves one behind, read the receipt at the path above, confirm
+the recorded process is gone, and delete the file yourself. If the receipt
+is unreadable the error names "an unsafe or malformed existing lock" —
+apply the same manual check.
+
+### CI
+
+`audit check` is the whole-state gate (policy, observations, decisions,
+legacy ledgers, migration receipts, and canonical coverage in one exit
+code); `audit coverage check` is the coverage-only byte-compare:
+
+```sh
+# strict — only a complete, current state passes
+repo-atlas audit check
+
+# progress-visible — honest missing/stale evidence is reported but allowed;
+# structural invalidity (bad policy, corrupt ledgers, byte drift) still fails
+repo-atlas audit check --allow-incomplete
+repo-atlas audit coverage check --allow-incomplete
+```
+
+Because `audit coverage check` byte-compares the committed report, CI that
+runs it also catches a `review-coverage.json` that drifted from what
+`audit coverage update` would generate. The flat aliases (`audit-stamp`,
+`audit-import`, `audit-localization-input`, `audit-localization-check`)
+still work but print deprecation guidance naming their `audit ...`
+replacements; new automation should use the hierarchical surface.
+
 ## Concept pages
 
 The third page kind: an explainer for one important mechanism end-to-end
