@@ -353,7 +353,15 @@ export function publishAuditProviderRunObservations(
       occurrenceIdsByPath.set(finding.locations[0]!.path, rows)
     }
 
-    const files: AuditFileReceiptV3[] = unit.files.map((file) => {
+    // Publication requires strictly increasing UTF-16 path order, and the
+    // provider's output arrives in unit-completion order — which is whatever the
+    // concurrent pool finished first, not path order. Nothing sorted it, so the
+    // first run ever to reach publication failed on it: four units published,
+    // the fifth had one file out of order at index 122 and aborted mid-publish.
+    const orderedUnitFiles = [...unit.files].sort((left, right) =>
+      left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+    )
+    const files: AuditFileReceiptV3[] = orderedUnitFiles.map((file) => {
       const occurrenceIds = [...(occurrenceIdsByPath.get(file.path) ?? [])].sort()
       const receiptRefs = new Set<string>([
         `phase:review:review:${reviewBatchOf(file.path)}`,
