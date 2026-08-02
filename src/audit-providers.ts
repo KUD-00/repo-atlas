@@ -1434,9 +1434,56 @@ export async function runAuditProviderPhases(
 
   // Phase 2: parallel bounded review — one bounded process per batch.
   const reviewFiles = context.targets.filter((target) => target.role === 'review')
-  const batches: AuditProviderSnapshotEntry[][] = []
-  for (let index = 0; index < reviewFiles.length; index += policy.maxBatchFiles) {
-    batches.push(reviewFiles.slice(index, index + policy.maxBatchFiles))
+  // Slicing the sorted inventory groups siblings, and siblings share basenames:
+  // this repository has 23 `index.ts` files under one directory and 147 overall,
+  // so a batch could be eight files distinguishable only by parent directory.
+  // Asking a generator to keep those apart is a prompt defect, and it showed as
+  // one — a batch of same-named files kept emitting a receipt for the wrong
+  // sibling, six attempts in a row across two runs, after the whole review phase
+  // had otherwise completed.
+  //
+  // Files are placed into batches largest-basename-group first, each into the
+  // emptiest batch that does not already hold its basename. A flat round-robin
+  // is not enough: it front-loads the diverse groups and leaves the big group's
+  // tail bunched in the final batches. Where a corpus cannot satisfy the
+  // constraint — every file sharing one name — placement falls back to the
+  // emptiest batch and simply batches as before.
+  //
+  // This changes no validation: every file is reviewed exactly once, and the
+  // batch digest still pins its exact contents.
+  const batchCount = Math.max(1, Math.ceil(reviewFiles.length / policy.maxBatchFiles))
+  const batches: AuditProviderSnapshotEntry[][] = Array.from(
+    { length: batchCount },
+    () => [],
+  )
+  const basenameOf = (file: AuditProviderSnapshotEntry): string =>
+    file.path.slice(file.path.lastIndexOf('/') + 1)
+  const byBasename = new Map<string, AuditProviderSnapshotEntry[]>()
+  for (const file of reviewFiles) {
+    const group = byBasename.get(basenameOf(file)) ?? []
+    group.push(file)
+    byBasename.set(basenameOf(file), group)
+  }
+  const takenNames = batches.map(() => new Set<string>())
+  const ordered = [...byBasename.values()].sort((left, right) => right.length - left.length)
+  for (const group of ordered) {
+    for (const file of group) {
+      const name = basenameOf(file)
+      let chosen = -1
+      for (let index = 0; index < batches.length; index += 1) {
+        if (batches[index]!.length >= policy.maxBatchFiles) continue
+        if (takenNames[index]!.has(name)) continue
+        if (chosen === -1 || batches[index]!.length < batches[chosen]!.length) chosen = index
+      }
+      if (chosen === -1) {
+        for (let index = 0; index < batches.length; index += 1) {
+          if (batches[index]!.length >= policy.maxBatchFiles) continue
+          if (chosen === -1 || batches[index]!.length < batches[chosen]!.length) chosen = index
+        }
+      }
+      batches[chosen]!.push(file)
+      takenNames[chosen]!.add(name)
+    }
   }
   const reviewKey = (unit: string, files: readonly AuditProviderSnapshotEntry[]): AuditSha256 =>
     canonicalDigest({

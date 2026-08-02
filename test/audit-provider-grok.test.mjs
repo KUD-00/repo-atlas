@@ -838,6 +838,44 @@ test('an empty tracked file is proven by an empty read', async (t) => {
   assertReceiptChain(result.receipt)
 })
 
+test('a batch spreads same-named files apart instead of grouping them', async (t) => {
+  // Slicing a sorted inventory groups siblings, and siblings share names. A
+  // batch of files distinguishable only by parent directory made the generator
+  // emit receipts for the wrong sibling — six attempts across two runs, after
+  // the review phase had otherwise completed. Batching is the fix because it
+  // removes the ambiguity instead of tolerating its consequences.
+  //
+  // The property is "spread", not "never": a corpus where every file shares one
+  // basename cannot satisfy it, and the dealer degrades to plain batching there.
+  const fake = makeFakeGrok(t, { mode: 'ok' })
+  const files = {}
+  for (const dir of ['alpha', 'bravo', 'charlie', 'delta']) {
+    files[`src/${dir}/index.ts`] = makeSource(4, dir)
+    files[`src/${dir}/${dir}-service.ts`] = makeSource(4, dir)
+  }
+  const root = makeRepo(t, files)
+  const result = await runAuditProviderInvocation(
+    makeRequest(root, makePolicy(fake, { maxBatchFiles: 2 }), Object.keys(files)),
+    createGrokAuditProvider(),
+  )
+  assert.equal(result.status, 'completed')
+
+  const reviewPrompts = fake
+    .invocations()
+    .map((run) => run.prompt)
+    .filter((prompt) => typeof prompt === 'string' && prompt.includes('src/'))
+  assert.ok(reviewPrompts.length > 1, 'expected more than one review batch')
+  for (const prompt of reviewPrompts) {
+    const paths = [...prompt.matchAll(/src\/[a-z]+\/[a-z-]+\.ts/g)].map((hit) => hit[0])
+    const basenames = paths.map((entry) => entry.slice(entry.lastIndexOf('/') + 1))
+    assert.equal(
+      new Set(basenames).size,
+      basenames.length,
+      `one batch received duplicate basenames: ${paths.join(', ')}`,
+    )
+  }
+})
+
 test('a review unit that fails once is retried and the run completes', async (t) => {
   // Without this the pipeline could not finish a corpus large enough for model
   // variance to be likely: one unvalidatable unit aborted everything, so every
