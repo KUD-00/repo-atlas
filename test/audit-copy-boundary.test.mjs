@@ -384,33 +384,32 @@ describe('audit copy source boundary', () => {
     )
   })
 
-  test('App no-action header uses localized Security suffix plus security label', () => {
+  test('the lens nav labels come from Lingui macros, not literals', () => {
+    // Replaces an assertion on the previous sidebar header, which named
+    // localizedSecuritySuffix/localizedTestSuffix and composed them into a
+    // no-action fallback. That header is gone — the nav is now a flat lens icon
+    // strip with per-view badges — so the old names cannot exist and asserting
+    // them only pinned a deleted design.
+    //
+    // The boundary it protected still holds elsewhere: App.tsx is in CONSUMERS,
+    // so the raw-helper ban above still fails on any domainNavSuffix or
+    // coverageStatementText import. What needs its own guard in the new design
+    // is the one place a lens label is produced.
     const app = stripComments(read('viewer/App.tsx'))
-    // Renamed variables make localized nature explicit.
-    assert.match(
-      app,
-      /\blocalizedSecuritySuffix\b/,
-      'App must name the security suffix variable as localizedSecuritySuffix',
-    )
-    assert.match(
-      app,
-      /\blocalizedTestSuffix\b/,
-      'App must name the test suffix variable as localizedTestSuffix',
-    )
-    // No-action fallback must include localized suffix text, not security alone.
-    assert.match(
-      app,
-      /localizedSecuritySuffix\.text/,
-      'App header/body must use localizedSecuritySuffix.text (allowed localized suffix text)',
-    )
-    // Header no-action branch should compose security label with suffix.
-    const headerShortcut = app.match(
-      /headerDomainAction[\s\S]{0,800}?localizedSecuritySuffix\.text/,
-    )
+    const fn = /function primaryLabel\([\s\S]*?\n\}/.exec(app)
+    assert.ok(fn, 'App must define primaryLabel as the single lens-label source')
+    const returns = fn[0].match(/return [^\n]+/g) ?? []
     assert.ok(
-      headerShortcut,
-      'no-action header fallback must compose with localizedSecuritySuffix.text',
+      returns.length >= 5,
+      `primaryLabel must return a label for every lens view (saw ${returns.length})`,
     )
+    for (const line of returns) {
+      assert.match(
+        line,
+        /t\(i18n\)`/,
+        `every lens label must come from the Lingui macro, found: ${line.trim()}`,
+      )
+    }
   })
 
   test('all audit coverage numerators cross one trusted-count boundary', () => {

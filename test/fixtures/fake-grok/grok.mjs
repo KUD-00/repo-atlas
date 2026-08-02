@@ -285,11 +285,17 @@ async function main() {
   }
   // A read_file result prefixes the first returned line with `<start>→` and
   // every absolute decade line (10, 20, …) with its line number. The content
-  // ends with the file's trailing newline when the range reaches EOF. A
-  // no-argument full read of a file whose next line number is a multiple of
-  // ten additionally appends a phantom `<lines+1>→` anchor (verified live:
-  // a 129-line file ends with "130→"); ranged reads never emit it.
-  const readContent = (startLine, endLine, fileLines, wholeFileNoArgs) => {
+  // ends with the file's trailing newline when the range reaches EOF. ANY read
+  // that reaches EOF additionally appends a phantom `<lines+1>→` anchor when
+  // that number is a multiple of ten (verified live: a 129-line file ends with
+  // "130→").
+  //
+  // This fixture used to gate the phantom on no-argument full reads, matching
+  // the same false belief the consumer's interval proof held. Real grok emitted
+  // it from a RANGED read of a 1719-line file (offset 1001, limit 800), and
+  // because fake and proof agreed on the wrong rule, no test could catch it —
+  // the failure surfaced only as a rejected live audit run.
+  const readContent = (startLine, endLine, fileLines, emitEofPhantom) => {
     const lines = []
     for (let line = startLine; line <= endLine; line += 1) {
       const text = `fake source line ${line}`
@@ -297,7 +303,9 @@ async function main() {
     }
     let content = lines.join('\n')
     if (endLine === fileLines) content += '\n'
-    if (wholeFileNoArgs && (fileLines + 1) % 10 === 0) content += `${fileLines + 1}→`
+    if (emitEofPhantom && endLine === fileLines && (fileLines + 1) % 10 === 0) {
+      content += `${fileLines + 1}→`
+    }
     return content
   }
   const nextCallId = () => {
@@ -320,12 +328,7 @@ async function main() {
       { id, name: 'read_file', arguments: JSON.stringify(args) },
     ])
     firstRead = false
-    let content = readContent(
-      startLine,
-      endLine,
-      fileLines,
-      wholeFileNoArgs && mode !== 'bad-phantom',
-    )
+    let content = readContent(startLine, endLine, fileLines, mode !== 'bad-phantom')
     if (mode === 'bad-phantom' && wholeFileNoArgs) {
       // A fabricated phantom that is not the verified EOF decade shape must
       // stay unproven.

@@ -915,13 +915,21 @@ function normalizeTranscriptDirectory(
 // old startLine/endLine proof.
 //
 // One large-file quirk, verified live (and the cause of the first consumer
-// pilot failure): a read_file call with NO offset/limit arguments appends a
-// trailing phantom anchor for the line AFTER the file when that line number
-// is a multiple of ten — a 129-line file yields content ending "…\n130→".
-// Ranged reads (explicit offset/limit) never emit it, not even when they
-// reach EOF. The phantom is not file content — its number is one past the
-// manifest line count by construction — so dropping it cannot fabricate
-// coverage.
+// pilot failure): a read_file call appends a trailing phantom anchor for the
+// line AFTER the file when that line number is a multiple of ten — a 129-line
+// file yields content ending "…\n130→". The phantom is not file content — its
+// number is one past the manifest line count by construction — so dropping it
+// cannot fabricate coverage.
+//
+// This was first read as unranged-only ("ranged reads never emit it, not even
+// when they reach EOF"). That is false, and it cost a whole consumer audit run:
+// a ranged read of a 1719-line file (offset 1001, limit 800) reached EOF and
+// emitted "1720→", so the interval proof counted 720 returned lines against a
+// 1719-line manifest and rejected an honest read. The decade rule is what
+// governs the phantom; whether the call was ranged is not. The two remaining
+// guards are what make the pop safe, and they are unchanged: the anchor must be
+// exactly one past the manifest count, and that number must be a multiple of
+// ten.
 function proveTranscriptReadInterval(
   content: string,
   call: { path: string; offset: number; limit: number },
@@ -941,7 +949,7 @@ function proveTranscriptReadInterval(
   const entry = context.manifestEntry(call.path)!
   const lines = content.slice(anchor[0].length).split('\n')
   if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
-  if (call.limit === Number.MAX_SAFE_INTEGER && lines.length > 0) {
+  if (lines.length > 0) {
     const phantom = /^(\d+)→$/.exec(lines[lines.length - 1])
     if (
       phantom !== null &&
