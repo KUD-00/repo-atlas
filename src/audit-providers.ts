@@ -124,6 +124,7 @@ export interface AuditProviderPolicyInput {
   command?: string
   model?: string
   concurrency?: number
+  maxAttempts?: number
   maxBatchFiles?: number
   maxVerificationCandidates?: number
   timeoutMs?: number
@@ -147,6 +148,7 @@ export interface AuditProviderPolicy {
   command: string
   model: string
   concurrency: number
+  maxAttempts: number
   maxBatchFiles: number
   maxVerificationCandidates: number
   timeoutMs: number
@@ -439,10 +441,13 @@ export function resolveAuditProviderPolicy(
     1,
     64,
   )
+  // Attempts, not retries: 1 reproduces the previous abort-on-first-failure.
+  const maxAttempts = policyInteger(values.maxAttempts, 'maxAttempts', 3, 1, 5)
   const policy: AuditProviderPolicy = {
     command,
     model,
     concurrency,
+    maxAttempts,
     maxBatchFiles: policyInteger(values.maxBatchFiles, 'maxBatchFiles', 8, 1, 500),
     maxVerificationCandidates: policyInteger(
       values.maxVerificationCandidates,
@@ -506,6 +511,7 @@ const PROVIDER_POLICY_KEYS = new Set([
   'command',
   'model',
   'concurrency',
+  'maxAttempts',
   'maxBatchFiles',
   'maxVerificationCandidates',
   'timeoutMs',
@@ -581,6 +587,7 @@ export function loadAuditProviderPolicy(root: string): AuditProviderPolicyInput 
   }
   for (const key of [
     'concurrency',
+  'maxAttempts',
     'maxBatchFiles',
     'maxVerificationCandidates',
     'timeoutMs',
@@ -1241,11 +1248,32 @@ export function validateAuditProviderVerificationUnitOutput(
 // Bounded parallel dispatch
 // ---------------------------------------------------------------------------
 
+/**
+ * Provider failures that a second attempt can legitimately clear: the model
+ * produced output this run could not validate. Every attempt is validated
+ * identically, so a retry never accepts something the first attempt rejected —
+ * it only gives a nondeterministic generator another chance to emit a fully
+ * proven transcript.
+ *
+ * Deliberately narrow. `timeout` is excluded because an attempt already burned
+ * the full per-process budget and the usual cause (a credential that needs
+ * re-auth) does not clear by trying again; `spawn-failed` and policy/inventory
+ * errors are deterministic.
+ */
+const RETRYABLE_PROVIDER_CODES = new Set(['transcript-invalid', 'output-invalid'])
+
+function isRetryableProviderFailure(error: unknown): boolean {
+  return (
+    error instanceof AuditProviderError && RETRYABLE_PROVIDER_CODES.has(error.code)
+  )
+}
+
 async function boundedMapUnits<T, R>(
   items: readonly T[],
   concurrency: number,
   signal: AbortSignal,
   fn: (item: T, index: number) => Promise<R>,
+  maxAttempts = 1,
 ): Promise<R[]> {
   const results: R[] = new Array(items.length)
   let next = 0
@@ -1256,10 +1284,26 @@ async function boundedMapUnits<T, R>(
       while (next < items.length && firstFailure === undefined && !signal.aborted) {
         const index = next
         next += 1
-        try {
-          results[index] = await fn(items[index], index)
-        } catch (error) {
-          if (firstFailure === undefined) firstFailure = error
+        let attempt = 0
+        for (;;) {
+          attempt += 1
+          try {
+            results[index] = await fn(items[index], index)
+            break
+          } catch (error) {
+            // One unit's unvalidatable output used to abort the whole run, so a
+            // corpus large enough to make model variance likely could never
+            // finish: every remaining unit had to succeed on the same pass.
+            if (
+              attempt < maxAttempts &&
+              !signal.aborted &&
+              isRetryableProviderFailure(error)
+            ) {
+              continue
+            }
+            if (firstFailure === undefined) firstFailure = error
+            break
+          }
         }
       }
     },
@@ -1421,6 +1465,7 @@ export async function runAuditProviderPhases(
       )
       return output
     },
+    policy.maxAttempts,
   )
   context.assertSnapshotIntact()
 
@@ -1546,6 +1591,7 @@ export async function runAuditProviderPhases(
         )
         return output
       },
+      policy.maxAttempts,
     )
     verificationOutputs.push(...executions)
   }

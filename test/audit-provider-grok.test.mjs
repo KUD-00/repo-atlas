@@ -838,6 +838,39 @@ test('an empty tracked file is proven by an empty read', async (t) => {
   assertReceiptChain(result.receipt)
 })
 
+test('a review unit that fails once is retried and the run completes', async (t) => {
+  // Without this the pipeline could not finish a corpus large enough for model
+  // variance to be likely: one unvalidatable unit aborted everything, so every
+  // remaining unit had to succeed on the same pass. Each attempt is validated
+  // identically — a retry never accepts what the first attempt rejected.
+  const fake = makeFakeGrok(t, { mode: 'flaky-review-once' })
+  const root = makeRepo(t, {
+    'src/a.ts': makeSource(6, 'a'),
+    'src/b.ts': makeSource(6, 'b'),
+  })
+  const result = await runAuditProviderInvocation(
+    makeRequest(root, makePolicy(fake, { maxBatchFiles: 1 }), ['src/a.ts', 'src/b.ts']),
+    createGrokAuditProvider(),
+  )
+  assert.equal(result.status, 'completed')
+  assert.equal(result.files.length, 2)
+  assertReceiptChain(result.receipt)
+})
+
+test('a unit that keeps failing still fails the run', async (t) => {
+  // The retry is bounded; it must not turn a deterministic fault into a pass.
+  const fake = makeFakeGrok(t, { mode: 'bad-transcript-coverage' })
+  const root = makeRepo(t, { 'src/a.ts': makeSource(6, 'a') })
+  await assert.rejects(
+    () =>
+      runAuditProviderInvocation(
+        makeRequest(root, makePolicy(fake, { maxBatchFiles: 1 }), ['src/a.ts']),
+        createGrokAuditProvider(),
+      ),
+    (error) => error instanceof AuditProviderError && error.code === 'transcript-invalid',
+  )
+})
+
 test('a missing per-file receipt prevents publication', async (t) => {
   const fake = makeFakeGrok(t, { mode: 'missing-receipt' })
   const root = makeRepo(t, {

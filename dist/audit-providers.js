@@ -121,10 +121,13 @@ export function resolveAuditProviderPolicy(input) {
     }
     const model = values.model;
     const concurrency = policyInteger(values.concurrency, 'concurrency', Math.max(1, Math.min(4, os.cpus().length)), 1, 64);
+    // Attempts, not retries: 1 reproduces the previous abort-on-first-failure.
+    const maxAttempts = policyInteger(values.maxAttempts, 'maxAttempts', 3, 1, 5);
     const policy = {
         command,
         model,
         concurrency,
+        maxAttempts,
         maxBatchFiles: policyInteger(values.maxBatchFiles, 'maxBatchFiles', 8, 1, 500),
         maxVerificationCandidates: policyInteger(values.maxVerificationCandidates, 'maxVerificationCandidates', 10, 1, 500),
         timeoutMs: policyInteger(values.timeoutMs, 'timeoutMs', 600_000, 50, 3_600_000),
@@ -175,6 +178,7 @@ const PROVIDER_POLICY_KEYS = new Set([
     'command',
     'model',
     'concurrency',
+    'maxAttempts',
     'maxBatchFiles',
     'maxVerificationCandidates',
     'timeoutMs',
@@ -244,6 +248,7 @@ export function loadAuditProviderPolicy(root) {
     }
     for (const key of [
         'concurrency',
+        'maxAttempts',
         'maxBatchFiles',
         'maxVerificationCandidates',
         'timeoutMs',
@@ -754,7 +759,23 @@ export function validateAuditProviderVerificationUnitOutput(output, candidates, 
 // ---------------------------------------------------------------------------
 // Bounded parallel dispatch
 // ---------------------------------------------------------------------------
-async function boundedMapUnits(items, concurrency, signal, fn) {
+/**
+ * Provider failures that a second attempt can legitimately clear: the model
+ * produced output this run could not validate. Every attempt is validated
+ * identically, so a retry never accepts something the first attempt rejected —
+ * it only gives a nondeterministic generator another chance to emit a fully
+ * proven transcript.
+ *
+ * Deliberately narrow. `timeout` is excluded because an attempt already burned
+ * the full per-process budget and the usual cause (a credential that needs
+ * re-auth) does not clear by trying again; `spawn-failed` and policy/inventory
+ * errors are deterministic.
+ */
+const RETRYABLE_PROVIDER_CODES = new Set(['transcript-invalid', 'output-invalid']);
+function isRetryableProviderFailure(error) {
+    return (error instanceof AuditProviderError && RETRYABLE_PROVIDER_CODES.has(error.code));
+}
+async function boundedMapUnits(items, concurrency, signal, fn, maxAttempts = 1) {
     const results = new Array(items.length);
     let next = 0;
     let firstFailure;
@@ -762,12 +783,26 @@ async function boundedMapUnits(items, concurrency, signal, fn) {
         while (next < items.length && firstFailure === undefined && !signal.aborted) {
             const index = next;
             next += 1;
-            try {
-                results[index] = await fn(items[index], index);
-            }
-            catch (error) {
-                if (firstFailure === undefined)
-                    firstFailure = error;
+            let attempt = 0;
+            for (;;) {
+                attempt += 1;
+                try {
+                    results[index] = await fn(items[index], index);
+                    break;
+                }
+                catch (error) {
+                    // One unit's unvalidatable output used to abort the whole run, so a
+                    // corpus large enough to make model variance likely could never
+                    // finish: every remaining unit had to succeed on the same pass.
+                    if (attempt < maxAttempts &&
+                        !signal.aborted &&
+                        isRetryableProviderFailure(error)) {
+                        continue;
+                    }
+                    if (firstFailure === undefined)
+                        firstFailure = error;
+                    break;
+                }
             }
         }
     });
@@ -889,7 +924,7 @@ export async function runAuditProviderPhases(context, handlers) {
         const output = validateAuditProviderReviewUnitOutput(execution.output, files, policy);
         persistChunk(makeChunk('review', unit, inputDigest, { ...execution, output }), output, false);
         return output;
-    });
+    }, policy.maxAttempts);
     context.assertSnapshotIntact();
     // Deterministic candidate identity/dedupe between review and verification.
     const candidates = [];
@@ -984,7 +1019,7 @@ export async function runAuditProviderPhases(context, handlers) {
             const output = validateAuditProviderVerificationUnitOutput(execution.output, unit.candidates, policy);
             persistChunk(makeChunk('verification', unit.unit, inputDigest, { ...execution, output }), output, false);
             return output;
-        });
+        }, policy.maxAttempts);
         verificationOutputs.push(...executions);
     }
     context.assertSnapshotIntact();

@@ -27,7 +27,19 @@ import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const control = JSON.parse(fs.readFileSync(path.join(here, 'control.json'), 'utf8'))
-const mode = control.mode ?? 'ok'
+// `flaky-review-once` reproduces the shape that made a large corpus
+// unfinishable: one review unit emits output this run cannot validate, then the
+// same unit succeeds when asked again. Only the first analysis run misbehaves,
+// which is what distinguishes a retried transient from a deterministic fault.
+let mode = control.mode ?? 'ok'
+if (mode === 'flaky-review-once') {
+  const marker = path.join(here, 'flaky-fired')
+  if (fs.existsSync(marker)) mode = 'ok'
+  else {
+    fs.writeFileSync(marker, '1')
+    mode = 'bad-transcript-coverage'
+  }
+}
 
 const argv = process.argv.slice(2)
 const invocationsDir = path.join(here, 'invocations')
