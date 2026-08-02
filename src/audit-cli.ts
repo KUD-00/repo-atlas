@@ -55,6 +55,7 @@ import {
   type AuditProviderTarget,
 } from './audit-providers.js'
 import { createGrokAuditProvider } from './audit-provider-grok.js'
+import { publishAuditProviderRunObservations } from './audit-run-publish.js'
 import {
   buildAuditLocalizationInput,
   canonicalAuditLocalizationJson,
@@ -759,6 +760,11 @@ async function auditRun(root: string, args: string[]): Promise<void> {
       : {}),
   }
   const result = await runAuditProviderInvocation(request, createGrokAuditProvider())
+  const publication = publishAuditProviderRunObservations(root, {
+    result,
+    targets,
+    providerPolicy: policy,
+  })
   const findings = result.files.filter((file) => file.outcome === 'findings').length
   console.log(`audit run security: completed`)
   console.log(`  invocation: ${result.invocationId}`)
@@ -771,6 +777,17 @@ async function auditRun(root: string, args: string[]): Promise<void> {
   console.log(`  findings: ${result.findings.length}`)
   console.log(
     `  chunks: ${result.executedChunks.length} executed · ${result.reusedChunks.length} reused`,
+  )
+  for (const unit of publication.units) {
+    console.log(
+      `  published ${unit.slug}: ${unit.status} (${unit.observationId}` +
+      (unit.findings > 0 ? ` · ${unit.findings} finding(s)` : '') +
+      ')',
+    )
+  }
+  console.log(
+    `  coverage: ${publication.coverage.current ? 'current' : 'incomplete (reported)'} · ` +
+    `report ${publication.coverage.wrote ? 'updated' : 'already current'}`,
   )
 }
 

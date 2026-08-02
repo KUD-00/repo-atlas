@@ -13,6 +13,7 @@ import { buildRelayOSAuditMigration, migrateRelayOSAudit, } from './audit-migrat
 import { buildRelayOSRootAuditsMigration, migrateRelayOSRootAudits, } from './audit-migrate-relayos-root-audits.js';
 import { AUDIT_PROVIDER_INVOCATION_COMMAND, AuditProviderError, loadAuditProviderPolicy, resolveAuditProviderPolicy, runAuditProviderInvocation, } from './audit-providers.js';
 import { createGrokAuditProvider } from './audit-provider-grok.js';
+import { publishAuditProviderRunObservations } from './audit-run-publish.js';
 import { buildAuditLocalizationInput, canonicalAuditLocalizationJson, loadConfiguredAuditLocalizations, } from './audit-localizations.js';
 import { loadReviewCoverage } from './review-coverage.js';
 import { computeStatus } from './status.js';
@@ -567,6 +568,11 @@ async function auditRun(root, args) {
             : {}),
     };
     const result = await runAuditProviderInvocation(request, createGrokAuditProvider());
+    const publication = publishAuditProviderRunObservations(root, {
+        result,
+        targets,
+        providerPolicy: policy,
+    });
     const findings = result.files.filter((file) => file.outcome === 'findings').length;
     console.log(`audit run security: completed`);
     console.log(`  invocation: ${result.invocationId}`);
@@ -576,6 +582,13 @@ async function auditRun(root, args) {
     console.log(`  files: ${result.files.length} reviewed (${result.files.length - findings} clean · ${findings} with findings)`);
     console.log(`  findings: ${result.findings.length}`);
     console.log(`  chunks: ${result.executedChunks.length} executed · ${result.reusedChunks.length} reused`);
+    for (const unit of publication.units) {
+        console.log(`  published ${unit.slug}: ${unit.status} (${unit.observationId}` +
+            (unit.findings > 0 ? ` · ${unit.findings} finding(s)` : '') +
+            ')');
+    }
+    console.log(`  coverage: ${publication.coverage.current ? 'current' : 'incomplete (reported)'} · ` +
+        `report ${publication.coverage.wrote ? 'updated' : 'already current'}`);
 }
 // ---------------------------------------------------------------------------
 // audit import

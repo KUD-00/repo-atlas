@@ -37,6 +37,7 @@ const DISPOSITIONS = [
     'not_applicable',
     'deferred',
 ];
+const CONFIDENCES = ['high', 'medium', 'low'];
 const MAX_TEXT_BYTES = 256 * 1024;
 const MAX_BINARY_DIGEST_BYTES = 256 * 1024 * 1024;
 const MAX_JOURNAL_BYTES = 64 * 1024 * 1024;
@@ -664,6 +665,10 @@ export function validateAuditProviderReviewUnitOutput(output, files, policy) {
             if (!SEVERITIES.includes(severity)) {
                 fail('output-invalid', `finding on ${receiptPath} has an invalid severity`, 'review');
             }
+            const confidence = rawFinding.confidence;
+            if (!CONFIDENCES.includes(confidence)) {
+                fail('output-invalid', `finding on ${receiptPath} has an invalid confidence`, 'review');
+            }
             const startLine = rawFinding.startLine;
             if (typeof startLine !== 'number' || !Number.isSafeInteger(startLine) || startLine < 1 || startLine > Math.max(1, file.lines)) {
                 fail('output-invalid', `finding on ${receiptPath} has an out-of-range startLine`, 'review');
@@ -682,6 +687,7 @@ export function validateAuditProviderReviewUnitOutput(output, files, policy) {
                 ruleId: boundedText(rawFinding.ruleId, `finding ruleId on ${receiptPath}`),
                 title: boundedText(rawFinding.title, `finding title on ${receiptPath}`),
                 severity,
+                confidence,
                 summary: boundedText(rawFinding.summary, `finding summary on ${receiptPath}`),
                 startLine,
                 ...(endLine !== undefined ? { endLine } : {}),
@@ -903,6 +909,7 @@ export async function runAuditProviderPhases(context, handlers) {
                     ruleId: finding.ruleId,
                     title: finding.title,
                     severity: finding.severity,
+                    confidence: finding.confidence,
                     summary: finding.summary,
                     path: receipt.path,
                     startLine: finding.startLine,

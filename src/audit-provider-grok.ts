@@ -117,7 +117,7 @@ const GROK_REVIEW_PROMPT = `You are performing a READ-ONLY security audit of an 
 
 ## Output contract
 Your FINAL message must be ONLY a JSON object (no prose, no markdown fences) of this exact shape:
-{"receipts":[{"path":"<file>","status":"reviewed","outcome":"clean"|"findings","summary":"<what you checked>","findings":[{"ruleId":"<category>/<rule>","title":"<one line>","severity":"informational"|"low"|"medium"|"high"|"critical","summary":"<short>","startLine":<n>,"endLine":<n>,"detail":"<abuse path>","fix":"<concrete fix>"}]}]}
+{"receipts":[{"path":"<file>","status":"reviewed","outcome":"clean"|"findings","summary":"<what you checked>","findings":[{"ruleId":"<category>/<rule>","title":"<one line>","severity":"informational"|"low"|"medium"|"high"|"critical","confidence":"high"|"medium"|"low","summary":"<short>","startLine":<n>,"endLine":<n>,"detail":"<abuse path>","fix":"<concrete fix>"}]}]}
 Exactly one receipt per listed file; echo each path exactly as listed; every listed file must appear exactly once.`
 
 const GROK_VERIFICATION_PROMPT = `You are an independent security fact checker working inside the same read-only snapshot discipline as the discovery pass. You receive candidate findings, the exact file inventory, and the validation rubric atlas-security-validation-rubric-v1. You do NOT receive the discovery transcript or its hidden reasoning; construct your own evidence trace.

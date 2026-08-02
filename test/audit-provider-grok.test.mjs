@@ -955,6 +955,7 @@ test('findings flow through an independent verification phase with no discovery 
     ruleId: 'injection-sql-cmd-path-ssrf/command-exec',
     title: 'unsanitized exec',
     severity: 'high',
+    confidence: 'high',
     summary: 'user input reaches exec',
     startLine: 2,
     endLine: 3,
