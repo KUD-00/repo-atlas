@@ -790,6 +790,29 @@ test('the session transcript follows the real 0.2.82 layout and vocabulary', asy
   // stdout byte-equality check, and one final assistant message.
 })
 
+test('large-file reads with decade anchors and an EOF phantom anchor prove their ranges', async (t) => {
+  // The consumer-pilot shape: a 129-line file (a no-argument full read
+  // appends the verified "130→" phantom anchor) and a 500-line file (read in
+  // ranged chunks with absolute decade anchors). Both must complete.
+  const fake = makeFakeGrok(t, { mode: 'ok' })
+  const files = {
+    'src/dep.yml': makeSource(129, 'dep'),
+    'src/big.txt': makeSource(500, 'big'),
+  }
+  const root = makeRepo(t, files)
+  const result = await runAuditProviderInvocation(
+    makeRequest(root, makePolicy(fake, { maxBatchFiles: 2 }), Object.keys(files)),
+    createGrokAuditProvider(),
+  )
+  assert.equal(result.status, 'completed')
+  assert.equal(result.files.length, 2)
+  for (const file of result.files) {
+    assert.equal(file.status, 'reviewed')
+    assert.equal(file.outcome, 'clean')
+  }
+  assertReceiptChain(result.receipt)
+})
+
 test('a missing per-file receipt prevents publication', async (t) => {
   const fake = makeFakeGrok(t, { mode: 'missing-receipt' })
   const root = makeRepo(t, {
@@ -864,6 +887,7 @@ test('transcript violations prevent publication', async (t) => {
     ['tool-error', 'a hidden tool error'],
     ['unsupported-event', 'an unsupported event'],
     ['duplicate-result', 'more than one terminal result'],
+    ['bad-phantom', 'a fabricated EOF phantom anchor'],
   ]
   for (const [mode, label] of cases) {
     const fake = makeFakeGrok(t, { mode })

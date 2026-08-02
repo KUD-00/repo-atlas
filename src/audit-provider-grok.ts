@@ -102,7 +102,8 @@ const GROK_REVIEW_PROMPT = `You are performing a READ-ONLY security audit of an 
 ## Hard constraints
 - READ-ONLY. Use only the Read, Grep, and Glob tools. Never create, modify, or delete anything. Do not spawn subagents.
 - Audit exactly the files listed in the ATLAS-UNIT block at the end of this prompt. Paths are relative to the snapshot root, which is your working directory.
-- You must Read every listed file completely, from line 1 to its final line; use offset/limit chunks for long files so the transcript proves full-range coverage.
+- Your working directory IS the snapshot root. Never read, list, grep, or glob anything outside it: no parent directories, no absolute paths outside the snapshot, no home, temp, or system paths. Any such call aborts the audit.
+- You must Read every listed file completely, from line 1 to its final line. read_file returns at most 1000 lines per call and does NOT warn when it caps: for any file with more than 1000 lines you MUST make multiple read_file calls with explicit offset/limit (for example offset 1 limit 1000, then offset 1001 limit 1000) so the chunks together cover every line; the transcript must prove full-range coverage.
 
 ## Method
 1. Read each listed file fully before judging it.
@@ -123,7 +124,8 @@ const GROK_VERIFICATION_PROMPT = `You are an independent security fact checker w
 
 ## Hard constraints
 - READ-ONLY. Use only the Read, Grep, and Glob tools. Never create, modify, or delete anything. Do not spawn subagents.
-- Read every file listed in the ATLAS-UNIT block completely, from line 1 to its final line, before deciding any candidate that touches it.
+- Read every file listed in the ATLAS-UNIT block completely, from line 1 to its final line, before deciding any candidate that touches it. read_file returns at most 1000 lines per call and does NOT warn when it caps: for any file with more than 1000 lines you MUST make multiple read_file calls with explicit offset/limit so the chunks together cover every line.
+- Your working directory IS the snapshot root. Never read, list, grep, or glob anything outside it: no parent directories, no absolute paths outside the snapshot, no home, temp, or system paths. Any such call aborts the audit.
 - Verify each candidate against the exact snapshot bytes: confirm the code, the dataflow, and the preconditions yourself.
 
 ## Output contract
@@ -823,7 +825,7 @@ function normalizeTranscriptPath(
     if (!value.startsWith(snapshotPrefix)) {
       throw new AuditProviderError(
         'transcript-invalid',
-        'transcript tool path escapes the snapshot',
+        `transcript tool path escapes the snapshot: ${value}`,
         phase,
       )
     }
@@ -835,7 +837,7 @@ function normalizeTranscriptPath(
   } catch {
     throw new AuditProviderError(
       'transcript-invalid',
-      'transcript tool path is not a safe snapshot-relative path',
+      `transcript tool path is not a safe snapshot-relative path: ${value}`,
       phase,
     )
   }
@@ -871,7 +873,7 @@ function normalizeTranscriptDirectory(
     if (!value.startsWith(snapshotPrefix)) {
       throw new AuditProviderError(
         'transcript-invalid',
-        'transcript tool path escapes the snapshot',
+        `transcript tool path escapes the snapshot: ${value}`,
         phase,
       )
     }
@@ -883,17 +885,28 @@ function normalizeTranscriptDirectory(
   } catch {
     throw new AuditProviderError(
       'transcript-invalid',
-      'transcript tool path is not a safe snapshot-relative path',
+      `transcript tool path is not a safe snapshot-relative path: ${value}`,
       phase,
     )
   }
 }
 
 // A read_file result is raw file bytes with line anchors: the first returned
-// line is prefixed `<start>→` and every tenth returned line carries its
-// absolute line number as a `<n>→` prefix (verified against live 0.2.82
-// sessions). The anchors plus the returned line count prove the exact range
-// the tool returned, mirroring the old startLine/endLine proof.
+// A read_file result is raw file bytes with line anchors: the first returned
+// line is prefixed `<start>→` and every absolute decade line (10, 20, …)
+// carries its line number as a `<n>→` prefix (verified against live 0.2.82
+// sessions, including 500-line files and ranged reads). The anchors plus the
+// returned line count prove the exact range the tool returned, mirroring the
+// old startLine/endLine proof.
+//
+// One large-file quirk, verified live (and the cause of the first consumer
+// pilot failure): a read_file call with NO offset/limit arguments appends a
+// trailing phantom anchor for the line AFTER the file when that line number
+// is a multiple of ten — a 129-line file yields content ending "…\n130→".
+// Ranged reads (explicit offset/limit) never emit it, not even when they
+// reach EOF. The phantom is not file content — its number is one past the
+// manifest line count by construction — so dropping it cannot fabricate
+// coverage.
 function proveTranscriptReadInterval(
   content: string,
   call: { path: string; offset: number; limit: number },
@@ -910,8 +923,19 @@ function proveTranscriptReadInterval(
       phase,
     )
   }
+  const entry = context.manifestEntry(call.path)!
   const lines = content.slice(anchor[0].length).split('\n')
   if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
+  if (call.limit === Number.MAX_SAFE_INTEGER && lines.length > 0) {
+    const phantom = /^(\d+)→$/.exec(lines[lines.length - 1])
+    if (
+      phantom !== null &&
+      Number(phantom[1]) === entry.lines + 1 &&
+      (entry.lines + 1) % 10 === 0
+    ) {
+      lines.pop()
+    }
+  }
   if (lines.length === 0) {
     throw new AuditProviderError(
       'transcript-invalid',
@@ -932,7 +956,6 @@ function proveTranscriptReadInterval(
     }
   }
   const end = call.offset + lines.length - 1
-  const entry = context.manifestEntry(call.path)!
   if (end > call.offset + call.limit - 1 || end > entry.lines) {
     const requestedEnd =
       call.limit === Number.MAX_SAFE_INTEGER ? 'none' : String(call.offset + call.limit - 1)
@@ -1142,7 +1165,9 @@ function validateSessionTranscript(
       if (content.startsWith('Error:')) {
         throw new AuditProviderError(
           'transcript-invalid',
-          'transcript contains a tool error',
+          `transcript contains a tool error (${call.tool}: ${content
+            .slice(0, 160)
+            .replaceAll('\n', ' ')})`,
           phase,
         )
       }

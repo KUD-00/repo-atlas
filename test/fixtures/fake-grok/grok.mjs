@@ -284,44 +284,70 @@ async function main() {
     events.push(event)
   }
   // A read_file result prefixes the first returned line with `<start>→` and
-  // every tenth returned line with its absolute line number.
-  const readContent = (startLine, endLine) => {
+  // every absolute decade line (10, 20, …) with its line number. The content
+  // ends with the file's trailing newline when the range reaches EOF. A
+  // no-argument full read of a file whose next line number is a multiple of
+  // ten additionally appends a phantom `<lines+1>→` anchor (verified live:
+  // a 129-line file ends with "130→"); ranged reads never emit it.
+  const readContent = (startLine, endLine, fileLines, wholeFileNoArgs) => {
     const lines = []
     for (let line = startLine; line <= endLine; line += 1) {
       const text = `fake source line ${line}`
-      lines.push((line - startLine) % 10 === 0 ? `${line}→${text}` : text)
+      lines.push(line === startLine || line % 10 === 0 ? `${line}→${text}` : text)
     }
-    return lines.join('\n')
+    let content = lines.join('\n')
+    if (endLine === fileLines) content += '\n'
+    if (wholeFileNoArgs && (fileLines + 1) % 10 === 0) content += `${fileLines + 1}→`
+    return content
   }
   const nextCallId = () => {
     callSequence += 1
     return `call-00000000-0000-4000-8000-${String(callSequence).padStart(12, '0')}`
   }
-  const readCall = (rel, startLine, endLine) => {
+  const readCall = (rel, startLine, endLine, fileLines) => {
     const id = nextCallId()
+    // Whole-file single reads go without offset/limit, like the real model's
+    // full reads of small files; ranged chunks carry explicit arguments.
+    const wholeFileNoArgs = startLine === 1 && endLine === fileLines
+    const args = { target_file: rel }
+    if (!wholeFileNoArgs) {
+      args.offset = startLine
+      args.limit = endLine - startLine + 1
+    }
     // The first read turn carries narration, like real mid-turn assistant
     // text; every assistant content joins the byte-equality check.
     assistantTurn(firstRead ? NARRATION : '', [
-      { id, name: 'read_file', arguments: JSON.stringify({ target_file: rel, offset: startLine, limit: endLine - startLine + 1 }) },
+      { id, name: 'read_file', arguments: JSON.stringify(args) },
     ])
     firstRead = false
+    let content = readContent(
+      startLine,
+      endLine,
+      fileLines,
+      wholeFileNoArgs && mode !== 'bad-phantom',
+    )
+    if (mode === 'bad-phantom' && wholeFileNoArgs) {
+      // A fabricated phantom that is not the verified EOF decade shape must
+      // stay unproven.
+      content += `${fileLines + 2}→`
+    }
     events.push({
       type: 'tool_result',
       tool_call_id: id,
-      content: readContent(startLine, endLine),
+      content,
     })
   }
   const readFully = (rel, lines) => {
     const chunk = 400
     for (let start = 1; start <= lines; start += chunk) {
-      readCall(rel, start, Math.min(lines, start + chunk - 1))
+      readCall(rel, start, Math.min(lines, start + chunk - 1), lines)
     }
   }
 
   if (mode !== 'zero-read') {
     for (const file of unit.files) {
       if (mode === 'bad-transcript-coverage') {
-        readCall(file.path, 1, Math.max(1, Math.floor(file.lines / 2)))
+        readCall(file.path, 1, Math.max(1, Math.floor(file.lines / 2)), file.lines)
       } else {
         readFully(file.path, file.lines)
       }
@@ -337,7 +363,7 @@ async function main() {
     assistantTurn('', [
       { id, name: 'read_file', arguments: JSON.stringify({ target_file: '../../outside.txt', offset: 1, limit: 1 }) },
     ])
-    events.push({ type: 'tool_result', tool_call_id: id, content: readContent(1, 1) })
+    events.push({ type: 'tool_result', tool_call_id: id, content: readContent(1, 1, 1, false) })
   }
   if (mode === 'tool-error') {
     const id = nextCallId()
