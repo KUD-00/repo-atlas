@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type MouseEvent } from 'react'
+import { useEffect, useRef, type MouseEvent } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import { Printer } from 'lucide-react'
@@ -315,10 +315,7 @@ export function PrintView({
   conceptsBySlug: Map<string, ConceptNode>
 }) {
   const { i18n } = useLingui()
-  const model = useMemo(
-    () => buildModel(scope, data, nodesByPath, conceptsBySlug, t(i18n)`entire repository`),
-    [scope, data, nodesByPath, conceptsBySlug, i18n],
-  )
+  const model = buildModel(scope, data, nodesByPath, conceptsBySlug, t(i18n)`entire repository`)
 
   // fire the print dialog once, after every section has settled (mermaid
   // rendered, code anchors resolved) plus a short layout-settle grace

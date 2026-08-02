@@ -18,11 +18,9 @@ import {
 } from '../src/audit-a11y'
 import {
   domainAssurance,
-  type AuditAction,
   type AuditViewMode,
 } from '../src/audit-assurance'
 import { localizeAuditPresentation } from '../src/audit-localization-presentation'
-import { localizedDomainNavSuffix } from './audit-copy'
 import {
   initialPanelOpen,
   shouldClosePanelOnPrimaryTransition,
@@ -64,8 +62,13 @@ const TOPBAR_ICON =
 const CHIP =
   'chip text-[0.7rem] py-0.5 px-2 rounded-full border border-border bg-transparent text-muted cursor-pointer whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30'
 const CHIP_ON = 'border-accent text-accent bg-[#3d6b540f]'
-const PRIMARY_BTN =
-  'w-full flex items-center gap-2 py-1.5 px-2 rounded-md border-none cursor-pointer font-inherit text-[0.8rem] text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30'
+// flat lens icon strip (RelayOS category-strip shape): compact icon toggles, each
+// carrying its own "needs attention" badge. See primaryNeeds.
+const LENS_ICON =
+  'relative flex items-center justify-center w-9 h-9 rounded-lg border-none bg-transparent text-muted cursor-pointer p-0 shrink-0 hover:text-accent hover:bg-[#3d6b540d] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 [&_svg]:w-[18px] [&_svg]:h-[18px]'
+const LENS_ICON_ON = 'bg-[#3d6b5414] text-accent'
+const LENS_BADGE =
+  'absolute top-0.5 right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-outdated text-white text-[0.6rem] leading-none font-semibold tabular-nums flex items-center justify-center'
 const PRIMARY = [
   ['attention', Inbox],
   ['code', Code2],
@@ -164,14 +167,6 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
   const testModel = useMemo(
     () => domainAssurance('test', reviewCoverage, testAudits),
     [reviewCoverage, testAudits],
-  )
-  const localizedSecuritySuffix = useMemo(
-    () => localizedDomainNavSuffix(i18n, securityModel),
-    [i18n, securityModel],
-  )
-  const localizedTestSuffix = useMemo(
-    () => localizedDomainNavSuffix(i18n, testModel),
-    [i18n, testModel],
   )
   const [securityMode, setSecurityMode] = useState<AuditViewMode>('overview')
   const [testMode, setTestMode] = useState<AuditViewMode>('overview')
@@ -288,34 +283,6 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
     if (view === 'security') setSecurityMode('overview')
     if (view === 'tests') setTestMode('overview')
     onSelect(primaryNavRoute(view, remembered))
-  }
-
-  const headerDomainPresent =
-    securityModel.unitRows.length > 0 || securityModel.portfolioState !== 'missing'
-  const headerDomainAction = useMemo(
-    (): AuditAction | null => securityModel.actions[0] ?? null,
-    [securityModel],
-  )
-
-  const onHeaderDomainAction = (action: AuditAction) => {
-    setSecurityMode(action.kind === 'coverage' ? 'gaps' : 'attention')
-    if (action.unitSlug) {
-      const route = auditUnitRoute('security', action.unitSlug)
-      if (route) {
-        onSelect(route)
-        return
-      }
-    }
-    onSelect(auditRoute('security'))
-  }
-
-  const onHeaderDomainShortcut = () => {
-    if (headerDomainAction) {
-      onHeaderDomainAction(headerDomainAction)
-      return
-    }
-    setSecurityMode('overview')
-    onSelect(auditRoute('security'))
   }
 
   // Compact drawer close (overlay / collapse / route select) returns focus to the
@@ -437,25 +404,25 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
     jump,
   }
 
-  const primaryCount = (view: PrimaryView): string | null => {
+  // Each lens carries its own "needs attention" count — the badge on its icon.
+  // Zero renders no badge (no news = good). Replaces the old single global
+  // freshness line: freshness is a per-lens concept, not a global one.
+  const primaryNeeds = (view: PrimaryView): number => {
     switch (view) {
       case 'attention':
-        return String(data.attention.summary.open)
+        return data.attention.summary.open
       case 'code':
-        return String(agg.total)
+        return agg.outdated + agg.missing
       case 'concepts':
-        return String(concepts.length)
+        return (
+          data.attention.health.concepts.outdated +
+          data.attention.health.concepts.brokenSource
+        )
       case 'security':
-        return localizedSecuritySuffix.text
+        return securityModel.openCount + securityModel.gapCount
       case 'tests':
-        return localizedTestSuffix.text
+        return testModel.openCount + testModel.gapCount
     }
-  }
-
-  const primaryAriaLabel = (view: PrimaryView, label: string): string | undefined => {
-    if (view === 'security') return `${label}: ${localizedSecuritySuffix.ariaLabel}`
-    if (view === 'tests') return `${label}: ${localizedTestSuffix.ariaLabel}`
-    return undefined
   }
 
   const topTitle = concept
@@ -527,88 +494,55 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
             : 'w-[340px] border-r border-border bg-panel flex flex-col min-w-0 min-h-0 [hidden]:hidden'
         }
       >
-        <div className="px-4 pt-3.5 pb-2.5 border-b border-border">
-          <div className="flex items-center justify-between gap-2">
-            <h1 className="text-[0.95rem] font-semibold">{data.repoName}</h1>
-            <button type="button" className={PV_ICON} title={t(i18n)`collapse sidebar`} onClick={() => setSideOpen(false)}>
+        <div className="px-4 pt-3.5 pb-3 border-b border-border flex flex-col gap-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h1 className="text-[0.95rem] font-semibold truncate">{data.repoName}</h1>
+              <div className="text-[0.72rem] text-muted mt-0.5 truncate">
+                {data.commit ? `@ ${data.commit} · ` : ''}
+                {new Date(data.generatedAt).toLocaleString(i18n.locale)}
+              </div>
+            </div>
+            <button
+              type="button"
+              className={PV_ICON}
+              title={t(i18n)`collapse sidebar`}
+              onClick={() => setSideOpen(false)}
+            >
               <PanelLeftClose />
             </button>
           </div>
-          <div className="text-[0.72rem] text-muted mt-0.5">
-            {data.commit ? `@ ${data.commit} · ` : ''}
-            {new Date(data.generatedAt).toLocaleString(i18n.locale)}
-          </div>
-          <div className="flex items-end justify-between gap-2 mt-2">
-            <div className="flex gap-2.5 text-[0.72rem] text-muted flex-wrap [&_b]:text-text [&_b]:font-semibold">
-              <span><b>{fresh}</b> {t(i18n)`fresh`}</span>
-              <span><b>{agg.outdated}</b> {t(i18n)`outdated`}</span>
-              <span><b>{agg.missing}</b> {t(i18n)`missing`}</span>
-              {headerDomainPresent && (
-                <button
-                  type="button"
-                  className="font-inherit bg-transparent border-none p-0 cursor-pointer text-[0.72rem] text-muted hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 focus-visible:text-accent [&_b]:font-semibold"
-                  onClick={onHeaderDomainShortcut}
-                  title={
-                    headerDomainAction?.kind === 'coverage'
-                      ? t(i18n)`coverage action — open the relevant security coverage view`
-                      : headerDomainAction?.kind === 'finding'
-                        ? t(i18n)`open finding — open the relevant security unit`
-                        : t(i18n)`open the security assurance overview`
-                  }
-                >
-                  {headerDomainAction?.kind === 'coverage' ? (
-                    <>
-                      <b className="text-text">{securityModel.gapCount}</b> {t(i18n)`coverage gaps`}
-                    </>
-                  ) : headerDomainAction?.kind === 'finding' ? (
-                    <>
-                      <b className="text-text">{securityModel.openCount}</b> {t(i18n)`open findings`}
-                    </>
-                  ) : (
-                    <>
-                      {t(i18n)`security`} · {localizedSecuritySuffix.text}
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
-            <SettingsButton onClick={() => setSettingsOpen(true)} />
-          </div>
-        </div>
 
-        <div className="px-2 py-2 border-b border-border flex flex-col gap-0.5" role="navigation" aria-label={t(i18n)`primary`}>
-          {PRIMARY.map(([view, Icon]) => {
-            const active = primaryView === view
-            const count = primaryCount(view)
-            const label = primaryLabel(view, i18n)
-            return (
-              <button
-                key={view}
-                type="button"
-                className={
-                  PRIMARY_BTN +
-                  (active
-                    ? ' bg-[#3d6b5414] text-accent'
-                    : ' bg-transparent text-muted hover:text-text hover:bg-[#00000006]')
-                }
-                aria-current={active ? 'page' : undefined}
-                aria-label={primaryAriaLabel(view, label)}
-                onClick={() => onPrimary(view)}
-              >
-                <Icon className="w-4 h-4 shrink-0" aria-hidden />
-                <span className="flex-1 min-w-0 font-semibold">{label}</span>
-                {count !== null && (
-                  <span className={'shrink-0 text-[0.7rem] tabular-nums ' + (active ? 'text-accent' : 'text-muted')}>
-                    {count}
-                  </span>
-                )}
-              </button>
-            )
-          })}
+          <div className="flex items-center gap-1" role="navigation" aria-label={t(i18n)`primary`}>
+            {PRIMARY.map(([view, Icon]) => {
+              const active = primaryView === view
+              const label = primaryLabel(view, i18n)
+              const needs = primaryNeeds(view)
+              return (
+                <button
+                  key={view}
+                  type="button"
+                  className={LENS_ICON + (active ? ' ' + LENS_ICON_ON : '')}
+                  aria-current={active ? 'page' : undefined}
+                  aria-label={needs > 0 ? `${label} · ${needs}` : label}
+                  title={label}
+                  onClick={() => onPrimary(view)}
+                >
+                  <Icon aria-hidden />
+                  {needs > 0 && <span className={LENS_BADGE}>{needs > 99 ? '99+' : needs}</span>}
+                </button>
+              )
+            })}
+          </div>
         </div>
 
         {primaryView === 'code' && (
           <div className="px-3 py-2 border-b border-border flex flex-col gap-1.5">
+            <div className="flex gap-2.5 text-[0.7rem] text-muted flex-wrap [&_b]:font-semibold">
+              <span><b className="text-fresh">{fresh}</b> {t(i18n)`fresh`}</span>
+              <span><b className="text-outdated">{agg.outdated}</b> {t(i18n)`outdated`}</span>
+              <span><b className="text-text">{agg.missing}</b> {t(i18n)`missing`}</span>
+            </div>
             <input
               type="search"
               className="w-full min-w-0 font-inherit text-[0.8rem] py-1 px-2 border border-border rounded-md bg-bg text-text focus:outline-none focus:border-accent"
@@ -719,6 +653,10 @@ export function App({ data: initialData }: { data: AtlasPayload }) {
             />
           )}
         </nav>
+
+        <div className="px-3 py-2.5 border-t border-border flex items-center justify-end gap-2">
+          <SettingsButton onClick={() => setSettingsOpen(true)} />
+        </div>
       </aside>
       <main className={'min-w-0 min-h-0 grid overflow-hidden ' + mainCols}>
         <div className="overflow-auto min-w-0" ref={docRef}>

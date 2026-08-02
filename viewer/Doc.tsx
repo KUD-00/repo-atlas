@@ -1,5 +1,5 @@
 import {
-  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
+  useEffect, useLayoutEffect, useRef, useState,
   type CSSProperties, type KeyboardEvent,
 } from 'react'
 import { t } from '@lingui/core/macro'
@@ -104,13 +104,13 @@ function RelationChips({ items }: { items: string[] }) {
 
   useEffect(() => setExpanded(false), [items])
 
-  const measure = useCallback(() => {
+  const measure = () => {
     const el = ref.current
     if (!el) return
     const { hidden: h, maxH: mh } = measureChips(el)
     setHidden(h)
     setMaxH(mh)
-  }, [items])
+  }
 
   useLayoutEffect(() => {
     measure()
@@ -119,7 +119,7 @@ function RelationChips({ items }: { items: string[] }) {
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [items, measure])
+  }, [items])
 
   const collapsed = !expanded && hidden > 0
 
@@ -162,10 +162,7 @@ function Relations({
   rel: ReturnType<typeof import('./lib').buildRelationIndex>
   nodesByPath: Map<string, TreeNode>
 }) {
-  const { deps, dependents } = useMemo(
-    () => relationsFor(node, rel, nodesByPath),
-    [node, rel, nodesByPath],
-  )
+  const { deps, dependents } = relationsFor(node, rel, nodesByPath)
   const { i18n } = useLingui()
   if (!deps.length && !dependents.length) return null
   return (
@@ -313,13 +310,13 @@ export function DocPane({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [frameOpen])
-  const seq = useMemo(() => readingSequence(nodesByPath.get('')!), [nodesByPath])
+  const seq = readingSequence(nodesByPath.get('')!)
   const seqAt = seq.indexOf(node.path)
   const prev = seqAt > 0 ? seq[seqAt - 1] : null
   const next = seqAt >= 0 && seqAt < seq.length - 1 ? seq[seqAt + 1] : null
-  const dive = useMemo(() => firstFileWithin(node, seq, nodesByPath), [node, seq, nodesByPath])
+  const dive = firstFileWithin(node, seq, nodesByPath)
   // Ancestor __dir__ notes (immediate parent → root) — the frame this page is written within.
-  const ancestors = useMemo(() => {
+  const ancestors = (() => {
     if (node.path === '') return [] as TreeNode[]
     const out: TreeNode[] = []
     let p = parentOf(node.path)
@@ -330,7 +327,7 @@ export function DocPane({
       p = parentOf(p)
     }
     return out
-  }, [node, nodesByPath])
+  })()
   // ← / → page through the reading order (unless focus is in an input)
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {

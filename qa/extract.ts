@@ -12,7 +12,7 @@
  * 不 import repo-atlas 内核（只 CLI + 目录约定）。
  */
 import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync, appendFileSync } from "node:fs";
-import { assertOnlyAtlasWrites } from "./lib";
+import { agentEnv, assertOnlyAtlasWrites } from "./lib";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 
@@ -62,7 +62,7 @@ async function runGrok(prompt: string, o: { schema?: string; maxTurns: number; d
   const argv = [AGENT_BIN, "--prompt-file", pf, "--no-memory", "--disable-web-search", "--no-subagents", "--always-approve", "--max-turns", String(o.maxTurns), "--output-format", "json"];
   if (o.schema) argv.push("--json-schema", o.schema);
   if (o.disallowed) argv.push("--disallowed-tools", o.disallowed);
-  const proc = Bun.spawn(argv, { cwd: REPO, stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(argv, { cwd: REPO, env: agentEnv(argv[0], dirname(pf)), stdout: "pipe", stderr: "pipe" });
   const t = setTimeout(() => proc.kill(), o.timeoutMs);
   const out = await new Response(proc.stdout).text();
   clearTimeout(t); await proc.exited;

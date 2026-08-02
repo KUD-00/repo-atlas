@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import {
@@ -567,7 +567,7 @@ function ReviewHistory({
   onSelectConcept: (slug: string) => void
 }) {
   const { i18n } = useLingui()
-  const items = useMemo(() => new Map(attention.items.map((item) => [item.slug, item])), [attention.items])
+  const items = new Map(attention.items.map((item) => [item.slug, item]))
   const events = [...attention.events].reverse()
   if (events.length === 0) {
     return <div className="rounded-xl border border-border bg-panel py-6 px-5 text-[0.82rem] text-muted">{t(i18n)`No review events yet.`}</div>

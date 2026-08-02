@@ -21,7 +21,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { assertOnlyAtlasWrites, validateMermaid, DENY_TERMINAL, DENY_ALL_WRITES } from "./lib";
+import { agentEnv, assertOnlyAtlasWrites, validateMermaid, DENY_TERMINAL, DENY_ALL_WRITES } from "./lib";
 
 // 仓库根 = 从 cwd 向上第一个含 .atlas/ 的目录（引擎住在工具仓，不假设与目标仓的相对位置）。
 function findRepoRoot(): string {
@@ -232,19 +232,25 @@ function relevantGlossary(body: string): string {
   return kept.length ? intro + kept.join("") : intro;
 }
 async function runGrok(promptText: string, o: { cwd: string; schema?: string; maxTurns: number; disallowed?: string; approve?: boolean; timeoutMs: number; stage?: string }): Promise<any> {
-  const pf = join(mkdtempSync(join(tmpdir(), "atlas-qa-")), "prompt.md");
-  writeFileSync(pf, promptText);
-  const argv = [agentBinFor(o.stage), "--prompt-file", pf, "--no-memory", "--disable-web-search", "--no-subagents", "--max-turns", String(o.maxTurns), "--output-format", "json"];
-  if (o.schema) argv.push("--json-schema", o.schema);
-  if (o.disallowed) argv.push("--disallowed-tools", o.disallowed);
-  if (o.approve) argv.push("--always-approve");
-  const proc = Bun.spawn(argv, { cwd: o.cwd, stdout: "pipe", stderr: "pipe" });
-  const killer = setTimeout(() => proc.kill(), o.timeoutMs);
-  const out = await new Response(proc.stdout).text();
-  clearTimeout(killer);
-  await proc.exited;
-  rmSync(dirname(pf), { recursive: true, force: true });
-  try { return JSON.parse(out); } catch { return { text: out, structuredOutput: null }; }
+  const temp = mkdtempSync(join(tmpdir(), "atlas-qa-"));
+  const pf = join(temp, "prompt.md");
+  try {
+    writeFileSync(pf, promptText);
+    const argv = [agentBinFor(o.stage), "--prompt-file", pf, "--no-memory", "--disable-web-search", "--no-subagents", "--max-turns", String(o.maxTurns), "--output-format", "json"];
+    if (o.schema) argv.push("--json-schema", o.schema);
+    if (o.disallowed) argv.push("--disallowed-tools", o.disallowed);
+    if (o.approve) argv.push("--always-approve");
+    const proc = Bun.spawn(argv, { cwd: o.cwd, env: agentEnv(argv[0], temp), stdout: "pipe", stderr: "pipe" });
+    const killer = setTimeout(() => proc.kill(), o.timeoutMs);
+    const out = await new Response(proc.stdout).text();
+    clearTimeout(killer);
+    await proc.exited;
+    try { return JSON.parse(out); } catch { return { text: out, structuredOutput: null }; }
+  } finally {
+    // finally 而非成功路径：超时/异常也要删。grok 的 per-call home 就住在这里面（每次约 4MB），
+    // 漏一次就在 tmpfs 上永久占一份内存。
+    rmSync(temp, { recursive: true, force: true });
+  }
 }
 // grok --json-schema 只校验不约束解码；结构化失败时从 text 里宽容捞 JSON
 function lenientParse(grokOut: any): any | null {

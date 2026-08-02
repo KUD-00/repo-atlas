@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import { FlaskConical } from 'lucide-react'
@@ -528,7 +528,7 @@ export function TestAuditPane({
   onMode?: (mode: AuditViewMode) => void
 }) {
   const testModel = model.domain === 'test' ? model : null
-  const auditsBySlug = useMemo(() => new Map(audits.map((u) => [u.slug, u])), [audits])
+  const auditsBySlug = new Map(audits.map((u) => [u.slug, u]))
   const focusedUnit = focusSlug ? auditsBySlug.get(focusSlug) ?? null : null
 
   if (!testModel) return null

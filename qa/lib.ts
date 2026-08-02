@@ -9,7 +9,7 @@
  *
  * 不 import repo-atlas 内核（src/）——tool ⊥ data；qa/ 内部共享走本文件。
  */
-import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { relevantGlossary } from "./glossary.mjs";
@@ -27,6 +27,25 @@ export function findRepoRoot(): string {
 }
 
 export const AGENT_BIN = process.env.ATLAS_QA_AGENT || "grok";
+
+// grok 每个 turn 都重读一遍它的 sessions 目录，代价正比于那个目录的体量：一个 22GB 的历史
+// 让单 turn CPU 从 0.27s 涨到 4.8s（实测 18×），并发批量下这就是机器负载的主要来源。
+// 而这里的调用一律带 --no-memory——已经明说不要历史，却仍在为历史付税。
+//
+// 给每次调用一个全新的空 home（住在调用方那个用完即删的临时目录里），税恒等于零：
+// 实测全新目录没有初始化惩罚（CPU 0.24s，与复用的 home 持平甚至更低）。用固定的
+// ~/.grok-batch 也能省掉大头，但它自己会长——实测每页约 4.5MB，一次 2000 页的批量跑
+// 就长到 6GB 上下，税在长跑后期回来一部分。所以默认 per-call，没有临时目录可用时才退回固定 home。
+// 凭证始终指向真实 auth.json，token 刷新自动跟随。
+// 逃生阀：调用方自己设了 GROK_HOME 就一律尊重，不覆盖（交互式排障要看得到历史）。
+export function agentEnv(bin: string, callTempDir?: string): Record<string, string> {
+  const env = process.env as Record<string, string>;
+  const home = env.HOME;
+  if (!home || env.GROK_HOME || !/(^|\/)grok$/.test(bin)) return env;
+  const grokHome = callTempDir ? join(callTempDir, "grok-home") : join(home, ".grok-batch");
+  mkdirSync(grokHome, { recursive: true });
+  return { ...env, GROK_HOME: grokHome, GROK_AUTH_PATH: env.GROK_AUTH_PATH ?? join(home, ".grok", "auth.json") };
+}
 
 // ---------- 禁令句式（AI 腔/元话术，单一来源；文体层可再追加） ----------
 export const BANNED_PHRASES = [
@@ -258,7 +277,7 @@ export async function runAgent(promptText: string, o: AgentOpts): Promise<any> {
     if (o.schema) argv.push("--json-schema", o.schema);
     if (o.disallowed) argv.push("--disallowed-tools", o.disallowed);
     if (o.approve !== false) argv.push("--always-approve");
-    const proc = Bun.spawn(argv, { cwd: o.cwd, stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(argv, { cwd: o.cwd, env: agentEnv(argv[0], temp), stdout: "pipe", stderr: "pipe" });
     timer = setTimeout(() => { timedOut = true; proc.kill(); }, o.timeoutMs);
     const [out, err, exitCode] = await Promise.all([
       new Response(proc.stdout).text(),

@@ -287,7 +287,14 @@ async function runPage(slug: string): Promise<{ slug: string; pass: boolean; rea
     if (breakMed > breakMax) reasons.push(`循序渐进断线中位 ${breakMed} > ${breakMax}：${readers.flatMap(r => r.progression_breaks ?? []).slice(0, 4).join("｜")}`);
     if (retellOk < (gateCfg.retellMin ?? 2)) reasons.push(`复述不成立（${retellOk}/3 能讲给同事）`);
     if (fc.unsupported.length) reasons.push(`unsupported ${fc.unsupported.length} 条：${fc.unsupported.map((u: any) => u.claim).slice(0, 3).join("｜")}`);
-    record.rounds.push({ round, visuals: vis, unclearMed, breakMed, retellOk, unsupported: fc.unsupported, reasons });
+    // 明细落盘（不只中位数）：断线/读不懂/未解释术语是**选题**的因果信号——断线聚集处 = 课程缺页处。
+    // 只存聚合数字的话，每轮跑完就把它丢了，事后无法回答"读者到底断在哪个概念上"。
+    record.rounds.push({
+      round, visuals: vis, unclearMed, breakMed, retellOk, unsupported: fc.unsupported, reasons,
+      breaks: readers.flatMap(r => r.progression_breaks ?? []),
+      unclearSentences: readers.flatMap(r => r.unclear_sentences ?? []),
+      undefinedTerms: [...new Set(readers.flatMap(r => r.undefined_terms ?? []))],
+    });
     const pen = penaltyOf(reasons, unclearMed, breakMed, fc.unsupported.length);
     if (!best || pen < best.pen) best = { raw, pen };
     if (!reasons.length) {

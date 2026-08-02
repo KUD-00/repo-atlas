@@ -1,4 +1,3 @@
-import { useMemo } from 'react'
 import { t } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import {
@@ -210,11 +209,10 @@ export function AuditFileTable({
   onQueryChange?: (query: string) => void
 }) {
   const { i18n } = useLingui()
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((row) => row.path.toLowerCase().includes(q))
-  }, [rows, query])
+  const q = query.trim().toLowerCase()
+  const filtered = !q
+    ? rows
+    : rows.filter((row) => row.path.toLowerCase().includes(q))
 
   return (
     <div>

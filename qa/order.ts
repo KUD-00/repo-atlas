@@ -17,6 +17,7 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdtempSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
+import { agentEnv } from "./lib";
 
 function findRepoRoot(): string {
   let d = process.cwd();
@@ -92,7 +93,7 @@ async function propose(repoDir: string, dirBody: string, kids: { name: string; o
   writeFileSync(pf, prompt);
   const argv = [AGENT_BIN, "--prompt-file", pf, "--no-memory", "--disable-web-search", "--no-subagents",
     "--max-turns", "3", "--output-format", "json", "--json-schema", SCHEMA, "--always-approve"];
-  const proc = Bun.spawn(argv, { cwd: REPO, stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(argv, { cwd: REPO, env: agentEnv(argv[0], dirname(pf)), stdout: "pipe", stderr: "pipe" });
   const killer = setTimeout(() => proc.kill(), 120_000);
   const out = await new Response(proc.stdout).text();
   clearTimeout(killer);

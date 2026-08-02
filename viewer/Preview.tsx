@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { t } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { ChevronRight, Code, FileDiff, Package, Printer, TableOfContents, PanelRightClose } from 'lucide-react'
@@ -252,8 +252,8 @@ const JSON_COLLAPSE_LINES = 80
 /** json artifact body: a formatted code block; big payloads start collapsed. */
 function JsonArtifactBlock({ raw }: { raw: string }) {
   const { i18n } = useLingui()
-  const text = useMemo(() => formatJsonArtifact(raw), [raw])
-  const lines = useMemo(() => text.split('\n'), [text])
+  const text = formatJsonArtifact(raw)
+  const lines = text.split('\n')
   const [expanded, setExpanded] = useState(false)
   useEffect(() => setExpanded(false), [raw])
   const collapsed = !expanded && lines.length > JSON_COLLAPSE_LINES
