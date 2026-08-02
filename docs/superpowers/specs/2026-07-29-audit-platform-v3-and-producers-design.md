@@ -2522,7 +2522,13 @@ Synthesis candidates with a terminal `reportable` disposition become V3
 findings with deterministic Atlas identities; the provider candidate id is
 retained as a producer fingerprint alias and in provenance. A candidate with
 any other terminal disposition produces no occurrence, and its file's outcome
-is `clean`. The run receipt deliberately carries no wall-clock fields, so
+is `clean`. The review output contract mirrors this: a `clean` receipt may
+list the candidates the model evaluated and rejected — every listed candidate
+is independently fact-checked — but a candidate the fact checker confirms
+reportable on a clean receipt is a model contradiction and fails closed as
+`output-invalid`; terminally non-reportable candidates are preserved in the
+run result as evidence. The terminal file outcome always binds the verified
+disposition, never the discovery-stage receipt label. The run receipt deliberately carries no wall-clock fields, so
 `observedAt`/`reviewedAt` come from the publish clock. Neither those nor the
 session-entropic transcript digest are identity material: re-publishing an
 observation that is canonically identical apart from those members adopts the
@@ -2531,6 +2537,11 @@ any other divergence under the same observation id fails before mutation.
 
 Publication regenerates generated review coverage as its terminal step, so
 `audit coverage check` and `audit check` see the new evidence immediately.
+The V3 validator re-reads every receipt blob from the Git object store, so
+before publishing, a dirty-worktree run's audited bytes are verified
+byte-for-byte against the still-unchanged worktree and registered with
+`git hash-object -w` (content-addressed and idempotent); drift fails closed,
+and committing the files later recreates the same objects permanently.
 
 ## Codex Security adapter
 

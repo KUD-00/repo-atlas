@@ -1934,6 +1934,79 @@ git commit -m "feat(audit): publish validated run observations"
 git push origin feat/codex-security-atlas-adapter
 ```
 
+### Task 18: Accept terminally non-reportable candidates and contain follows to the inventory
+
+**Files:**
+- Modify: `src/audit-providers.ts`
+- Modify: `src/audit-provider-grok.ts`
+- Modify: `test/fixtures/fake-grok/grok.mjs`
+- Modify: `test/audit-provider-grok.test.mjs`
+- Modify: `docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`
+
+- [x] **Step 1: Add failing disposition-contract tests**
+
+Provider level (`test/audit-provider-grok.test.mjs`): a clean review receipt
+carrying evaluated candidates must complete when every candidate terminates
+non-reportable (suppressed, not_applicable, deferred — the consumer's
+post-fix chromatic.yml shape), preserving each candidate and its disposition
+in the run result while the file's terminal outcome is clean; a terminally
+reportable candidate on a clean receipt must fail closed as
+`output-invalid`; a `findings` receipt whose candidates all terminate
+non-reportable must normalize the terminal outcome to clean. The fixture
+gains a `cleanWithFindings` control to emit the real combination.
+
+```bash
+pnpm build:cli
+node --test test/audit-provider-grok.test.mjs
+```
+
+- [x] **Step 2: Confirm RED**
+
+The review-unit output validator rejects `clean` receipts carrying any
+findings (`clean review receipt for <path> carries findings`), matching the
+consumer's R7 failure byte for byte.
+
+- [x] **Step 3: Implement the disposition contract and prompt containment**
+
+In `src/audit-providers.ts` accept clean receipts with candidates at review
+validation (the contradiction rule moves to synthesis, where terminal
+dispositions exist). In `src/audit-provider-grok.ts` `grokSynthesize`:
+reject a terminally reportable candidate on a clean receipt, and compute
+terminal file outcomes from reportable dispositions instead of the
+discovery-stage receipt label. Harden the review and verification prompts:
+the snapshot contains exactly the listed files, targeted Read/list_dir/Grep
+of an unlisted path aborts the audit (the real model otherwise follows
+workflow references into non-inventory script paths and dies on the tool
+error), and the output contract legitimizes evaluated-and-rejected
+candidates under a clean outcome. In `src/audit-run-publish.ts` register
+dirty-worktree audited bytes with `git hash-object -w` after a byte-exact
+drift check, so publication of uncommitted-but-audited bytes validates
+(the consumer's mid-remediation workflows are dirty). Write a deterministic
+adapter-owned `config.toml` into the isolated home ignoring the entire
+skills directory: grok installs bundled skills into every fresh home, the
+model reads their SKILL.md files outside the snapshot, and the transcript
+proof fails closed (verified live that the ignore suppresses the skills
+context). Enrich the final-JSON parse error with a bounded head/tail
+snippet; the one transient malformed-response failure did not recur.
+
+- [x] **Step 4: Align the spec**
+
+Document the review-output disposition contract in the publication
+subsection of
+`docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`.
+
+- [x] **Step 5: Verify and commit**
+
+```bash
+pnpm build:cli
+node --test test/audit-provider-grok.test.mjs
+pnpm test
+pnpm typecheck
+git add src/audit-providers.ts src/audit-provider-grok.ts test/fixtures/fake-grok/grok.mjs test/audit-provider-grok.test.mjs docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md docs/superpowers/plans/2026-07-29-audit-platform-v3-and-producers.md
+git commit -m "fix(audit): accept terminally non-reportable candidates on clean receipts"
+git push origin feat/codex-security-atlas-adapter
+```
+
 ## Final requirement review
 
 - [x] V1/V2 remain readable but every new write is V3.
