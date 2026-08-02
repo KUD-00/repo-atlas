@@ -1123,7 +1123,16 @@ export function validateAuditProviderReviewUnitOutput(
       }
       const startLine = rawFinding.startLine
       if (typeof startLine !== 'number' || !Number.isSafeInteger(startLine) || startLine < 1 || startLine > Math.max(1, file.lines)) {
-        fail('output-invalid', `finding on ${receiptPath} has an out-of-range startLine`, 'review')
+        // Carry the numbers: "out of range" alone cannot tell a hallucinated
+        // citation from an off-by-one at EOF, and re-running a provider to find
+        // out costs a whole audit run.
+        fail(
+          'output-invalid',
+          `finding on ${receiptPath} has an out-of-range startLine (observed ${String(
+            startLine,
+          )}, file has ${String(file.lines)} lines)`,
+          'review',
+        )
       }
       let endLine: number | undefined
       if (rawFinding.endLine !== undefined) {
@@ -1133,7 +1142,13 @@ export function validateAuditProviderReviewUnitOutput(
           rawFinding.endLine < startLine ||
           rawFinding.endLine > Math.max(1, file.lines)
         ) {
-          fail('output-invalid', `finding on ${receiptPath} has an out-of-range endLine`, 'review')
+          fail(
+            'output-invalid',
+            `finding on ${receiptPath} has an out-of-range endLine (observed ${String(
+              rawFinding.endLine,
+            )}, startLine ${String(startLine)}, file has ${String(file.lines)} lines)`,
+            'review',
+          )
         }
         endLine = rawFinding.endLine
       }
