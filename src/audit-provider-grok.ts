@@ -103,17 +103,18 @@ const GROK_REVIEW_PROMPT = `You are performing a READ-ONLY security audit of an 
 - READ-ONLY. Use only the Read, Grep, and Glob tools. Never create, modify, or delete anything. Do not spawn subagents.
 - Audit exactly the files listed in the ATLAS-UNIT block at the end of this prompt. Paths are relative to the snapshot root, which is your working directory.
 - Your working directory IS the snapshot root. Never read, list, grep, or glob anything outside it: no parent directories, no absolute paths outside the snapshot, no home, temp, or system paths. Any such call aborts the audit.
+- The snapshot contains exactly the files listed in the ATLAS-UNIT block and nothing else. Never Read, list_dir, or Grep a specific file path that is not listed: it does not exist here, the call errors, and the audit aborts. Searching with Grep over the snapshot root or its subdirectories is fine.
 - You must Read every listed file completely, from line 1 to its final line. read_file returns at most 1000 lines per call and does NOT warn when it caps: for any file with more than 1000 lines you MUST make multiple read_file calls with explicit offset/limit (for example offset 1 limit 1000, then offset 1001 limit 1000) so the chunks together cover every line; the transcript must prove full-range coverage.
 
 ## Method
 1. Read each listed file fully before judging it.
-2. For suspicious dataflows, follow a small number of call sites with Grep and Read; do not audit those neighboring files themselves.
+2. For suspicious dataflows, follow call sites with Grep and Read within the listed inventory only. Referenced paths outside the inventory are absent from this snapshot; do not attempt to access them and do not audit those neighboring files yourself.
 3. Classify findings against the ruleset categories: authn-authz, crypto-signing, injection-sql-cmd-path-ssrf, template-injection-proto-pollution, input-validation-deserialization, secret-leakage, info-disclosure, webhook-idempotency-replay, money-integrity, rate-limiting-dos.
 
 ## Calibration
 - Severities: informational (noteworthy, no action needed), low (defense-in-depth; unreachable from untrusted input today), medium (exploitable under realistic conditions), high (directly exploitable), critical (active compromise, RCE, or auth bypass).
 - Only report issues with a concrete abuse path. No style nitpicks and no hypothetical framework CVEs.
-- If a file is clean, mark it clean with a one-line summary of what you checked.
+- If you judge nothing in a file reportable, mark it clean with a one-line summary of what you checked. You may still list the candidates you evaluated and rejected under a clean outcome: every listed candidate is independently fact-checked, and a candidate the fact checker confirms reportable on a clean receipt aborts the audit.
 
 ## Output contract
 Your FINAL message must be ONLY a JSON object (no prose, no markdown fences) of this exact shape:
@@ -126,6 +127,7 @@ const GROK_VERIFICATION_PROMPT = `You are an independent security fact checker w
 - READ-ONLY. Use only the Read, Grep, and Glob tools. Never create, modify, or delete anything. Do not spawn subagents.
 - Read every file listed in the ATLAS-UNIT block completely, from line 1 to its final line, before deciding any candidate that touches it. read_file returns at most 1000 lines per call and does NOT warn when it caps: for any file with more than 1000 lines you MUST make multiple read_file calls with explicit offset/limit so the chunks together cover every line.
 - Your working directory IS the snapshot root. Never read, list, grep, or glob anything outside it: no parent directories, no absolute paths outside the snapshot, no home, temp, or system paths. Any such call aborts the audit.
+- The snapshot contains exactly the files listed in the ATLAS-UNIT block and nothing else. Never Read, list_dir, or Grep a specific file path that is not listed: it does not exist here, the call errors, and the audit aborts. Searching with Grep over the snapshot root or its subdirectories is fine.
 - Verify each candidate against the exact snapshot bytes: confirm the code, the dataflow, and the preconditions yourself.
 
 ## Output contract
@@ -419,6 +421,14 @@ function resolveGrokCommand(command: string, phase: AuditProviderPhaseKind): str
   )
 }
 
+// The adapter-owned isolation config: grok installs its bundled skills into
+// every fresh home and lists them in the model's context; the model then
+// reads SKILL.md files that live outside the snapshot and the transcript
+// proof fails closed (consumer R7+). Ignoring the entire skills directory
+// keeps the model's context free of skills. The content is deterministic
+// and part of the versioned adapter contract, like the flag allowlist.
+const GROK_ISOLATED_CONFIG = '[skills]\nignore = ["~/.grok/skills"]\n'
+
 function createIsolatedHome(context: AuditProviderContext): string {
   const home = path.join(context.tempRoot, 'home')
   fs.mkdirSync(home, { recursive: true, mode: 0o700 })
@@ -428,6 +438,11 @@ function createIsolatedHome(context: AuditProviderContext): string {
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 })
     fs.chmodSync(directory, 0o700)
   }
+  const grokHome = path.join(home, '.grok')
+  fs.mkdirSync(grokHome, { recursive: true, mode: 0o700 })
+  fs.chmodSync(grokHome, 0o700)
+  fs.writeFileSync(path.join(grokHome, 'config.toml'), GROK_ISOLATED_CONFIG, { mode: 0o600 })
+  fs.chmodSync(path.join(grokHome, 'config.toml'), 0o600)
   const tmp = path.join(context.tempRoot, 'tmp')
   fs.mkdirSync(tmp, { recursive: true, mode: 0o700 })
   fs.chmodSync(tmp, 0o700)
@@ -1269,10 +1284,14 @@ function parseFinalJsonBlock(
       context.policy.maxResponseBytes,
       'grok final response',
     )
-  } catch {
+  } catch (error) {
+    const head = text.slice(0, 256).replaceAll('\n', ' ')
+    const tail = text.slice(-128).replaceAll('\n', ' ')
     throw new AuditProviderError(
       'output-invalid',
-      'grok final response is not bounded valid JSON',
+      `grok final response is not bounded valid JSON (${
+        error instanceof Error ? error.message : 'parse failed'
+      }; head: ${head} · tail: ${tail})`,
       phase,
     )
   }
@@ -1524,20 +1543,71 @@ function grokSynthesize(
       dispositionRationale: disposition.rationale,
     }
   })
+
+  // Terminal contradiction rule: a clean review receipt may carry evaluated
+  // candidates, but only when every one of them terminates non-reportable.
+  // A reportable candidate on a clean receipt is a model contradiction and
+  // fails closed.
+  const candidateByKey = new Map(
+    input.candidates.map((candidate) => [
+      [
+        candidate.ruleId,
+        candidate.path,
+        String(candidate.startLine),
+        String(candidate.endLine ?? ''),
+        candidate.title,
+      ].join('\0'),
+      candidate,
+    ]),
+  )
+  for (const reviewOutput of input.reviewOutputs) {
+    for (const receipt of reviewOutput.receipts) {
+      if (receipt.outcome !== 'clean') continue
+      for (const rawFinding of receipt.findings) {
+        const key = [
+          rawFinding.ruleId,
+          receipt.path,
+          String(rawFinding.startLine),
+          String(rawFinding.endLine ?? ''),
+          rawFinding.title,
+        ].join('\0')
+        const candidate = candidateByKey.get(key)
+        const disposition =
+          candidate === undefined ? undefined : dispositions.get(candidate.fingerprint)
+        if (candidate === undefined || disposition === undefined) {
+          throw new AuditProviderError(
+            'output-invalid',
+            `clean review receipt for ${receipt.path} carries an unsynthesized candidate`,
+            'synthesis',
+          )
+        }
+        if (disposition.disposition === 'reportable') {
+          throw new AuditProviderError(
+            'output-invalid',
+            `candidate ${candidate.fingerprint} on a clean review receipt for ${receipt.path} is terminally reportable`,
+            'synthesis',
+          )
+        }
+      }
+    }
+  }
+
+  const reportablePaths = new Set(
+    findings
+      .filter((finding) => finding.disposition === 'reportable')
+      .map((finding) => finding.path),
+  )
   const files: AuditProviderFileOutcome[] = []
   for (const target of context.targets) {
     if (target.role !== 'review') continue
-    let outcome: 'clean' | 'findings' = 'clean'
-    for (const reviewOutput of input.reviewOutputs) {
-      const receipt = reviewOutput.receipts.find((entry) => entry.path === target.path)
-      if (receipt !== undefined) outcome = receipt.outcome
-    }
     files.push({
       path: target.path,
       blob: target.blob,
       lines: target.lines,
       status: 'reviewed',
-      outcome,
+      // The terminal outcome binds reportable dispositions, not the
+      // discovery-stage receipt label.
+      outcome: reportablePaths.has(target.path) ? 'findings' : 'clean',
       findingFingerprints: findings
         .filter((finding) => finding.path === target.path)
         .map((finding) => finding.fingerprint),

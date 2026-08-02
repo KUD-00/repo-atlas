@@ -1,4 +1,6 @@
 import { canonicalJson, readBoundedAuditJson, } from './audit-core.js';
+import fs from 'node:fs';
+import path from 'node:path';
 import { loadAuditReviewPolicy, readAuditTrackedInventory, classifyAuditInventory, } from './audit-policy.js';
 import { computeAtlasFindingId, computeAtlasFingerprint, computeAtlasObservationId, computeAtlasOccurrenceId, computeAuditInventoryDigest, computeAuditScopeHash, computeExactScopeIdentityDigest, prepareAuditObservationPublication, publishAuditObservation, } from './audit-v3.js';
 import { updateAuditCoverage } from './audit-coverage-generator.js';
@@ -45,6 +47,36 @@ function worktreeDirty(root, revision) {
     if (differs(['diff', '--quiet']))
         return true;
     return revision !== null && differs(['diff', '--cached', '--quiet']);
+}
+// The V3 validator re-reads every receipt blob's bytes from the Git object
+// store, but a dirty-worktree run audits bytes that exist only in the
+// worktree. Publication registers them with `git hash-object -w` —
+// content-addressed and idempotent — after proving the worktree bytes are
+// still exactly what the run audited; drift fails closed before any
+// publication is attempted. Committing the files later recreates the same
+// objects permanently, since blob identity is content-derived.
+function ensureReceiptBlobsAvailable(root, files) {
+    for (const file of files) {
+        const match = /^git-(?:sha1|sha256):([0-9a-f]+)$/.exec(file.blob);
+        if (match === null) {
+            throw new Error(`run output file has a malformed blob identity: ${file.path}`);
+        }
+        const objectId = match[1];
+        let available = true;
+        try {
+            git(root, ['cat-file', '-e', objectId]);
+        }
+        catch {
+            available = false;
+        }
+        if (available)
+            continue;
+        const bytes = fs.readFileSync(path.join(root, ...file.path.split('/')));
+        const written = git(root, ['hash-object', '-w', '--stdin'], bytes.toString('utf8')).trim();
+        if (written !== objectId) {
+            throw new Error(`worktree bytes for ${file.path} drifted since the run: expected ${file.blob}, worktree now hashes to ${written}`);
+        }
+    }
 }
 // The run receipt deliberately carries no wall-clock fields, so publication
 // timestamps come from the publish clock. Transcript digests carry session
@@ -342,6 +374,7 @@ export function publishAuditProviderRunObservations(root, options) {
     };
     const publications = [];
     const sortedUnits = [...filesByUnit.entries()].sort((left, right) => left[0].localeCompare(right[0]));
+    ensureReceiptBlobsAvailable(root, result.files);
     for (const [slug, files] of sortedUnits) {
         const unit = reviewPolicy.units.find((candidate) => candidate.domain === 'security' && candidate.slug === slug);
         if (unit === undefined) {

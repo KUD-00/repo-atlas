@@ -650,12 +650,14 @@ export function validateAuditProviderReviewUnitOutput(output, files, policy) {
         if (!Array.isArray(raw.findings) || raw.findings.length > policy.maxFindingsPerFile) {
             fail('output-invalid', `review receipt for ${receiptPath} has unbounded findings`, 'review');
         }
-        if (raw.outcome === 'clean' && raw.findings.length > 0) {
-            fail('output-invalid', `clean review receipt for ${receiptPath} carries findings`, 'review');
-        }
         if (raw.outcome === 'findings' && raw.findings.length === 0) {
             fail('output-invalid', `findings review receipt for ${receiptPath} carries none`, 'review');
         }
+        // A clean receipt may still list the candidates the model evaluated:
+        // every listed candidate flows to independent verification, and the
+        // terminal disposition decides. Synthesis rejects a candidate the fact
+        // checker confirms reportable on a clean receipt as a contradiction;
+        // terminally non-reportable candidates are preserved as evidence.
         const findings = [];
         for (const rawFinding of raw.findings) {
             if (!isPlainObject(rawFinding)) {

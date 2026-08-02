@@ -388,7 +388,14 @@ async function main() {
       return {
         path: file.path,
         status: 'reviewed',
-        outcome: findings.length > 0 ? 'findings' : 'clean',
+        // cleanWithFindings emulates the real model's evaluated-and-rejected
+        // candidate list under a clean outcome.
+        outcome:
+          control.cleanWithFindings === true
+            ? 'clean'
+            : findings.length > 0
+              ? 'findings'
+              : 'clean',
         summary: findings.length > 0 ? 'findings recorded' : `checked ${file.path}`,
         findings,
       }

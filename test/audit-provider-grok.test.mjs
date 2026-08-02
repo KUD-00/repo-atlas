@@ -581,6 +581,10 @@ test('ambient hooks, plugins, MCP, and config stay out of the isolated home; onl
     'secret-auth-marker'.length,
     'the auth record bytes are copied exactly (recorded by size, never by content)',
   )
+  const configEntry = run.homeEntries.find((entry) => entry.path === '.grok/config.toml')
+  assert.ok(configEntry, 'the adapter writes its own deterministic skills suppression config')
+  assert.equal(configEntry.mode, '600')
+  assert.equal(configEntry.size, '[skills]\nignore = ["~/.grok/skills"]\n'.length)
 
   const journalBytes = fs.readFileSync(
     path.join(journalDir(root, result.invocationId), 'journal.json'),
@@ -1000,6 +1004,102 @@ test('findings flow through an independent verification phase with no discovery 
   const verificationChunk = result.receipt.chunks.find((chunk) => chunk.phase === 'verification')
   assert.equal(verificationChunk.processCount, 1)
   assertReceiptChain(result.receipt)
+})
+
+test('a clean receipt with terminally non-reportable candidates completes and preserves them as evidence', async (t) => {
+  const candidate = {
+    ruleId: 'secret-leakage/token-on-pr',
+    title: 'token available on pull requests',
+    severity: 'medium',
+    confidence: 'medium',
+    summary: 'secret visible to PR jobs',
+    startLine: 3,
+    endLine: 4,
+    detail: 'abuse path detail',
+    fix: 'gate the step on non-PR events',
+  }
+  for (const disposition of ['suppressed', 'not_applicable', 'deferred']) {
+    const fake = makeFakeGrok(t, {
+      mode: 'ok',
+      reviewFindings: { 'src/a.ts': [candidate] },
+      cleanWithFindings: true,
+      disposition,
+    })
+    const root = makeRepo(t, { 'src/a.ts': makeSource(8, 'a') })
+    const result = await runAuditProviderInvocation(
+      makeRequest(root, makePolicy(fake), ['src/a.ts']),
+      createGrokAuditProvider(),
+    )
+    assert.equal(result.status, 'completed', `${disposition} candidates on a clean receipt must complete`)
+    assert.equal(result.findings.length, 1, 'the candidate is preserved as evidence')
+    assert.equal(result.findings[0].disposition, disposition)
+    assert.equal(result.findings[0].path, 'src/a.ts')
+    const file = result.files.find((entry) => entry.path === 'src/a.ts')
+    assert.equal(file.outcome, 'clean', 'terminal outcome binds the non-reportable disposition')
+    assert.deepEqual(file.findingFingerprints, [result.findings[0].fingerprint])
+    assertReceiptChain(result.receipt)
+  }
+})
+
+test('a reportable candidate on a clean review receipt fails closed as a contradiction', async (t) => {
+  const candidate = {
+    ruleId: 'secret-leakage/token-on-pr',
+    title: 'token available on pull requests',
+    severity: 'medium',
+    confidence: 'medium',
+    summary: 'secret visible to PR jobs',
+    startLine: 3,
+    endLine: 4,
+    detail: 'abuse path detail',
+    fix: 'gate the step on non-PR events',
+  }
+  const fake = makeFakeGrok(t, {
+    mode: 'ok',
+    reviewFindings: { 'src/a.ts': [candidate] },
+    cleanWithFindings: true,
+  })
+  const root = makeRepo(t, { 'src/a.ts': makeSource(8, 'a') })
+  await assert.rejects(
+    () =>
+      runAuditProviderInvocation(
+        makeRequest(root, makePolicy(fake), ['src/a.ts']),
+        createGrokAuditProvider(),
+      ),
+    (error) =>
+      error instanceof AuditProviderError &&
+      error.code === 'output-invalid' &&
+      /clean review receipt/.test(error.message),
+    'a terminally reportable candidate on a clean receipt must remain a clone-local failure',
+  )
+})
+
+test('a findings receipt whose candidates all terminate non-reportable normalizes to clean', async (t) => {
+  const candidate = {
+    ruleId: 'secret-leakage/token-on-pr',
+    title: 'token available on pull requests',
+    severity: 'medium',
+    confidence: 'medium',
+    summary: 'secret visible to PR jobs',
+    startLine: 3,
+    endLine: 4,
+    detail: 'abuse path detail',
+    fix: 'gate the step on non-PR events',
+  }
+  const fake = makeFakeGrok(t, {
+    mode: 'ok',
+    reviewFindings: { 'src/a.ts': [candidate] },
+    disposition: 'not_applicable',
+  })
+  const root = makeRepo(t, { 'src/a.ts': makeSource(8, 'a') })
+  const result = await runAuditProviderInvocation(
+    makeRequest(root, makePolicy(fake), ['src/a.ts']),
+    createGrokAuditProvider(),
+  )
+  assert.equal(result.status, 'completed')
+  const file = result.files.find((entry) => entry.path === 'src/a.ts')
+  assert.equal(file.outcome, 'clean', 'no reportable occurrence means a clean terminal outcome')
+  assert.equal(result.findings[0].disposition, 'not_applicable')
+  assert.deepEqual(file.findingFingerprints, [result.findings[0].fingerprint])
 })
 
 test('resume reuses only verified outputs and reruns changed, corrupt, or missing work', async (t) => {

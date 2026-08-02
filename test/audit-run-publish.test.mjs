@@ -584,6 +584,32 @@ test('non-reportable dispositions never publish as occurrences', async (t) => {
   assert.deepEqual(ledger.current.scope.files[0].findingOccurrenceIds, [])
 })
 
+test('a dirty worktree run publishes after registering audited bytes as git objects', async (t) => {
+  const { root } = makeUnitRepo(t, { 'src/a.ts': makeSource(6, 'a') })
+  write(root, 'src/a.ts', makeSource(7, 'a2'))
+  const fake = makeFakeGrok(t, { mode: 'ok' })
+  writeProviderPolicy(root, fake)
+  const { result, publication } = await runAndPublish(root, fake, ['src/a.ts'])
+  assert.equal(publication.units[0].status, 'appended')
+
+  const ledger = readJson(root, '.atlas/audits/security-fixture.json')
+  assert.equal(ledger.current.target.dirty, true)
+  const receipt = ledger.current.scope.files[0]
+  const parsedLedger = parseAuditCurrentLedger(
+    root,
+    '.atlas/audits/security-fixture.json',
+    ledger,
+  )
+  assert.ok(parsedLedger.ok, 'a dirty-run ledger must validate once audited bytes are registered')
+  const objectId = receipt.blob.split(':')[1]
+  const stored = execFileSync('git', ['cat-file', 'blob', objectId], {
+    cwd: root,
+    encoding: 'utf8',
+  })
+  assert.equal(stored, makeSource(7, 'a2'), 'the registered object holds exactly the audited bytes')
+  assert.equal(result.files[0].blob, receipt.blob)
+})
+
 test('the CLI publishes through audit run security and re-runs are already-current', async (t) => {
   const files = { 'src/a.ts': makeSource(6, 'a'), 'src/b.ts': makeSource(9, 'b') }
   const { root } = makeUnitRepo(t, files)
