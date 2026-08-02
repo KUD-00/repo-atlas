@@ -2498,6 +2498,40 @@ Atlas never tells Grok to resume an opaque conversation after source or prompt
 drift. `--resume <atlas-run-id>` reuses only independently validated phase
 receipts and starts fresh sessions for missing phases.
 
+### Publication
+
+A completed run terminates in publication: the validated synthesis output
+becomes per-unit V3 observations under the shared locked, history-first,
+byte-idempotent discipline used by every other producer (history append, then
+current switch, only when bytes differ). Raw transcripts and run receipts stay
+clone-local under `.atlas/.runtime/audit-runs`; only their digests publish.
+
+Each published observation is a `grok-cli` ruleset-basis producer receipt
+binding the invocation run id, adapter id/version, the Grok binary version,
+ruleset and prompt digests, effective-config and environment-policy digests,
+and the chain transcript digest; a `git-worktree` target receipt (HEAD
+revision when clean, dirty flag, the run's snapshot-manifest digest as
+snapshot identity); and an exact-inventory scope with one receipt per
+reviewed unit file. File receipts carry the publish-time `reviewedAt`
+(`timestamp` precision), `reviewedBy` of `<model> via grok-cli`, the ruleset
+id, sorted occurrence ids, and phase/unit receipt refs. Exact coverage is
+`complete` because the transcript proof established full-range reads; semantic
+coverage remains honestly `unknown`.
+
+Synthesis candidates with a terminal `reportable` disposition become V3
+findings with deterministic Atlas identities; the provider candidate id is
+retained as a producer fingerprint alias and in provenance. A candidate with
+any other terminal disposition produces no occurrence, and its file's outcome
+is `clean`. The run receipt deliberately carries no wall-clock fields, so
+`observedAt`/`reviewedAt` come from the publish clock. Neither those nor the
+session-entropic transcript digest are identity material: re-publishing an
+observation that is canonically identical apart from those members adopts the
+already-published values, so an unchanged re-run is a byte-identical no-op;
+any other divergence under the same observation id fails before mutation.
+
+Publication regenerates generated review coverage as its terminal step, so
+`audit coverage check` and `audit check` see the new evidence immediately.
+
 ## Codex Security adapter
 
 ```text

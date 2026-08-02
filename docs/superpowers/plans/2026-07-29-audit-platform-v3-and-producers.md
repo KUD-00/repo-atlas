@@ -1852,6 +1852,88 @@ git commit -m "fix(audit): prove real large-file read ranges"
 git push origin feat/codex-security-atlas-adapter
 ```
 
+### Task 17: Publish validated run observations
+
+**Files:**
+- Modify: `src/audit-run-publish.ts` (new)
+- Modify: `src/audit-cli.ts`
+- Modify: `src/audit-providers.ts`
+- Modify: `src/audit-provider-grok.ts`
+- Modify: `test/audit-run-publish.test.mjs` (new)
+- Modify: `test/audit-provider-grok.test.mjs`
+- Modify: `docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`
+
+- [x] **Step 1: Add failing publication tests**
+
+New `test/audit-run-publish.test.mjs` drives the fake Grok end to end in a
+git fixture repo with a review policy: a completed run must publish
+`.atlas/audits/<unit>.json` plus `.atlas/audit-history/<unit>.json`
+(current/history chain re-validated and digests recomputed), `audit check`
+must pass with the new evidence, re-publishing an unchanged run must be a
+byte-identical no-op, a divergent pre-existing observation under the same
+identity must fail before any mutation, reportable findings must publish
+with recomputed Atlas identities and full provenance while non-reportable
+dispositions never become occurrences, and no transcript bytes or session
+ids may land outside clone-local state. First-party V3 findings require
+confidence, so the provider contract gains a `confidence` field (review
+prompt shape, output validator, provider finding types).
+
+```bash
+pnpm build:cli
+node --test test/audit-run-publish.test.mjs
+```
+
+- [x] **Step 2: Confirm RED**
+
+The publication seam does not exist: the run writes nothing into tracked
+`.atlas` state, `audit check` sees no new evidence, and the review output
+validator rejects the new `confidence` member until the contract accepts
+it.
+
+- [x] **Step 3: Implement the terminal publication seam**
+
+New `src/audit-run-publish.ts` groups the validated synthesis output by
+policy unit and builds one V3 observation per unit: a `grok-cli`
+ruleset-basis producer receipt (run id, adapter id/version, pinned binary
+version, ruleset/prompt/config/environment/transcript digests), a
+`git-worktree` target receipt (HEAD revision when clean, dirty flag,
+snapshot-manifest digest as snapshot identity), an exact-inventory scope
+with one receipt per reviewed file (publish-time `reviewedAt`, `<model>
+via grok-cli`, ruleset id, sorted occurrence ids, phase/unit receipt
+refs), `complete` exact coverage, honestly `unknown` semantic coverage,
+and deterministic Atlas findings for terminal `reportable` candidates
+only (other dispositions leave the file `clean`). Publication reuses the
+shared `prepareAuditObservationPublication`/`publishAuditObservation`
+locked history-first discipline and finishes with
+`updateAuditCoverage(..., { allowIncomplete: true })`. Publish-clock
+timestamps and the session-entropic transcript digest are adopted from an
+already-published canonically-identical observation so unchanged re-runs
+are byte-identical no-ops; any other same-identity divergence fails
+before mutation. `auditRun` in `src/audit-cli.ts` invokes the seam after a
+completed invocation and prints per-unit publication status plus the
+coverage outcome, matching the help text's "writes by name and apply
+immediately".
+
+- [x] **Step 4: Align the spec**
+
+Add the publication subsection under the first-party Grok producer in
+`docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md`
+(observation construction, bound digests, clone-local raw transcripts,
+reportable-only findings, timestamp/entropy adoption idempotency,
+terminal coverage regeneration).
+
+- [x] **Step 5: Verify and commit**
+
+```bash
+pnpm build:cli
+node --test test/audit-run-publish.test.mjs
+pnpm test
+pnpm typecheck
+git add src/audit-run-publish.ts src/audit-cli.ts src/audit-providers.ts src/audit-provider-grok.ts test/audit-run-publish.test.mjs test/audit-provider-grok.test.mjs docs/superpowers/specs/2026-07-29-audit-platform-v3-and-producers-design.md docs/superpowers/plans/2026-07-29-audit-platform-v3-and-producers.md
+git commit -m "feat(audit): publish validated run observations"
+git push origin feat/codex-security-atlas-adapter
+```
+
 ## Final requirement review
 
 - [x] V1/V2 remain readable but every new write is V3.
