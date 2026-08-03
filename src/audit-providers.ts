@@ -2059,6 +2059,14 @@ function removeProviderTempRoot(tempRoot: string): void {
       // Best effort; the rmSync below reports any remaining failure.
     }
   }
+  // A failed run's evidence lives here and nowhere else: the prompts sent, the
+  // session transcripts, and the isolated home. Deleting it on the way out means
+  // the only way to ask "why did the generator answer that" is to reproduce and
+  // race the cleanup. Set ATLAS_AUDIT_KEEP_RUN=1 to keep it.
+  if (process.env.ATLAS_AUDIT_KEEP_RUN === '1') {
+    process.stderr.write(`audit provider: keeping run root at ${tempRoot}\n`)
+    return
+  }
   try {
     restore(tempRoot)
     fs.rmSync(tempRoot, { recursive: true, force: true })
