@@ -927,6 +927,8 @@ test('a unit that keeps failing still fails the run', async (t) => {
 })
 
 test('a missing per-file receipt prevents publication', async (t) => {
+  // Completeness is still absolute: a requested file with no receipt means the
+  // unit did not review what it was given.
   const fake = makeFakeGrok(t, { mode: 'missing-receipt' })
   const root = makeRepo(t, {
     'src/a.ts': makeSource(6, 'a'),
@@ -940,15 +942,30 @@ test('a missing per-file receipt prevents publication', async (t) => {
       ),
     (error) => error instanceof AuditProviderError && error.code === 'missing-file-receipt',
   )
+})
+
+test('a receipt for a path absent from the inventory is rejected alone', async (t) => {
+  // The generator invented three paths across three real runs and each one
+  // aborted a completed review phase. A fabrication is one bad receipt, not a
+  // reason to discard every other unit's proven work — so the receipt goes and
+  // the run continues, with the rejection written to stderr rather than
+  // absorbed. Completeness above still covers the requested files.
   const phantom = makeFakeGrok(t, { mode: 'extra-receipt' })
-  await assert.rejects(
-    () =>
-      runAuditProviderInvocation(
-        makeRequest(root, makePolicy(phantom, { maxBatchFiles: 2 }), ['src/a.ts', 'src/b.ts']),
-        createGrokAuditProvider(),
-      ),
-    (error) => error instanceof AuditProviderError && error.code === 'missing-file-receipt',
+  const root = makeRepo(t, {
+    'src/a.ts': makeSource(6, 'a'),
+    'src/b.ts': makeSource(6, 'b'),
+  })
+  const result = await runAuditProviderInvocation(
+    makeRequest(root, makePolicy(phantom, { maxBatchFiles: 2 }), ['src/a.ts', 'src/b.ts']),
+    createGrokAuditProvider(),
   )
+  assert.equal(result.status, 'completed')
+  // The fabricated path never becomes a reviewed file.
+  assert.deepEqual(
+    result.files.map((file) => file.path).sort(),
+    ['src/a.ts', 'src/b.ts'],
+  )
+  assertReceiptChain(result.receipt)
 })
 
 test('changed snapshot bytes prevent publication', async (t) => {

@@ -1074,6 +1074,12 @@ export function validateAuditProviderReviewUnitOutput(
   output: unknown,
   files: readonly AuditProviderSnapshotEntry[],
   policy: AuditProviderPolicy,
+  /**
+   * Resolves a path against the run's inventory. Without it every off-batch
+   * receipt is treated as unverifiable, which is the conservative default for
+   * callers that cannot check.
+   */
+  inventoryHas?: (path: string) => boolean,
 ): AuditProviderReviewUnitOutput {
   if (!isPlainObject(output) || !Array.isArray(output.receipts)) {
     fail('output-invalid', 'review unit output must be an object with a receipts array', 'review')
@@ -1081,6 +1087,10 @@ export function validateAuditProviderReviewUnitOutput(
   const expected = new Map(files.map((file) => [file.path, file]))
   const seen = new Set<string>()
   const receipts: AuditProviderReviewReceipt[] = []
+  /** Real files this batch did not own; kept, and owned by whichever batch has them. */
+  const offBatchReceipts: string[] = []
+  /** Paths that exist nowhere. Rejected individually and reported. */
+  const fabricatedReceipts: string[] = []
   for (const raw of output.receipts) {
     if (!isPlainObject(raw)) {
       fail('output-invalid', 'review receipt must be a plain object', 'review')
@@ -1088,11 +1098,26 @@ export function validateAuditProviderReviewUnitOutput(
     const receiptPath = typeof raw.path === 'string' ? raw.path : ''
     const file = expected.get(receiptPath)
     if (file === undefined) {
-      fail(
-        'missing-file-receipt',
-        `review output references a file outside the unit: ${receiptPath || '<missing>'}`,
-        'review',
-      )
+      // Two very different things used to share one hard failure.
+      //
+      // A receipt for a REAL file outside this batch is a genuine review of a
+      // genuine file — another batch owns its coverage, so this one keeps the
+      // observation and moves on. Discarding it would throw away work; failing
+      // on it aborts a completed run over a bookkeeping detail.
+      //
+      // A receipt for a path that exists nowhere in the inventory is a
+      // fabrication, and it is the one case that must not be absorbed quietly:
+      // the generator invented `capabilities/devices/index.ts`,
+      // `capabilities/packets/index.ts`, and `capabilities/votes.test.ts` on
+      // three separate runs, none of which exist. That single receipt is
+      // rejected and recorded; the rest of the unit still stands or falls on its
+      // own proof.
+      if (receiptPath !== '' && inventoryHas?.(receiptPath) === true) {
+        offBatchReceipts.push(receiptPath)
+        continue
+      }
+      fabricatedReceipts.push(receiptPath || '<missing>')
+      continue
     }
     if (seen.has(receiptPath)) {
       fail('missing-file-receipt', `duplicate review receipt for ${receiptPath}`, 'review')
@@ -1178,6 +1203,25 @@ export function validateAuditProviderReviewUnitOutput(
       summary: boundedText(raw.summary, `review summary for ${receiptPath}`),
       findings,
     })
+  }
+  // Visible, not swallowed: an inventory-absent path is a fabrication, and the
+  // operator has to be able to see that a unit produced one even though the run
+  // continued past it.
+  if (fabricatedReceipts.length > 0) {
+    process.stderr.write(
+      `audit provider warning: rejected ${String(
+        fabricatedReceipts.length,
+      )} receipt(s) for path(s) absent from the inventory: ${fabricatedReceipts.join(', ')}\n`,
+    )
+  }
+  if (offBatchReceipts.length > 0) {
+    process.stderr.write(
+      `audit provider note: ${String(
+        offBatchReceipts.length,
+      )} receipt(s) named real files owned by another batch, which covers them: ${offBatchReceipts.join(
+        ', ',
+      )}\n`,
+    )
   }
   for (const file of files) {
     if (!seen.has(file.path)) {
@@ -1485,6 +1529,8 @@ export async function runAuditProviderPhases(
       takenNames[chosen]!.add(name)
     }
   }
+  const inventoryHas = (candidate: string): boolean =>
+    context.targets.some((target) => target.path === candidate)
   const reviewKey = (unit: string, files: readonly AuditProviderSnapshotEntry[]): AuditSha256 =>
     canonicalDigest({
       namespace: 'repo-atlas/provider-chunk-input/v1',
@@ -1505,14 +1551,19 @@ export async function runAuditProviderPhases(
       const unit = `review:${index}`
       const inputDigest = reviewKey(unit, files)
       const resumed = tryResume('review', unit, inputDigest, (output) =>
-        validateAuditProviderReviewUnitOutput(output, files, policy),
+        validateAuditProviderReviewUnitOutput(output, files, policy, inventoryHas),
       )
       if (resumed !== null) {
         persistChunk(resumed.chunk, resumed.output, true)
         return resumed.output
       }
       const execution = await handlers.review(context, { unit, index, files })
-      const output = validateAuditProviderReviewUnitOutput(execution.output, files, policy)
+      const output = validateAuditProviderReviewUnitOutput(
+        execution.output,
+        files,
+        policy,
+        inventoryHas,
+      )
       persistChunk(
         makeChunk('review', unit, inputDigest, { ...execution, output }),
         output,
