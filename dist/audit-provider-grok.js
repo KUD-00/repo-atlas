@@ -63,11 +63,17 @@ const MAX_PROBE_OUTPUT_BYTES = 1024 * 1024;
 const MAX_AUTH_RECORD_BYTES = 64 * 1024;
 const MAX_STDOUT_LINES = 65_536;
 const MAX_TOOL_ARGUMENT_BYTES = 16 * 1024;
-// Verbatim shape of grok 0.2.111's whole-file read refusal, e.g. "File content
-// (31136 tokens) exceeds maximum allowed tokens (25000 tokens).\nPlease use
-// offset and limit parameters to read the file in chunks." Both halves are
-// required so an ordinary file that merely quotes the phrase cannot pass as one.
-const TOKEN_CAP_REFUSAL = /^File content \(\d+ tokens\) exceeds maximum allowed tokens \(\d+ tokens\)\.[\s\S]*offset and limit/u;
+// read_file refuses an over-cap read in two shapes, both verified live against
+// 0.2.111:
+//   "File content (31136 tokens) exceeds maximum allowed tokens (25000 tokens).
+//    Please use offset and limit parameters to read the file in chunks."
+//   "The requested line range (offset=1, limit=1) contains 31136 tokens, which
+//    exceeds the maximum allowed tokens (25000 tokens)."
+// Only the first was handled at first, so the ranged retry the model makes after
+// the first refusal produced an unrecognized second refusal and killed the run
+// anyway. Each alternative is spelled out and anchored at the start of the
+// result, so a source file quoting the phrase cannot pass as a refusal.
+const TOKEN_CAP_REFUSAL = /^(?:File content \(\d+ tokens\) exceeds maximum allowed tokens \(\d+ tokens\)\.|The requested line range \(offset=\d+, limit=\d+\) contains \d+ tokens, which exceeds the maximum allowed tokens \(\d+ tokens\)\.)/u;
 const PROBE_TIMEOUT_CAP_MS = 60_000;
 const GROK_REVIEW_PROMPT = `You are performing a READ-ONLY security audit of an exact byte snapshot of repository source files. This prompt is one bounded sub-review dispatched by the Repo Atlas orchestrator; sibling sub-reviews cover other files in parallel. The ruleset is atlas-security-v3.
 
@@ -707,6 +713,18 @@ function proveTranscriptReadInterval(content, call, context, phase) {
     // contributes no coverage, so the ranged reads that follow still have to prove
     // every line, and a model that never retries still fails the range check.
     if (TOKEN_CAP_REFUSAL.test(content)) {
+        // A refusal of a single line means no read can ever succeed: the smallest
+        // unit the tool offers is already over its cap, so chunking has nowhere left
+        // to go. Say that instead of letting the range proof fail later with an
+        // unproven-coverage message that reads like a model fault. Not retryable —
+        // the file is the same on every attempt. Seen live as a compiled message
+        // catalog holding 83k characters on one line.
+        if (call.limit <= 1) {
+            throw new AuditProviderError('preflight-rejected', `provider cannot read ${call.path}: one line alone exceeds read_file's ` +
+                'token cap, so no offset/limit split can return it — exclude the file in ' +
+                '.atlas/review-policy.json (generated artifacts usually belong there) or ' +
+                'split it into readable lines', phase);
+        }
         return { start: call.offset, end: call.offset - 1 };
     }
     const anchor = /^(\d+)→/.exec(content);

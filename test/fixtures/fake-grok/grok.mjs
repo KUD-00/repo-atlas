@@ -364,18 +364,28 @@ async function main() {
   // Real grok refuses a whole-file read whose content exceeds its token cap and
   // tells the model to retry with offset and limit. The refusal carries no line
   // anchors, so it must not read as a fabricated result.
-  const refusedReadCall = (rel, tokens) => {
+  const refusedReadCall = (rel, tokens, range) => {
     const id = nextCallId()
+    const args = { target_file: rel }
+    if (range !== undefined) {
+      args.offset = range.offset
+      args.limit = range.limit
+    }
     assistantTurn(firstRead ? NARRATION : '', [
-      { id, name: 'read_file', arguments: JSON.stringify({ target_file: rel }) },
+      { id, name: 'read_file', arguments: JSON.stringify(args) },
     ])
     firstRead = false
+    // Whole-file refusals and ranged refusals are worded differently, and the
+    // adapter has to know both: the ranged one is what the model hits when it
+    // obeys the first refusal's instruction to retry with offset and limit.
     events.push({
       type: 'tool_result',
       tool_call_id: id,
-      content:
-        `File content (${tokens} tokens) exceeds maximum allowed tokens (25000 tokens).\n` +
-        'Please use offset and limit parameters to read the file in chunks.',
+      content: range === undefined
+        ? `File content (${tokens} tokens) exceeds maximum allowed tokens (25000 tokens).\n` +
+          'Please use offset and limit parameters to read the file in chunks.'
+        : `The requested line range (offset=${range.offset}, limit=${range.limit}) ` +
+          `contains ${tokens} tokens, which exceeds the maximum allowed tokens (25000 tokens).`,
     })
   }
   const readFully = (rel, lines) => {
@@ -393,6 +403,13 @@ async function main() {
       // 'token-cap-only' stops here: the refusal is the whole proof attempt, so
       // the range must stay unproven and the run must fail.
       if (mode === 'token-cap-only') return
+    }
+    if (mode === 'token-cap-single-line') {
+      // One line over the cap: the whole-file read is refused, and so is the
+      // narrowest retry the tool allows.
+      refusedReadCall(rel, 31136)
+      refusedReadCall(rel, 31136, { offset: 1, limit: 1 })
+      return
     }
     const chunk = 400
     for (let start = 1; start <= lines; start += chunk) {

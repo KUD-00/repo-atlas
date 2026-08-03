@@ -1561,3 +1561,25 @@ test('a refusal alone leaves the range unproven and still fails closed', async (
     (error) => error instanceof AuditProviderError,
   )
 })
+
+test('a single line over the token cap is reported as unreadable, not retried', async (t) => {
+  // The model obeys the first refusal and retries with offset=1 limit=1, which
+  // is refused in a second wording. Nothing smaller exists, so the file can
+  // never be proven read: say so, name the file, and do not retry a fault that
+  // is identical on every attempt.
+  const fake = makeFakeGrok(t, { mode: 'token-cap-single-line' })
+  const files = { 'src/big.ts': makeSource(900, 'big') }
+  const root = makeRepo(t, files)
+
+  await assert.rejects(
+    runAuditProviderInvocation(
+      makeRequest(root, makePolicy(fake), Object.keys(files)),
+      createGrokAuditProvider(),
+    ),
+    (error) =>
+      error instanceof AuditProviderError &&
+      error.code === 'preflight-rejected' &&
+      /src\/big\.ts/u.test(error.message) &&
+      /review-policy\.json/u.test(error.message),
+  )
+})
