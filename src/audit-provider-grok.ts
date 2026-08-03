@@ -45,7 +45,7 @@ import type { AuditProviderPhaseKind, AuditSha256 } from './audit-v3-types.js'
 
 export const GROK_ADAPTER_ID = 'repo-atlas/grok-v1'
 export const GROK_ADAPTER_VERSION = '0.1.0'
-export const GROK_SUPPORTED_CLI_VERSION = '0.2.82'
+export const GROK_SUPPORTED_CLI_VERSION = '0.2.111'
 export const GROK_RULESET_ID = 'atlas-security-v3'
 export const GROK_PROMPT_BUILTIN_VERSION = 'atlas-security-prompt-v1'
 export const GROK_VALIDATION_RUBRIC_VERSION = 'atlas-security-validation-rubric-v1'

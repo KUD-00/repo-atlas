@@ -1463,3 +1463,67 @@ test('loadAuditProviderPolicy parses .atlas/audit-providers.json strictly and to
     (error) => error instanceof AuditProviderError && error.code === 'policy-invalid',
   )
 })
+
+test('the ruleset digest ignores the run inventory, so dispositions survive file churn', async (t) => {
+  const fake = makeFakeGrok(t, { mode: 'ok' })
+  const before = {
+    'src/a.ts': makeSource(6, 'a'),
+    'src/b.ts': makeSource(9, 'b'),
+  }
+  const first = await runAuditProviderInvocation(
+    makeRequest(makeRepo(t, before), makePolicy(fake), Object.keys(before)),
+    createGrokAuditProvider(),
+  )
+
+  // The unit gains a file and one existing file is edited. Folding the
+  // inventory into the ruleset digest made exactly this churn void every
+  // decision in the unit, because a decision carries forward only while the
+  // ruleset digest matches.
+  const after = {
+    'src/a.ts': makeSource(7, 'a'),
+    'src/b.ts': makeSource(9, 'b'),
+    'src/c.ts': makeSource(12, 'c'),
+  }
+  const second = await runAuditProviderInvocation(
+    makeRequest(makeRepo(t, after), makePolicy(fake), Object.keys(after)),
+    createGrokAuditProvider(),
+  )
+
+  assert.equal(first.status, 'completed')
+  assert.equal(second.status, 'completed')
+  assert.equal(
+    second.receipt.ruleset.digest,
+    first.receipt.ruleset.digest,
+    'the ruleset names how a review was conducted, not which files it happened to see',
+  )
+  assert.notEqual(
+    second.receipt.inventoryDigest,
+    first.receipt.inventoryDigest,
+    'the inventory is still recorded on the receipt, so provenance is not lost',
+  )
+})
+
+test('the preflight rejects any grok build other than the pinned one', async (t) => {
+  // The transcript vocabulary, tool names, and option contract are all verified
+  // against one specific build. A different build must fail closed at the
+  // probe rather than produce receipts nobody validated the format of.
+  const fake = makeFakeGrok(t, { mode: 'ok', version: '0.2.82' })
+  const files = { 'src/a.ts': makeSource(6, 'a') }
+  const root = makeRepo(t, files)
+
+  await assert.rejects(
+    runAuditProviderInvocation(
+      makeRequest(root, makePolicy(fake), Object.keys(files)),
+      createGrokAuditProvider(),
+    ),
+    (error) =>
+      error instanceof AuditProviderError &&
+      error.code === 'preflight-rejected',
+  )
+
+  assert.deepEqual(
+    fake.invocations().map((invocation) => invocation.kind),
+    ['version'],
+    'the run stops at the version probe and never starts a review',
+  )
+})

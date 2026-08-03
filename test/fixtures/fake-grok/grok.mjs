@@ -90,9 +90,13 @@ const HELP_FLAGS = [
   '--model',
 ]
 
+// The pinned version the adapter accepts. A test overrides it to prove the
+// preflight rejects any other build instead of parsing its output hopefully.
+const CLI_VERSION = control.version ?? '0.2.111'
+
 if (argv[0] === '--version') {
   finishRecord({ kind: 'version' })
-  process.stdout.write('grok 0.2.82\n')
+  process.stdout.write(`grok ${CLI_VERSION}\n`)
   process.exit(0)
 }
 
@@ -107,7 +111,7 @@ if (argv[0] === 'inspect') {
   record.homeEntries = listHome(process.env.HOME)
   finishRecord({ kind: 'inspect' })
   const inspect = {
-    version: '0.2.82',
+    version: CLI_VERSION,
     hooks: [],
     plugins: [],
     mcpServers: [],

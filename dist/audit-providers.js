@@ -1286,6 +1286,14 @@ export async function runAuditProviderInvocation(request, provider) {
                 builtinVersion: descriptor.promptBuiltinVersion,
                 digest: promptDigest,
             };
+        // The ruleset identifies *how* a review was conducted — prompt, model, and
+        // adapter. It deliberately excludes the run's file inventory: a decision
+        // carries forward only while the ruleset digest matches, so folding the
+        // inventory in here voided every disposition in a unit as soon as any file
+        // in it was added, removed, or edited. Whether a specific finding still
+        // describes its file is already answered by that finding's exact blob
+        // binding, which is the check that actually protects the evidence. The
+        // inventory stays recorded on the observation scope for provenance.
         const ruleset = {
             id: descriptor.rulesetId,
             digest: canonicalDigest({
@@ -1296,7 +1304,6 @@ export async function runAuditProviderInvocation(request, provider) {
                 model: policy.model,
                 adapter: descriptor.adapter,
                 adapterVersion: descriptor.adapterVersion,
-                inventoryDigest,
             }),
         };
         const environmentPolicyDigest = canonicalDigest({
