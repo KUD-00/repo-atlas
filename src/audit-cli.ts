@@ -615,6 +615,38 @@ function selectRunTargets(root: string, selection: RunSelection): AuditProviderT
     return file !== undefined && !file.deleted && file.currentBlob !== null
   }
 
+  // Publication rebuilds a unit ledger's `current` from the files a run actually
+  // reviewed, and freshness reads `current` alone. A unit is therefore the
+  // smallest thing that can be refreshed: reviewing a subset republishes a scope
+  // covering only that subset and silently drops the standing receipts for the
+  // rest of the unit. Selecting whole units is what makes that impossible.
+  const targetsForUnits = (slugs: readonly string[]): AuditProviderTarget[] => {
+    const wanted = new Set(slugs)
+    const targets: AuditProviderTarget[] = []
+    for (const file of classification.files) {
+      const slug = securityUnitOf(file)
+      if (slug !== undefined && wanted.has(slug) && isReviewable(file.path)) {
+        targets.push({ path: file.path, role: 'review' })
+      }
+    }
+    const chosen = new Set(targets.map((target) => target.path))
+    const contextGlobs = policy.units
+      .filter((unit) => unit.domain === 'security' && wanted.has(unit.slug))
+      .flatMap((unit) => unit.context)
+    if (contextGlobs.length > 0) {
+      const contextMatchers = contextGlobs.map((glob) => picomatch(glob, { dot: true }))
+      for (const file of classification.files) {
+        if (!isReviewable(file.path)) continue
+        if (chosen.has(file.path)) continue
+        if (contextMatchers.some((match) => match(file.path))) {
+          targets.push({ path: file.path, role: 'context' })
+          chosen.add(file.path)
+        }
+      }
+    }
+    return targets
+  }
+
   if (selection.kind === 'unit') {
     const unit = policy.units.find(
       (candidate) => candidate.domain === 'security' && candidate.slug === selection.slug,
@@ -628,22 +660,7 @@ function selectRunTargets(root: string, selection: RunSelection): AuditProviderT
         (known.length > 0 ? ` (policy units: ${known.join(', ')})` : ''),
       )
     }
-    const targets: AuditProviderTarget[] = []
-    for (const file of classification.files) {
-      if (securityUnitOf(file) === unit.slug && isReviewable(file.path)) {
-        targets.push({ path: file.path, role: 'review' })
-      }
-    }
-    if (unit.context.length > 0) {
-      const contextMatchers = unit.context.map((glob) => picomatch(glob, { dot: true }))
-      for (const file of classification.files) {
-        if (!isReviewable(file.path)) continue
-        if (targets.some((target) => target.path === file.path)) continue
-        if (contextMatchers.some((match) => match(file.path))) {
-          targets.push({ path: file.path, role: 'context' })
-        }
-      }
-    }
+    const targets = targetsForUnits([unit.slug])
     if (!targets.some((target) => target.role === 'review')) {
       throw new Error(`security unit ${unit.slug} selects no tracked review files`)
     }
@@ -681,20 +698,22 @@ function selectRunTargets(root: string, selection: RunSelection): AuditProviderT
       report.reportErrors.map((diagnostic) => diagnostic.message).join('; '),
     )
   }
-  const stale = report.entries
-    .filter((entry) => {
-      if (entry.classification.kind !== 'review') return false
-      if (entry.classification.domains.security?.unit === undefined) return false
-      return entry.evidence.security?.status !== 'fresh' && isReviewable(entry.path)
-    })
-    .map((entry): AuditProviderTarget => ({ path: entry.path, role: 'review' }))
-  if (stale.length === 0) {
+  const staleUnits = new Set<string>()
+  for (const entry of report.entries) {
+    if (entry.classification.kind !== 'review') continue
+    const slug = entry.classification.domains.security?.unit
+    if (slug === undefined) continue
+    if (entry.evidence.security?.status === 'fresh') continue
+    if (!isReviewable(entry.path)) continue
+    staleUnits.add(slug)
+  }
+  if (staleUnits.size === 0) {
     throw new Error(
       'no stale security evidence — every classified file has a fresh exact receipt ' +
       '(pass --unit <slug> or --all to run anyway)',
     )
   }
-  return stale
+  return targetsForUnits([...staleUnits].sort())
 }
 
 async function auditRun(root: string, args: string[]): Promise<void> {

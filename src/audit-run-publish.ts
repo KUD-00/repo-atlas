@@ -244,12 +244,21 @@ export function publishAuditProviderRunObservations(
   }
 
   const unitByPath = new Map<string, string>()
+  // Only files a run could actually read count as owned by a unit: a deleted
+  // path, or one with no current blob, is not reviewable and never appears in a
+  // run's output. Mixing them in would make the completeness check below reject
+  // every legitimate run.
+  const reviewableUnitFiles = new Map<string, string>()
   for (const file of classification.files) {
     const slug =
       file.classification.kind === 'review'
         ? file.classification.domains.security?.unit
         : undefined
-    if (slug !== undefined) unitByPath.set(file.path, slug)
+    if (slug === undefined) continue
+    unitByPath.set(file.path, slug)
+    if (!file.deleted && file.currentBlob !== null) {
+      reviewableUnitFiles.set(file.path, slug)
+    }
   }
   const filesByUnit = new Map<string, AuditProviderFileOutcome[]>()
   for (const file of result.files) {
@@ -260,6 +269,28 @@ export function publishAuditProviderRunObservations(
     const group = filesByUnit.get(slug) ?? []
     group.push(file)
     filesByUnit.set(slug, group)
+  }
+
+  // A published observation becomes the unit's whole `current`, and freshness is
+  // read from `current` alone — so publishing a subset of a unit deletes the
+  // evidence for every file left out. That is silent: coverage simply reports
+  // those files as missing again. Refuse instead, and name the selection that
+  // covers a unit completely.
+  for (const [slug, reviewed] of filesByUnit) {
+    const owned = [...reviewableUnitFiles.entries()]
+      .filter(([, unitSlug]) => unitSlug === slug)
+      .map(([repoPath]) => repoPath)
+    const seen = new Set(reviewed.map((file) => file.path))
+    const uncovered = owned.filter((repoPath) => !seen.has(repoPath)).sort()
+    if (uncovered.length > 0) {
+      throw new Error(
+        `audit run security cannot publish a partial scope for ${slug}: ` +
+        `${uncovered.length} file(s) owned by the unit were not reviewed, and ` +
+        'publishing would drop their standing receipts — rerun with ' +
+        `\`repo-atlas audit run security --provider grok --unit ${slug}\` ` +
+        `(first uncovered: ${uncovered.slice(0, 3).join(', ')})`,
+      )
+    }
   }
 
   const revision = headCommitFull(root)

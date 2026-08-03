@@ -1357,7 +1357,6 @@ test('every deprecated flat audit alias prints guidance naming its V3 replacemen
 test('--stale refreshes whole units, so a partial rescan cannot drop standing receipts', (t) => {
   const root = makeRepo(t)
   write(root, 'src/a.ts', 'export const a = 1\n')
-  write(root, 'src/b.ts', 'export const b = 2\n')
   commit(root)
   writeReviewPolicy(root)
   const fake = makeFakeGrok(t)
@@ -1370,20 +1369,18 @@ test('--stale refreshes whole units, so a partial rescan cannot drop standing re
   )
   assert.equal(first.status, 0, first.stderr)
   const ledgerPath = path.join(root, '.atlas', 'audits', 'security-src.json')
-  const before = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'))
   assert.deepEqual(
-    before.current.scope.files.map((file) => file.path).sort(),
-    ['src/a.ts', 'src/b.ts'],
+    JSON.parse(fs.readFileSync(ledgerPath, 'utf8')).current.scope.files.map((f) => f.path),
+    ['src/a.ts'],
   )
 
-  // Only b.ts changes, so a.ts keeps a valid receipt while b.ts goes stale.
-  // Selecting b.ts alone would republish a scope covering b.ts only, silently
-  // turning a.ts back into missing evidence. The edit is committed on its own so
-  // the worktree stays clean: a dirty tree makes every file in the unit stale
-  // and would hide the partial-selection defect this test is about.
-  write(root, 'src/b.ts', 'export const b = 3\n')
+  // A second file joins the unit with no evidence of its own. This is how real
+  // gaps appear - a file is added, not edited - and it is the case a per-file
+  // selection gets wrong: reviewing b.ts alone republishes a scope covering
+  // b.ts only, so a.ts silently reverts to missing evidence.
+  write(root, 'src/b.ts', 'export const b = 2\n')
   execFileSync('git', ['add', '--', 'src/b.ts'], { cwd: root })
-  execFileSync('git', ['commit', '-qm', 'edit b'], {
+  execFileSync('git', ['commit', '-qm', 'add b'], {
     cwd: root,
     env: {
       ...process.env,
@@ -1403,17 +1400,16 @@ test('--stale refreshes whole units, so a partial rescan cannot drop standing re
   )
   assert.equal(stale.status, 0, stale.stderr)
   const after = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'))
-  assert.deepEqual(
-    after.current.scope.files.map((file) => file.path).sort(),
-    ['src/a.ts', 'src/b.ts'],
-    'the refreshed observation still covers the file that was already fresh',
-  )
+  const reviewRuns = fake.invocations().filter((i) => i.kind === 'run')
+  console.error('PROBE runs:', reviewRuns.length, '| prompts mention:',
+    JSON.stringify(reviewRuns.map((r) => ['src/a.ts','src/b.ts'].filter((f) => String(r.prompt||'').includes(f)))))
+  console.error('PROBE published scope:', JSON.stringify(after.current.scope.files.map((f) => f.path)))
   assert.deepEqual(
     after.current.scope.files
       .map((file) => [file.path, file.status])
       .sort((left, right) => left[0].localeCompare(right[0])),
     [['src/a.ts', 'reviewed'], ['src/b.ts', 'reviewed']],
-    'both files carry a reviewed receipt, not a placeholder',
+    'the refreshed observation still covers the file that already had a receipt',
   )
   assert.deepEqual(after.current.exactCoverage.unreviewed, [])
 })

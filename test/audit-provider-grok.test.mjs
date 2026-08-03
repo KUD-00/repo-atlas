@@ -449,8 +449,8 @@ test('an explicit run completes in an isolated environment with exact argv and a
   }
 })
 
-test('the adapter never passes a bare --single, and the fake CLI enforces the real 0.2.82 option contract', async (t) => {
-  // The adapter argv carries no `--single`/`-p`: in grok 0.2.82 that flag
+test('the adapter never passes a bare --single, and the fake CLI enforces the real 0.2.111 option contract', async (t) => {
+  // The adapter argv carries no `--single`/`-p`: in grok 0.2.111 that flag
   // requires an inline prompt value, and `--prompt-file` alone already
   // selects the single-turn headless mode.
   const fake = makeFakeGrok(t, { mode: 'ok' })
@@ -468,7 +468,7 @@ test('the adapter never passes a bare --single, and the fake CLI enforces the re
     assert.ok(run.argv.includes('--prompt-file'), 'the prompt rides --prompt-file alone')
   }
 
-  // Hand-crafted invocations that violate the real 0.2.82 contract fail
+  // Hand-crafted invocations that violate the real 0.2.111 contract fail
   // closed: exit 2 with the real clap error shape, no streaming stdout, no
   // session transcript, nothing published.
   const xdgData = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-fake-grok-xdg-'))
@@ -726,7 +726,7 @@ test('invalid final JSON prevents publication', async (t) => {
   )
 })
 
-test('the stdout terminal contract follows the real 0.2.82 streaming-json vocabulary', async (t) => {
+test('the stdout terminal contract follows the real 0.2.111 streaming-json vocabulary', async (t) => {
   // The fake CLI emits the real vocabulary on stdout: thought chunks, the
   // final response as two ordered text chunks, and one terminal end event.
   // A completed run pins text concatenation (a wrong concatenation would
@@ -771,7 +771,7 @@ test('the stdout terminal contract follows the real 0.2.82 streaming-json vocabu
   }
 })
 
-test('the session transcript follows the real 0.2.82 layout and vocabulary', async (t) => {
+test('the session transcript follows the real 0.2.111 layout and vocabulary', async (t) => {
   // The double writes only the real session layout: $HOME/.grok/sessions/
   // <encodeURIComponent(--cwd)>/<session-id>/chat_history.jsonl (XDG_DATA_HOME
   // is ignored by the real CLI). A completed run proves the adapter reads

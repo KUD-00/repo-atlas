@@ -302,7 +302,7 @@ test('a completed run publishes a validated per-unit observation and coverage ac
   const producer = observation.producer
   assert.equal(producer.kind, 'grok-cli')
   assert.equal(producer.name, 'grok')
-  assert.equal(producer.version, '0.2.82')
+  assert.equal(producer.version, '0.2.111')
   assert.equal(producer.adapter, 'repo-atlas/grok-v1')
   assert.equal(producer.adapterVersion, '0.1.0')
   assert.equal(producer.runId, result.invocationId)
@@ -639,4 +639,34 @@ test('the CLI publishes through audit run security and re-runs are already-curre
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   })
+})
+
+test('publishing a subset of a unit is refused, because it would delete the rest of its evidence', async (t) => {
+  // Both files belong to security-fixture, but only one is reviewed. A unit
+  // ledger's `current` is rebuilt from the reviewed set and freshness reads
+  // `current` alone, so publishing this would leave src/b.ts with no evidence
+  // at all — reported later as a plain coverage gap, with nothing pointing at
+  // the run that caused it.
+  const files = {
+    'src/a.ts': makeSource(6, 'a'),
+    'src/b.ts': makeSource(9, 'b'),
+  }
+  const { root } = makeUnitRepo(t, files)
+  const fake = makeFakeGrok(t, { mode: 'ok' })
+  writeProviderPolicy(root, fake)
+
+  await assert.rejects(
+    runAndPublish(root, fake, ['src/a.ts']),
+    (error) =>
+      error instanceof Error &&
+      /cannot publish a partial scope for security-fixture/u.test(error.message) &&
+      /src\/b\.ts/u.test(error.message) &&
+      /--unit security-fixture/u.test(error.message),
+  )
+
+  assert.equal(
+    fs.existsSync(path.join(root, '.atlas', 'audits', 'security-fixture.json')),
+    false,
+    'the refusal happens before any ledger is written',
+  )
 })

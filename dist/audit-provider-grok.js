@@ -22,7 +22,7 @@ export const GROK_PROMPT_BUILTIN_VERSION = 'atlas-security-prompt-v1';
 export const GROK_VALIDATION_RUBRIC_VERSION = 'atlas-security-validation-rubric-v1';
 const GROK_TOOLS = ['Read', 'Grep', 'Glob'];
 // The real tool names behind the argv allowlist, verified against live
-// 0.2.82 sessions: with `--tools Read,Grep,Glob` the exposed tools are
+// 0.2.111 sessions: with `--tools Read,Grep,Glob` the exposed tools are
 // read_file, grep, and list_dir (no dedicated glob tool is exposed; the
 // model uses list_dir for directory listings). Transcript tool calls use
 // these snake_case names.
@@ -31,8 +31,8 @@ const GROK_TRANSCRIPT_TOOLS = new Map([
     ['grep', 'Grep'],
     ['list_dir', 'Glob'],
 ]);
-// Spawn-able flag allowlist, verified against grok CLI 0.2.82 `--help`. Note
-// that `-p, --single <PROMPT>` is deliberately absent: in 0.2.82 it requires
+// Spawn-able flag allowlist, verified against grok CLI 0.2.111 `--help`. Note
+// that `-p, --single <PROMPT>` is deliberately absent: in 0.2.111 it requires
 // an inline prompt value, and `--prompt-file` alone already selects the
 // single-turn headless mode.
 const GROK_PERMISSION_FLAGS = [
@@ -539,7 +539,7 @@ function renderUnitPrompt(context, unitBlock, template) {
 // ---------------------------------------------------------------------------
 // Stdout and transcript proof
 // ---------------------------------------------------------------------------
-// Real grok 0.2.82 `--output-format streaming-json` vocabulary, verified
+// Real grok 0.2.111 `--output-format streaming-json` vocabulary, verified
 // against the live CLI: reasoning streams as `thought` chunks, the assistant
 // response streams as ordered `text` chunks whose concatenation is the final
 // response, and exactly one terminal `end` event with
@@ -658,7 +658,7 @@ function normalizeTranscriptDirectory(value, context, phase) {
 // A read_file result is raw file bytes with line anchors: the first returned
 // A read_file result is raw file bytes with line anchors: the first returned
 // line is prefixed `<start>→` and every absolute decade line (10, 20, …)
-// carries its line number as a `<n>→` prefix (verified against live 0.2.82
+// carries its line number as a `<n>→` prefix (verified against live 0.2.111
 // sessions, including 500-line files and ranged reads). The anchors plus the
 // returned line count prove the exact range the tool returned, mirroring the
 // old startLine/endLine proof.
@@ -733,7 +733,7 @@ function proveTranscriptReadInterval(content, call, context, phase) {
     }
     return { start: call.offset, end };
 }
-// Real grok 0.2.82 session transcript contract, verified against the live
+// Real grok 0.2.111 session transcript contract, verified against the live
 // CLI. `system`, `user`, and `reasoning` events are ambient and ignored.
 // `assistant` events carry text content plus optional tool_calls (whose
 // arguments are a bounded JSON string); `tool_result` events link back via
@@ -971,7 +971,7 @@ async function runGrokAnalysisUnit(context, options) {
     const home = path.join(context.tempRoot, 'home');
     const env = isolatedEnvironment(context, home);
     const sessionId = randomUUID();
-    // No bare `--single`: grok 0.2.82 parses `-p, --single <PROMPT>` as a
+    // No bare `--single`: grok 0.2.111 parses `-p, --single <PROMPT>` as a
     // value-taking option and exits 2 when the value is missing. Prompt
     // delivery stays `--prompt-file`, which implies single-turn headless mode.
     const argv = [
