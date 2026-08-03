@@ -554,6 +554,7 @@ test('ambient hooks, plugins, MCP, and config stay out of the isolated home; onl
   t.after(() => fs.rmSync(home, { recursive: true, force: true }))
   write(home, '.grok/auth.json', 'secret-auth-marker')
   fs.chmodSync(path.join(home, '.grok', 'auth.json'), 0o600)
+  write(home, '.grok/agent_id', 'stable-agent-identity')
   write(home, '.grok/config.json', '{"hooks":{"evil":"sh"}}')
   write(home, '.grok/hooks/evil.sh', 'echo pwned')
   write(home, '.grok/plugins/evil.js', 'module.exports = 1')
@@ -581,6 +582,16 @@ test('ambient hooks, plugins, MCP, and config stay out of the isolated home; onl
     'secret-auth-marker'.length,
     'the auth record bytes are copied exactly (recorded by size, never by content)',
   )
+  // The agent id travels with the credential. A fresh one per run makes one
+  // credential look like a new device every time, and the upstream safeguard
+  // answers by invalidating it and demanding an interactive login — which
+  // surfaces as every process waiting out its timeout, the least informative
+  // symptom available. Tightening isolation must not quietly drop this again.
+  const agentEntry = run.homeEntries.find((entry) => entry.path === '.grok/agent_id')
+  assert.ok(agentEntry, 'the stable agent identity is copied alongside the credential')
+  assert.equal(agentEntry.mode, '600', 'the copied agent id is mode 0600')
+  assert.equal(agentEntry.size, 'stable-agent-identity'.length)
+
   const configEntry = run.homeEntries.find((entry) => entry.path === '.grok/config.toml')
   assert.ok(configEntry, 'the adapter writes its own deterministic skills suppression config')
   assert.equal(configEntry.mode, '600')

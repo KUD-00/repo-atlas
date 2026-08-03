@@ -330,10 +330,18 @@ function createIsolatedHome(context) {
     fs.chmodSync(tmp, 0o700);
     return home;
 }
-// Copy only the existing Grok authentication record, with mode 0600. Config,
-// hooks, plugins, MCP, memory, and sessions are never copied. The bytes never
-// enter logs, journals, receipts, or error messages.
-function copyAuthenticationRecord(context, home) {
+// Copy the existing Grok authentication record and the agent identity, with
+// mode 0600. Config, hooks, plugins, MCP, memory, and sessions are never
+// copied. The bytes never enter logs, journals, receipts, or error messages.
+//
+// `agent_id` belongs with the credential, not with the ambient state this
+// isolation exists to exclude: it is a stable device identity. Leaving it out
+// meant every run generated a fresh one, so one credential kept appearing on a
+// new agent — a dozen runs a day, up to 32 processes each — and the upstream
+// safeguard invalidated the token and demanded an interactive login. That looked
+// like every process silently waiting out its ten-minute budget and reporting a
+// timeout, which is the least informative symptom the pipeline has.
+function copyGrokIdentity(context, home) {
     const policy = context.policy;
     if (policy.apiKeyEnv !== undefined && process.env[policy.apiKeyEnv] !== undefined) {
         return;
@@ -353,6 +361,27 @@ function copyAuthenticationRecord(context, home) {
     const destination = path.join(home, ...policy.authRecordPath.split('/'));
     fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
     fs.writeFileSync(destination, bytes, { mode: 0o600 });
+    fs.chmodSync(destination, 0o600);
+    copyAgentIdentity(policy.authRecordPath, home);
+}
+// The agent id sits beside the auth record. Absent or oversized, it is skipped:
+// a fresh one is a re-login risk, never a correctness problem.
+function copyAgentIdentity(authRecordPath, home) {
+    const relative = [...authRecordPath.split('/').slice(0, -1), 'agent_id'];
+    const source = path.join(os.homedir(), ...relative);
+    let stat;
+    try {
+        stat = fs.lstatSync(source);
+    }
+    catch {
+        return;
+    }
+    if (stat.isSymbolicLink() || !stat.isFile() || Number(stat.size) > MAX_AUTH_RECORD_BYTES) {
+        return;
+    }
+    const destination = path.join(home, ...relative);
+    fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(destination, fs.readFileSync(source), { mode: 0o600 });
     fs.chmodSync(destination, 0o600);
 }
 // ---------------------------------------------------------------------------
@@ -446,7 +475,7 @@ async function grokInventory(context) {
     }
     // The isolated home and the preflight share one environment.
     const home = createIsolatedHome(context);
-    copyAuthenticationRecord(context, home);
+    copyGrokIdentity(context, home);
     const isolatedEnv = isolatedEnvironment(context, home);
     const inspectProbe = await spawnGrokProcess({
         command,
