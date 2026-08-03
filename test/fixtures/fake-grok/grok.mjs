@@ -361,6 +361,23 @@ async function main() {
       content,
     })
   }
+  // Real grok refuses a whole-file read whose content exceeds its token cap and
+  // tells the model to retry with offset and limit. The refusal carries no line
+  // anchors, so it must not read as a fabricated result.
+  const refusedReadCall = (rel, tokens) => {
+    const id = nextCallId()
+    assistantTurn(firstRead ? NARRATION : '', [
+      { id, name: 'read_file', arguments: JSON.stringify({ target_file: rel }) },
+    ])
+    firstRead = false
+    events.push({
+      type: 'tool_result',
+      tool_call_id: id,
+      content:
+        `File content (${tokens} tokens) exceeds maximum allowed tokens (25000 tokens).\n` +
+        'Please use offset and limit parameters to read the file in chunks.',
+    })
+  }
   const readFully = (rel, lines) => {
     // A zero-line file still gets read once, and the result is empty — verified
     // against real grok on a `.gitkeep`. The loop below cannot express that, and
@@ -370,6 +387,12 @@ async function main() {
     if (lines === 0) {
       readCall(rel, 1, 0, 0)
       return
+    }
+    if (mode === 'token-cap-refusal' || mode === 'token-cap-only') {
+      refusedReadCall(rel, 31136)
+      // 'token-cap-only' stops here: the refusal is the whole proof attempt, so
+      // the range must stay unproven and the run must fail.
+      if (mode === 'token-cap-only') return
     }
     const chunk = 400
     for (let start = 1; start <= lines; start += chunk) {

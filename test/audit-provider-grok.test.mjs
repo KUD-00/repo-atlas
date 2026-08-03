@@ -1527,3 +1527,37 @@ test('the preflight rejects any grok build other than the pinned one', async (t)
     'the run stops at the version probe and never starts a review',
   )
 })
+
+test('a whole-file read refused over the token cap proves nothing but does not fail the run', async (t) => {
+  // read_file answers an oversized whole-file read with an instruction to retry
+  // using offset and limit. The refusal has no line anchors; demanding one read
+  // it as fabricated and killed a 403-file audit on a single generated catalog.
+  const fake = makeFakeGrok(t, { mode: 'token-cap-refusal' })
+  const files = { 'src/big.ts': makeSource(900, 'big') }
+  const root = makeRepo(t, files)
+
+  const result = await runAuditProviderInvocation(
+    makeRequest(root, makePolicy(fake), Object.keys(files)),
+    createGrokAuditProvider(),
+  )
+
+  assert.equal(result.status, 'completed')
+  assert.equal(result.files.length, 1)
+  assert.equal(result.files[0].status, 'reviewed')
+})
+
+test('a refusal alone leaves the range unproven and still fails closed', async (t) => {
+  // The refusal must not become a shortcut: if the model never retries with
+  // ranges, no line of the file is proven read and the run has to fail.
+  const fake = makeFakeGrok(t, { mode: 'token-cap-only' })
+  const files = { 'src/big.ts': makeSource(900, 'big') }
+  const root = makeRepo(t, files)
+
+  await assert.rejects(
+    runAuditProviderInvocation(
+      makeRequest(root, makePolicy(fake), Object.keys(files)),
+      createGrokAuditProvider(),
+    ),
+    (error) => error instanceof AuditProviderError,
+  )
+})

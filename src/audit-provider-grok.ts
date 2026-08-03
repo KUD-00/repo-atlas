@@ -95,6 +95,12 @@ const MAX_PROBE_OUTPUT_BYTES = 1024 * 1024
 const MAX_AUTH_RECORD_BYTES = 64 * 1024
 const MAX_STDOUT_LINES = 65_536
 const MAX_TOOL_ARGUMENT_BYTES = 16 * 1024
+// Verbatim shape of grok 0.2.111's whole-file read refusal, e.g. "File content
+// (31136 tokens) exceeds maximum allowed tokens (25000 tokens).\nPlease use
+// offset and limit parameters to read the file in chunks." Both halves are
+// required so an ordinary file that merely quotes the phrase cannot pass as one.
+const TOKEN_CAP_REFUSAL =
+  /^File content \(\d+ tokens\) exceeds maximum allowed tokens \(\d+ tokens\)\.[\s\S]*offset and limit/u
 const PROBE_TIMEOUT_CAP_MS = 60_000
 
 const GROK_REVIEW_PROMPT = `You are performing a READ-ONLY security audit of an exact byte snapshot of repository source files. This prompt is one bounded sub-review dispatched by the Repo Atlas orchestrator; sibling sub-reviews cover other files in parallel. The ruleset is atlas-security-v3.
@@ -977,6 +983,17 @@ function proveTranscriptReadInterval(
     if (content.trim() === '') {
       return { start: call.offset, end: call.offset - 1 }
     }
+  }
+  // read_file refuses outright when a whole-file read would exceed its token
+  // cap, answering with an instruction to retry using offset and limit. That
+  // result carries no content and no anchor, so demanding a start-line proof
+  // read it as a fabricated read and failed the run — three deterministic
+  // retries later, an audit of 403 files died on one 31k-token generated locale
+  // catalog. A refusal proves nothing, which is exactly an empty interval: it
+  // contributes no coverage, so the ranged reads that follow still have to prove
+  // every line, and a model that never retries still fails the range check.
+  if (TOKEN_CAP_REFUSAL.test(content)) {
+    return { start: call.offset, end: call.offset - 1 }
   }
   const anchor = /^(\d+)→/.exec(content)
   if (anchor === null || Number(anchor[1]) !== call.offset) {
