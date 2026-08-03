@@ -1502,6 +1502,10 @@ export async function runAuditProviderPhases(
   )
   const basenameOf = (file: AuditProviderSnapshotEntry): string =>
     file.path.slice(file.path.lastIndexOf('/') + 1)
+  const dirnameOf = (file: AuditProviderSnapshotEntry): string => {
+    const cut = file.path.lastIndexOf('/')
+    return cut === -1 ? '' : file.path.slice(0, cut)
+  }
   const byBasename = new Map<string, AuditProviderSnapshotEntry[]>()
   for (const file of reviewFiles) {
     const group = byBasename.get(basenameOf(file)) ?? []
@@ -1509,24 +1513,46 @@ export async function runAuditProviderPhases(
     byBasename.set(basenameOf(file), group)
   }
   const takenNames = batches.map(() => new Set<string>())
+  const takenDirs = batches.map(() => new Set<string>())
   const ordered = [...byBasename.values()].sort((left, right) => right.length - left.length)
-  for (const group of ordered) {
-    for (const file of group) {
-      const name = basenameOf(file)
+  // Two files look alike to a generator when they share a name OR sit in one
+  // directory under a shared naming template. Both produce the same symptom: a
+  // receipt for a plausible sibling that does not exist. A directory of 43
+  // `<capability>.ts` / `<capability>.test.ts` pairs got a receipt for
+  // `votes.test.ts` — there is no `votes` capability anywhere in the tree — in
+  // place of the `artifacts.test.ts` it was given, identically on all three
+  // attempts. Basename spreading alone does not reach that: those siblings have
+  // distinct basenames.
+  //
+  // Placement therefore prefers a batch sharing neither the basename nor the
+  // directory, falls back to one sharing only the directory, and finally to the
+  // emptiest batch when a corpus leaves no choice.
+  const place = (file: AuditProviderSnapshotEntry): number => {
+    const name = basenameOf(file)
+    const dir = dirnameOf(file)
+    const pick = (allow: (index: number) => boolean): number => {
       let chosen = -1
       for (let index = 0; index < batches.length; index += 1) {
         if (batches[index]!.length >= policy.maxBatchFiles) continue
-        if (takenNames[index]!.has(name)) continue
+        if (!allow(index)) continue
         if (chosen === -1 || batches[index]!.length < batches[chosen]!.length) chosen = index
       }
-      if (chosen === -1) {
-        for (let index = 0; index < batches.length; index += 1) {
-          if (batches[index]!.length >= policy.maxBatchFiles) continue
-          if (chosen === -1 || batches[index]!.length < batches[chosen]!.length) chosen = index
-        }
-      }
+      return chosen
+    }
+    const strict = pick(
+      (index) => !takenNames[index]!.has(name) && !takenDirs[index]!.has(dir),
+    )
+    if (strict !== -1) return strict
+    const byName = pick((index) => !takenNames[index]!.has(name))
+    if (byName !== -1) return byName
+    return pick(() => true)
+  }
+  for (const group of ordered) {
+    for (const file of group) {
+      const chosen = place(file)
       batches[chosen]!.push(file)
-      takenNames[chosen]!.add(name)
+      takenNames[chosen]!.add(basenameOf(file))
+      takenDirs[chosen]!.add(dirnameOf(file))
     }
   }
   const inventoryHas = (candidate: string): boolean =>

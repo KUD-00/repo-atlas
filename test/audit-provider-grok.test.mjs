@@ -838,6 +838,45 @@ test('an empty tracked file is proven by an empty read', async (t) => {
   assertReceiptChain(result.receipt)
 })
 
+test('a batch spreads a directory of template-named siblings apart', async (t) => {
+  // 43 files named `<capability>.ts` / `<capability>.test.ts` in one directory
+  // produced a receipt for `votes.test.ts`, a capability that does not exist,
+  // in place of the file actually given — identically on all three attempts.
+  // Distinct basenames, so name spreading alone never reached it.
+  const fake = makeFakeGrok(t, { mode: 'ok' })
+  const files = {}
+  for (const name of ['artifacts', 'billing', 'credentials', 'engines']) {
+    files[`src/capabilities/${name}.ts`] = makeSource(4, name)
+    files[`src/capabilities/${name}.test.ts`] = makeSource(4, name)
+  }
+  files['src/other/helper.ts'] = makeSource(4, 'helper')
+  files['src/third/thing.ts'] = makeSource(4, 'thing')
+  const root = makeRepo(t, files)
+  const result = await runAuditProviderInvocation(
+    makeRequest(root, makePolicy(fake, { maxBatchFiles: 2 }), Object.keys(files)),
+    createGrokAuditProvider(),
+  )
+  assert.equal(result.status, 'completed')
+
+  const reviewPrompts = fake
+    .invocations()
+    .map((run) => run.prompt)
+    .filter((prompt) => typeof prompt === 'string' && prompt.includes('src/'))
+  let mixedDirBatches = 0
+  for (const prompt of reviewPrompts) {
+    const paths = [...prompt.matchAll(/src\/[a-z]+\/[a-z.]+\.ts/g)].map((hit) => hit[0])
+    const dirs = paths.map((entry) => entry.slice(0, entry.lastIndexOf('/')))
+    if (new Set(dirs).size < dirs.length) mixedDirBatches += 1
+  }
+  // Eight of ten files share one directory, so perfect separation is impossible;
+  // the guarantee is that placement spends the available diversity rather than
+  // slicing the directory into consecutive pairs.
+  assert.ok(
+    mixedDirBatches <= 3,
+    `too many batches drawn from a single directory: ${String(mixedDirBatches)}`,
+  )
+})
+
 test('a batch spreads same-named files apart instead of grouping them', async (t) => {
   // Slicing a sorted inventory groups siblings, and siblings share names. A
   // batch of files distinguishable only by parent directory made the generator
