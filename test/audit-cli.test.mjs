@@ -1353,3 +1353,67 @@ test('every deprecated flat audit alias prints guidance naming its V3 replacemen
   }
   assert.deepEqual(fake.invocations(), [], 'deprecated aliases must never launch a provider')
 })
+
+test('--stale refreshes whole units, so a partial rescan cannot drop standing receipts', (t) => {
+  const root = makeRepo(t)
+  write(root, 'src/a.ts', 'export const a = 1\n')
+  write(root, 'src/b.ts', 'export const b = 2\n')
+  commit(root)
+  writeReviewPolicy(root)
+  const fake = makeFakeGrok(t)
+  writeProviderPolicy(root, fake)
+
+  const first = runCli(
+    root,
+    ['audit', 'run', 'security', '--provider', 'grok', '--unit', 'security-src'],
+    fake.env,
+  )
+  assert.equal(first.status, 0, first.stderr)
+  const ledgerPath = path.join(root, '.atlas', 'audits', 'security-src.json')
+  const before = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'))
+  assert.deepEqual(
+    before.current.scope.files.map((file) => file.path).sort(),
+    ['src/a.ts', 'src/b.ts'],
+  )
+
+  // Only b.ts changes, so a.ts keeps a valid receipt while b.ts goes stale.
+  // Selecting b.ts alone would republish a scope covering b.ts only, silently
+  // turning a.ts back into missing evidence. The edit is committed on its own so
+  // the worktree stays clean: a dirty tree makes every file in the unit stale
+  // and would hide the partial-selection defect this test is about.
+  write(root, 'src/b.ts', 'export const b = 3\n')
+  execFileSync('git', ['add', '--', 'src/b.ts'], { cwd: root })
+  execFileSync('git', ['commit', '-qm', 'edit b'], {
+    cwd: root,
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'Repo Atlas Fixture',
+      GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+      GIT_COMMITTER_NAME: 'Repo Atlas Fixture',
+      GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
+      GIT_AUTHOR_DATE: '2026-07-30T03:56:24.000Z',
+      GIT_COMMITTER_DATE: '2026-07-30T03:56:24.000Z',
+    },
+  })
+
+  const stale = runCli(
+    root,
+    ['audit', 'run', 'security', '--provider', 'grok', '--stale'],
+    fake.env,
+  )
+  assert.equal(stale.status, 0, stale.stderr)
+  const after = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'))
+  assert.deepEqual(
+    after.current.scope.files.map((file) => file.path).sort(),
+    ['src/a.ts', 'src/b.ts'],
+    'the refreshed observation still covers the file that was already fresh',
+  )
+  assert.deepEqual(
+    after.current.scope.files
+      .map((file) => [file.path, file.status])
+      .sort((left, right) => left[0].localeCompare(right[0])),
+    [['src/a.ts', 'reviewed'], ['src/b.ts', 'reviewed']],
+    'both files carry a reviewed receipt, not a placeholder',
+  )
+  assert.deepEqual(after.current.exactCoverage.unreviewed, [])
+})
