@@ -2098,6 +2098,115 @@ process.exit(result.status === null ? 1 : result.status)
   }
 })
 
+// Records the value of AUDIT_ENV_PROBE each audit Git subprocess was handed,
+// one line per invocation, then delegates to the real Git.
+function writeGitEnvironmentProbe(tooling, marker) {
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim()
+  const wrapper = path.join(tooling, 'git')
+  fs.writeFileSync(
+    wrapper,
+    `#!/usr/bin/env node
+const fs = require('node:fs')
+const { spawnSync } = require('node:child_process')
+const arguments_ = process.argv.slice(2)
+fs.appendFileSync(
+  ${JSON.stringify(marker)},
+  (process.env.AUDIT_ENV_PROBE === undefined ? 'unset' : process.env.AUDIT_ENV_PROBE) + '\\n',
+)
+const result = spawnSync(process.env.AUDIT_REAL_GIT, arguments_)
+if (result.stdout) process.stdout.write(result.stdout)
+if (result.stderr) process.stderr.write(result.stderr)
+process.exit(result.status === null ? 1 : result.status)
+`,
+    { mode: 0o700 },
+  )
+  return realGit
+}
+
+function probedGitInvocations(marker) {
+  if (!fs.existsSync(marker)) return []
+  return fs.readFileSync(marker, 'utf8').split('\n').filter((line) => line.length > 0)
+}
+
+test('audit Git subprocesses share one stripped environment per retained operation', () => {
+  const root = makeRoot()
+  const tooling = makeRoot()
+  const marker = path.join(tooling, 'invocations.log')
+  const originalPath = process.env.PATH
+  let observed
+  try {
+    initGit(root)
+    write(root, 'artifact.txt', 'environment probe\n')
+    commitFixture(root, 'environment probe fixture')
+    const realGit = writeGitEnvironmentProbe(tooling, marker)
+    process.env.PATH = `${tooling}${path.delimiter}${originalPath ?? ''}`
+    process.env.AUDIT_REAL_GIT = realGit
+    process.env.AUDIT_ENV_PROBE = 'before'
+
+    withAuditLock(root, () => {
+      auditCore.withAnchoredAuditGitCapability(root, (capability) => {
+        capability.gitBytes(['rev-parse', '--show-toplevel'], 4096)
+        const priorInvocations = probedGitInvocations(marker).length
+        process.env.AUDIT_ENV_PROBE = 'after'
+        capability.gitBytes(['rev-parse', 'HEAD'], 4096)
+        capability.gitBytes(['rev-parse', '--show-toplevel'], 4096)
+        observed = probedGitInvocations(marker).slice(priorInvocations)
+      })
+    })
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH
+    else process.env.PATH = originalPath
+    delete process.env.AUDIT_REAL_GIT
+    delete process.env.AUDIT_ENV_PROBE
+    cleanup(root)
+    cleanup(tooling)
+  }
+  // The stripped environment is built once for the retained operation, so the
+  // two later subprocesses still see the value the operation started with.
+  assert.deepEqual(observed, ['before', 'before'])
+})
+
+test('nested audit Git capabilities borrow the retained administration descriptors', () => {
+  const root = makeRoot()
+  const tooling = makeRoot()
+  const marker = path.join(tooling, 'invocations.log')
+  const originalPath = process.env.PATH
+  let invocations
+  let head
+  let expectedHead
+  try {
+    initGit(root)
+    write(root, 'artifact.txt', 'borrowed descriptors\n')
+    commitFixture(root, 'borrowed descriptor fixture')
+    expectedHead = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim()
+    const realGit = writeGitEnvironmentProbe(tooling, marker)
+    process.env.PATH = `${tooling}${path.delimiter}${originalPath ?? ''}`
+    process.env.AUDIT_REAL_GIT = realGit
+
+    withAuditLock(root, () => {
+      const priorInvocations = probedGitInvocations(marker).length
+      auditCore.withAnchoredAuditGitCapability(root, (capability) => {
+        head = Buffer.from(
+          capability.gitBytes(['rev-parse', 'HEAD'], 4096),
+        ).toString('utf8').trim()
+      })
+      invocations = probedGitInvocations(marker).length - priorInvocations
+    })
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH
+    else process.env.PATH = originalPath
+    delete process.env.AUDIT_REAL_GIT
+    cleanup(root)
+    cleanup(tooling)
+  }
+  assert.equal(head, expectedHead)
+  // Only the requested query runs: the retained worktree and administration
+  // descriptors are borrowed instead of being re-derived per capability.
+  assert.equal(invocations, 1)
+})
+
 test('Git-admin discovery rejects replacement before the discovered inode is opened', () => {
   const root = makeRoot()
   const outside = makeRoot()

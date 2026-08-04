@@ -94,6 +94,8 @@ interface AnchoredRootIdentityContext {
   verifyingAuditSupport?: boolean
   gitAdmin?: AnchoredGitAdmin
   lockParent?: AnchoredLockParent
+  gitEnvironment?: NodeJS.ProcessEnv
+  gitObjectFormat?: 'sha1' | 'sha256'
 }
 
 const anchoredRootIdentity =
@@ -2743,12 +2745,40 @@ export function atomicWriteAuditFile(root: string, repoPath: string, contents: s
   )
 }
 
-function sanitizedGitEnvironment(): NodeJS.ProcessEnv {
+/**
+ * Every audit Git subprocess runs with the ambient environment stripped of all
+ * GIT_* variables, so an ambient GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, or
+ * GIT_CONFIG_* redirect can never point an audit subprocess at another
+ * repository, index, or configuration. The stripping rule is the invariant:
+ * a variable is handed to the child only when its name does not start with
+ * GIT_, and nothing may narrow that rule.
+ */
+function buildSanitizedGitEnvironment(): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {}
   for (const [key, value] of Object.entries(process.env)) {
     if (!key.startsWith('GIT_')) environment[key] = value
   }
-  return environment
+  return Object.freeze(environment)
+}
+
+/**
+ * Returns the stripped environment, built once per retained anchored operation.
+ * A retained operation holds the audit lock and pins the repository root and
+ * Git administration directory by descriptor, so its subprocesses must all see
+ * one environment: rebuilding it per subprocess would let a late ambient change
+ * split one validation across two environments. Outside a retained operation
+ * there is nothing to pin the result to, so the environment is rebuilt per call.
+ * The memo caches only the RESULT of {@link buildSanitizedGitEnvironment}; the
+ * stripping rule itself is never consulted from a cache.
+ */
+function sanitizedGitEnvironment(): NodeJS.ProcessEnv {
+  const retained = anchoredRootIdentity.getStore()
+  if (retained === undefined) return buildSanitizedGitEnvironment()
+  const memoized = retained.gitEnvironment
+  if (memoized !== undefined) return memoized
+  const built = buildSanitizedGitEnvironment()
+  retained.gitEnvironment = built
+  return built
 }
 
 function gitOutput(
@@ -2965,6 +2995,11 @@ function gitAdminDirectory(
 interface AnchoredGitContext {
   root: AnchoredDirectory
   gitAdmin: AnchoredGitAdmin
+  /**
+   * False when this context borrows the descriptors retained by an enclosing
+   * anchored operation, which then remains their only owner and closer.
+   */
+  owned: boolean
 }
 
 function openAnchoredGitContext(
@@ -2972,13 +3007,26 @@ function openAnchoredGitContext(
   context: string,
 ): AnchoredGitContext {
   const repository = safeRoot(rootPath)
+  const retained = anchoredRootIdentity.getStore()
+  if (retained?.gitAdmin !== undefined) {
+    // The enclosing operation already opened and confirmed this worktree and
+    // its Git administration directory, and holds both by descriptor for its
+    // whole lifetime. Reopening them by name per call would neither add a
+    // guarantee — the descriptors below are identity-checked on every use, and
+    // the retained root is what `repository` above already resolved to — nor
+    // survive a mid-operation rename, which is exactly what anchoring exists to
+    // defeat. Borrow them instead of re-deriving them with three subprocesses.
+    verifyAnchoredDirectory(retained.root, context)
+    verifyAnchoredGitAdmin(retained.gitAdmin)
+    return { root: retained.root, gitAdmin: retained.gitAdmin, owned: false }
+  }
   const root = openVerifiedRepositoryRoot(repository, context)
   let gitAdmin: AnchoredGitAdmin | null = null
   try {
     gitAdmin = gitAdminDirectory(repository, root)
     verifyAnchoredDirectory(root, context)
     verifyAnchoredGitAdmin(gitAdmin)
-    return { root, gitAdmin }
+    return { root, gitAdmin, owned: true }
   } catch (error) {
     const cleanupFailures: unknown[] = []
     if (gitAdmin !== null) {
@@ -3007,6 +3055,7 @@ function closeAnchoredGitContext(
   context: AnchoredGitContext,
   cleanupFailures: unknown[],
 ): void {
+  if (!context.owned) return
   try {
     closeDescriptorReliably(context.gitAdmin.fd)
   } catch (error) {
@@ -3540,6 +3589,86 @@ export function withAnchoredAuditRootIdentity<T>(
   })
 }
 
+/**
+ * Reads the object format the pinned Git administration directory stores its
+ * objects in. A repository's object format is fixed when the repository is
+ * created and cannot change while its administration directory keeps one inode,
+ * so the answer is memoized for the retained operation that pinned that inode.
+ * Without a retained operation the answer is not attributable to a pinned
+ * descriptor, so it is asked again per call.
+ */
+function anchoredRepositoryObjectFormat(
+  context: AnchoredGitContext,
+): 'sha1' | 'sha256' {
+  const retained = anchoredRootIdentity.getStore()
+  const pinned = retained?.gitAdmin?.fd === context.gitAdmin.fd
+    ? retained
+    : undefined
+  const memoized = pinned?.gitObjectFormat
+  if (memoized !== undefined) return memoized
+  const objectFormat = gitAdminOutput(
+    context.root,
+    context.gitAdmin,
+    ['rev-parse', '--show-object-format=storage'],
+  )
+  if (
+    !objectFormat.ok ||
+    (
+      objectFormat.output !== 'sha1\n' &&
+      objectFormat.output !== 'sha1\r\n' &&
+      objectFormat.output !== 'sha256\n' &&
+      objectFormat.output !== 'sha256\r\n'
+    )
+  ) {
+    throw new Error('audit Git repository object format is unavailable or invalid')
+  }
+  const format = objectFormat.output.replace(/\r?\n$/, '') as 'sha1' | 'sha256'
+  if (pinned !== undefined) pinned.gitObjectFormat = format
+  return format
+}
+
+/**
+ * Names why one bounded blob read came back empty. A blob read fails when the
+ * object is missing, when it is not a blob, or when it is larger than the read
+ * was allowed to buffer; the read itself cannot tell those apart, so the object
+ * type and size are asked for here — on the failing path only — to keep the
+ * reported cause as specific as it has always been. Every branch returns a
+ * rejection: a diagnosis that cannot be completed still rejects the blob.
+ */
+function describedAnchoredGitBlobFailure(
+  context: AnchoredGitContext,
+  objectId: string,
+  byteLimit: number,
+): Error {
+  const type = gitAdminOutput(
+    context.root,
+    context.gitAdmin,
+    ['cat-file', '-t', objectId],
+  )
+  if (!type.ok) {
+    return new Error('audit Git blob object is missing or unavailable')
+  }
+  if (type.output !== 'blob\n' && type.output !== 'blob\r\n') {
+    return new Error('audit Git object type is not blob')
+  }
+  const size = gitAdminOutput(
+    context.root,
+    context.gitAdmin,
+    ['cat-file', '-s', objectId],
+  )
+  if (!size.ok || !/^(0|[1-9][0-9]*)\r?\n$/.test(size.output)) {
+    return new Error('audit Git blob size is unavailable or invalid')
+  }
+  const reportedSize = Number(size.output.trimEnd())
+  if (!Number.isSafeInteger(reportedSize)) {
+    return new Error('audit Git blob size exceeds the safe integer range')
+  }
+  if (reportedSize > byteLimit) {
+    return new Error(`audit Git blob exceeds the ${byteLimit}-byte limit`)
+  }
+  return new Error('audit Git blob bytes are unavailable')
+}
+
 export function readBoundedAuditGitBlob(
   rootPath: string,
   blob: string,
@@ -3567,57 +3696,20 @@ export function readBoundedAuditGitBlob(
   let primaryFailure: unknown
   const cleanupFailures: unknown[] = []
   try {
-    const objectFormat = gitAdminOutput(
-      context.root,
-      context.gitAdmin,
-      ['rev-parse', '--show-object-format=storage'],
-    )
-    if (
-      !objectFormat.ok ||
-      (
-        objectFormat.output !== 'sha1\n' &&
-        objectFormat.output !== 'sha1\r\n' &&
-        objectFormat.output !== 'sha256\n' &&
-        objectFormat.output !== 'sha256\r\n'
-      )
-    ) {
-      throw new Error('audit Git repository object format is unavailable or invalid')
-    }
-    const repositoryAlgorithm = objectFormat.output.replace(/\r?\n$/, '')
+    const repositoryAlgorithm = anchoredRepositoryObjectFormat(context)
     if (repositoryAlgorithm !== algorithm) {
       throw new Error(
         `audit Git blob algorithm ${algorithm} does not match repository object format ${repositoryAlgorithm}`,
       )
     }
 
-    const type = gitAdminOutput(
-      context.root,
-      context.gitAdmin,
-      ['cat-file', '-t', objectId],
-    )
-    if (!type.ok) {
-      throw new Error('audit Git blob object is missing or unavailable')
-    }
-    if (type.output !== 'blob\n' && type.output !== 'blob\r\n') {
-      throw new Error('audit Git object type is not blob')
-    }
-
-    const size = gitAdminOutput(
-      context.root,
-      context.gitAdmin,
-      ['cat-file', '-s', objectId],
-    )
-    if (!size.ok || !/^(0|[1-9][0-9]*)\r?\n$/.test(size.output)) {
-      throw new Error('audit Git blob size is unavailable or invalid')
-    }
-    const expectedSize = Number(size.output.trimEnd())
-    if (!Number.isSafeInteger(expectedSize)) {
-      throw new Error('audit Git blob size exceeds the safe integer range')
-    }
-    if (expectedSize > byteLimit) {
-      throw new Error(`audit Git blob exceeds the ${byteLimit}-byte limit`)
-    }
-
+    // One object read carries every claim this function accepts: the digest
+    // below is taken over the Git object header `blob <length>\0` and the bytes
+    // themselves, so matching the claimed object ID proves the object is a blob,
+    // is exactly this long, and holds exactly these bytes. Asking Git for the
+    // type and the size first would only restate what the digest already
+    // decides, so those queries run solely to name the cause of a read that
+    // failed or overran its limit.
     const bytes = gitAdminBytes(
       context.root,
       context.gitAdmin,
@@ -3625,10 +3717,10 @@ export function readBoundedAuditGitBlob(
       byteLimit,
     )
     if (!bytes.ok) {
-      throw new Error('audit Git blob bytes are unavailable')
+      throw describedAnchoredGitBlobFailure(context, objectId, byteLimit)
     }
-    if (bytes.output.length !== expectedSize) {
-      throw new Error('audit Git blob byte length does not match its object size')
+    if (bytes.output.length > byteLimit) {
+      throw new Error(`audit Git blob exceeds the ${byteLimit}-byte limit`)
     }
     const header = Buffer.from(`blob ${bytes.output.length}\0`, 'utf8')
     const verifiedObjectId = createHash(algorithm)
