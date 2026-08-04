@@ -738,6 +738,112 @@ function dispositionContextKind(event, occurrence, observations) {
     }
     return 'invalid';
 }
+/**
+ * A digest shortened for a human-readable message.
+ *
+ * The full 64-hex tail is noise when the point is "these two differ", and two
+ * full digests in one sentence push the real difference off the terminal. The
+ * algorithm prefix plus the leading 16 hex characters localizes a digest
+ * uniquely across any real ledger and keeps both sides of a comparison
+ * readable. 16 matches the sha256 shortening `audit-providers.ts` already uses
+ * for chunk ids (`inputDigest.slice(7, 23)`); this file had no prior style
+ * because it never printed a digest at all.
+ */
+function shortDigest(value) {
+    const separator = value.indexOf(':');
+    const body = value.slice(separator + 1);
+    return separator === -1 || body.length <= 16
+        ? value
+        : `${value.slice(0, separator + 1)}${body.slice(0, 16)}…`;
+}
+/**
+ * Which review-context binding does not match the governed occurrence.
+ *
+ * `sameBindings` is an index-wise comparison, so a mismatch can be a wrong
+ * path, a wrong blob at the right path, a different count, or nothing more
+ * than a different order — and the caller used to report all of those as one
+ * undifferentiated "binding" candidate.
+ */
+function bindingMismatchReasons(bindings, occurrence) {
+    const recorded = occurrence.bindings;
+    if (sameBindings(bindings, recorded))
+        return [];
+    const reasons = [];
+    for (const [index, binding] of bindings.entries()) {
+        const match = recorded[index];
+        if (match === undefined)
+            continue;
+        if (binding.path !== match.path) {
+            reasons.push(`reviewContext.bindings[${index}] path ${binding.path} does not match` +
+                ` the path observation ${occurrence.observationId} recorded at that` +
+                ` position (${match.path})`);
+        }
+        else if (binding.blob !== match.blob) {
+            reasons.push(`reviewContext.bindings[${index}] path ${binding.path} blob` +
+                ` ${shortDigest(binding.blob)} does not match the blob observation` +
+                ` ${occurrence.observationId} recorded` +
+                ` (${shortDigest(match.blob)})`);
+        }
+    }
+    if (bindings.length !== recorded.length) {
+        reasons.push(`reviewContext.bindings lists ${String(bindings.length)} binding(s) but` +
+            ` observation ${occurrence.observationId} recorded` +
+            ` ${String(recorded.length)} for occurrence ${occurrence.occurrenceId}`);
+    }
+    return reasons;
+}
+/**
+ * Why an exact review context does not govern its occurrence — one reason per
+ * field that actually differs, with both values.
+ *
+ * `dispositionContextKind` collapses four independent comparisons (observation
+ * identity, bindings, ruleset id, ruleset digest) into a single `invalid`, and
+ * the rejection named all four candidates while identifying none. A real
+ * session lost over an hour to that message: the decision covered a HISTORICAL
+ * occurrence but carried the CURRENT ruleset digest, and since the digest
+ * rotates on every provider run the only way to find out was to try each field
+ * by elimination.
+ *
+ * Fail-closed: an empty result means the caller must keep rejecting with the
+ * general message rather than guess. The result is empty exactly when this is
+ * not an exact-context event (semantic-only occurrence), which the caller
+ * reports separately.
+ */
+function exactContextMismatchReasons(event, occurrence, observations) {
+    const ruleset = occurrence.ruleset;
+    if (!occurrence.closureEligible || ruleset === null)
+        return [];
+    const context = event.reviewContext;
+    const reasons = [];
+    if (context.observationId !== occurrence.observationId) {
+        const named = observations.get(context.observationId);
+        reasons.push(named === undefined
+            ? `reviewContext.observationId ${context.observationId} is not a known` +
+                ` observation; occurrence ${occurrence.occurrenceId} was recorded by` +
+                ` ${occurrence.observationId}`
+            : named.occurrenceIds.includes(occurrence.occurrenceId)
+                ? `reviewContext.observationId ${context.observationId} is not the` +
+                    ` observation that recorded occurrence` +
+                    ` ${occurrence.occurrenceId} (${occurrence.observationId})`
+                : `reviewContext.observationId ${context.observationId} does not` +
+                    ` contain occurrence ${occurrence.occurrenceId} (it lives in` +
+                    ` ${occurrence.observationId})`);
+    }
+    if (context.ruleset.id !== ruleset.id) {
+        reasons.push(`reviewContext.ruleset.id ${context.ruleset.id} does not match ruleset` +
+            ` ${ruleset.id} which observation ${occurrence.observationId} recorded` +
+            ` for occurrence ${occurrence.occurrenceId}`);
+    }
+    else if (context.ruleset.digest !== ruleset.digest) {
+        reasons.push(`reviewContext.ruleset.digest ${shortDigest(context.ruleset.digest)}` +
+            ` does not match observation ${occurrence.observationId} which` +
+            ` recorded ${shortDigest(ruleset.digest)} — the ruleset digest rotates` +
+            ` on every provider run, so a decision over a historical occurrence` +
+            ` must carry that occurrence's digest, not the current one`);
+    }
+    reasons.push(...bindingMismatchReasons(context.bindings, occurrence));
+    return reasons;
+}
 function requireStableIdentityReconciliation(event, occurrences) {
     const beforeFindingIds = new Set(event.beforeOccurrenceIds.map((occurrenceId) => {
         const occurrence = occurrences.get(occurrenceId);
@@ -2424,8 +2530,14 @@ export function buildAuditDecisionIndex(currentLedgers, histories, decisionLedge
         }
         const contextKind = dispositionContextKind(event, occurrence, observations);
         if (contextKind === 'invalid') {
+            // Name the field that actually differs. The general form stays as the
+            // fail-closed fallback: a rejection with a vaguer message is correct,
+            // guessing which field broke is not.
+            const mismatches = exactContextMismatchReasons(event, occurrence, observations);
             throw new Error(occurrence.closureEligible && occurrence.ruleset !== null
-                ? `decision ${event.eventId} review context has mismatched observation, binding, or ruleset references`
+                ? mismatches.length > 0
+                    ? `decision ${event.eventId} review context does not match the occurrence it governs: ${mismatches.join('; ')}`
+                    : `decision ${event.eventId} review context has mismatched observation, binding, or ruleset references`
                 : `decision ${event.eventId} cannot govern a semantic-only occurrence without later exact review`);
         }
         const ruleset = occurrence.ruleset;
@@ -3722,20 +3834,63 @@ export function reduceAuditDecisionState(index, policy, now) {
                 throw new Error(`decision ${event.eventId} expiry exceeds the event-relative maximum of ${maximumDays} days`);
             }
             if (severityOverride) {
+                // The same disqualification test as before, split only so the
+                // rejection can say WHICH reviews it discarded. Every review skipped
+                // by the original `||` chain is skipped here too, in the same order of
+                // precedence, so the accepted set is byte-identical.
                 const eligibleReviewers = new Set();
+                let notApproving = 0;
+                let selfReviewed = 0;
+                let withoutEvidence = 0;
+                let qualifying = 0;
                 for (const review of event.reviews) {
-                    if (review.verdict !== 'approve' ||
-                        review.reviewer === event.actor ||
-                        review.reviewer === event.owner ||
-                        (severityOverride.reviewEvidenceRequired &&
-                            review.evidence.trim().length === 0)) {
+                    if (review.verdict !== 'approve') {
+                        notApproving += 1;
                         continue;
                     }
+                    if (review.reviewer === event.actor ||
+                        review.reviewer === event.owner) {
+                        selfReviewed += 1;
+                        continue;
+                    }
+                    if (severityOverride.reviewEvidenceRequired &&
+                        review.evidence.trim().length === 0) {
+                        withoutEvidence += 1;
+                        continue;
+                    }
+                    qualifying += 1;
                     eligibleReviewers.add(review.reviewer);
                 }
                 if (eligibleReviewers.size <
                     severityOverride.minimumIndependentReviews) {
-                    throw new Error(`decision ${event.eventId} lacks the required independent review approvals and evidence`);
+                    // The requirement was named but never quantified: not the severity
+                    // that selected this override, not how many approvals it wants, not
+                    // how many were counted. All three are known right here.
+                    const discarded = [
+                        notApproving > 0
+                            ? `${String(notApproving)} not approving`
+                            : null,
+                        selfReviewed > 0
+                            ? `${String(selfReviewed)} by the decision actor or owner`
+                            : null,
+                        withoutEvidence > 0
+                            ? `${String(withoutEvidence)} approving without the required evidence`
+                            : null,
+                        qualifying > eligibleReviewers.size
+                            ? `${String(qualifying - eligibleReviewers.size)} repeating an` +
+                                ` already-counted reviewer`
+                            : null,
+                    ].filter((part) => part !== null);
+                    throw new Error(`decision ${event.eventId} lacks the required independent review approvals and evidence:` +
+                        ` ${occurrence.severity} severity requires` +
+                        ` ${String(severityOverride.minimumIndependentReviews)}` +
+                        ` independent approving reviewer(s)` +
+                        (severityOverride.reviewEvidenceRequired
+                            ? ' with nonempty evidence'
+                            : '') +
+                        ` but ${String(eligibleReviewers.size)} of` +
+                        ` ${String(event.reviews.length)} recorded review(s) qualified` +
+                        (discarded.length > 0 ? ` (${discarded.join(', ')})` : ''));
                 }
             }
             return { contextCurrent, expiryState };

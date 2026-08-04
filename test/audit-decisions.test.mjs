@@ -2107,6 +2107,115 @@ test('global index rejects invalid pointers, ownership, and decision context ref
   )
 })
 
+// The general "mismatched observation, binding, or ruleset references" form
+// named three candidates and identified none. A real session lost over an hour
+// to it: the decision covered a historical occurrence while carrying the
+// current ruleset digest. Each case below asserts the rejection names the one
+// field that differs, shows both values, and does NOT accuse the other fields.
+test('a rejected exact review context names the mismatched field and both values', () => {
+  const observation = observationFixture()
+  const history = historyFixture('security-runtime', [observation])
+  const current = currentFixture(history)
+  const foreignObservation = observationFixture({
+    observationId: AFTER_OBSERVATION_ID,
+    findingId: REPLACEMENT_FINDING_ID,
+    occurrenceId: REPLACEMENT_OCCURRENCE_ID,
+    decisionLedger: 'security-other',
+    path: 'src/b.ts',
+  })
+  const foreignHistory = historyFixture('security-other', [foreignObservation])
+  const messageFor = (event, extraCurrents = [], extraHistories = []) => {
+    try {
+      buildAuditDecisionIndex(
+        [current, ...extraCurrents],
+        [history, ...extraHistories],
+        [prepareEventLedger('security-runtime', [event])],
+      )
+    } catch (error) {
+      return error.message
+    }
+    return null
+  }
+
+  const staleRuleset = structuredClone(validDispositionEvents()[2])
+  staleRuleset.reviewContext.ruleset.digest = `sha256:${'f'.repeat(64)}`
+  const rulesetMessage = messageFor(staleRuleset)
+  assert.ok(rulesetMessage, 'a stale ruleset digest must still be rejected')
+  assert.match(rulesetMessage, /reviewContext\.ruleset\.digest/)
+  assert.ok(
+    rulesetMessage.includes(`sha256:${'f'.repeat(16)}…`),
+    `recorded digest missing from: ${rulesetMessage}`,
+  )
+  assert.ok(
+    rulesetMessage.includes(`${RULESET_DIGEST.slice(0, 'sha256:'.length + 16)}…`),
+    `observed digest missing from: ${rulesetMessage}`,
+  )
+  assert.ok(
+    rulesetMessage.includes(OBSERVATION_ID),
+    `observation missing from: ${rulesetMessage}`,
+  )
+  assert.ok(
+    !rulesetMessage.includes('reviewContext.bindings'),
+    `bindings falsely accused in: ${rulesetMessage}`,
+  )
+  assert.ok(
+    !rulesetMessage.includes('reviewContext.observationId'),
+    `observationId falsely accused in: ${rulesetMessage}`,
+  )
+
+  const wrongBlob = structuredClone(validDispositionEvents()[2])
+  wrongBlob.reviewContext.bindings = [
+    binding('src/a.ts', `git-sha1:${'f'.repeat(40)}`),
+  ]
+  wrongBlob.proofs[0].reviewedBindings = wrongBlob.reviewContext.bindings
+  const blobMessage = messageFor(wrongBlob)
+  assert.ok(blobMessage, 'a mismatched binding blob must still be rejected')
+  assert.match(blobMessage, /reviewContext\.bindings\[0\] path src\/a\.ts blob/)
+  assert.ok(
+    blobMessage.includes(`git-sha1:${'f'.repeat(16)}…`),
+    `claimed blob missing from: ${blobMessage}`,
+  )
+  assert.ok(
+    blobMessage.includes(`${BLOB.slice(0, 'git-sha1:'.length + 16)}…`),
+    `recorded blob missing from: ${blobMessage}`,
+  )
+  assert.ok(
+    !blobMessage.includes('reviewContext.ruleset'),
+    `ruleset falsely accused in: ${blobMessage}`,
+  )
+
+  const foreignContext = structuredClone(validDispositionEvents()[2])
+  foreignContext.reviewContext.observationId = AFTER_OBSERVATION_ID
+  // A current-review proof must equal its event review context, so the proof
+  // moves with it; the context check still runs first.
+  foreignContext.proofs[0].observationId = AFTER_OBSERVATION_ID
+  const foreignMessage = messageFor(
+    foreignContext,
+    [currentFixture(foreignHistory)],
+    [foreignHistory],
+  )
+  assert.ok(foreignMessage, 'a foreign review observation must still be rejected')
+  assert.ok(
+    foreignMessage.includes(
+      `reviewContext.observationId ${AFTER_OBSERVATION_ID} does not contain` +
+        ` occurrence ${OCCURRENCE_ID} (it lives in ${OBSERVATION_ID})`,
+    ),
+    `named observation and real home missing from: ${foreignMessage}`,
+  )
+
+  // Every mismatched field, not just the first one found.
+  const bothWrong = structuredClone(validDispositionEvents()[2])
+  bothWrong.reviewContext.ruleset.digest = `sha256:${'f'.repeat(64)}`
+  bothWrong.reviewContext.bindings = [
+    binding('src/a.ts', `git-sha1:${'f'.repeat(40)}`),
+  ]
+  bothWrong.proofs[0].reviewedBindings = bothWrong.reviewContext.bindings
+  const bothMessage = messageFor(bothWrong)
+  assert.ok(bothMessage, 'two mismatches must still be rejected')
+  assert.match(bothMessage, /reviewContext\.ruleset\.digest/)
+  assert.match(bothMessage, /reviewContext\.bindings\[0\]/)
+})
+
 test('migration validation context governs migrated semantic-only occurrences', () => {
   // The RelayOS migrator deliberately does not fabricate exact scope for the
   // candidates layer: the governed occurrence is semantic-only, yet its
@@ -4646,6 +4755,50 @@ test('review evidence may be empty unless the active severity policy requires it
     /accessor|data-only|member|object/i,
   )
   assert.equal(getterExecuted, false)
+})
+
+// The requirement was named but never quantified: which severity selected the
+// override, how many approvals it wants, how many were counted, and why the
+// rest were discarded were all knowable at the throw site and none were said.
+test('an under-reviewed acceptance reports the severity, the required count, and the count present', () => {
+  const observation = observationFixture({ severity: 'high' })
+  const history = historyFixture('security-runtime', [observation])
+  const underReviewed = validDispositionEvents()[2]
+  underReviewed.reviews = [
+    independentReview('identity:independent-a@example.invalid'),
+    independentReview('identity:independent-a@example.invalid'),
+    independentReview('identity:rejected@example.invalid', {
+      verdict: 'reject',
+    }),
+    independentReview(underReviewed.actor),
+    independentReview('identity:no-evidence@example.invalid', {
+      evidence: '   ',
+    }),
+  ]
+  const index = buildAuditDecisionIndex(
+    [currentFixture(history)],
+    [history],
+    [prepareEventLedger('security-runtime', [underReviewed])],
+  )
+  let message = null
+  try {
+    reduceAuditDecisionState(
+      index,
+      parseAuditDecisionPolicy(policyInput(), POLICY_DIGEST),
+      '2026-07-30T00:00:00.000Z',
+    )
+  } catch (error) {
+    message = error.message
+  }
+  assert.ok(message, 'an under-reviewed acceptance must still be rejected')
+  assert.match(message, /lacks the required independent review approvals/)
+  assert.match(message, /high severity requires 2 independent approving/)
+  assert.match(message, /with nonempty evidence/)
+  assert.match(message, /1 of 5 recorded review\(s\) qualified/)
+  assert.match(message, /1 not approving/)
+  assert.match(message, /1 by the decision actor or owner/)
+  assert.match(message, /1 approving without the required evidence/)
+  assert.match(message, /1 repeating an already-counted reviewer/)
 })
 
 test('history-ahead decisions remain indexed but become effective only after publication', () => {
