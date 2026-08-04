@@ -185,7 +185,35 @@ function makeFakeGrok(t, control) {
   fs.chmodSync(binPath, 0o755)
   fs.writeFileSync(path.join(dir, 'control.json'), JSON.stringify(control))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
-  return { binPath, dir }
+  const invocationsDir = path.join(dir, 'invocations')
+  return {
+    binPath,
+    dir,
+    invocations() {
+      if (!fs.existsSync(invocationsDir)) return []
+      return fs
+        .readdirSync(invocationsDir)
+        .filter((name) => name.endsWith('.json'))
+        .sort()
+        .map((name) => JSON.parse(fs.readFileSync(path.join(invocationsDir, name), 'utf8')))
+    },
+  }
+}
+
+/** Analysis runs only: the version/help/inspect probes are not review work. */
+function reviewCalls(fake) {
+  return fake.invocations().filter((invocation) => invocation.phase === 'review')
+}
+
+/**
+ * Commits exactly one path. `git add -A` would also track the generated
+ * `.atlas/review-coverage.json` the run just wrote, which the fixture policy
+ * classifies as generated state — `audit check` then fails on the fixture
+ * rather than on anything under test.
+ */
+function commitPath(root, rel, message) {
+  execFileSync('git', ['add', '--', rel], { cwd: root })
+  execFileSync('git', ['commit', '-qm', message], { cwd: root, env: GIT_ENV })
 }
 
 function writeProviderPolicy(root, fake) {
@@ -216,7 +244,7 @@ function makePolicy(fake, overrides = {}) {
   })
 }
 
-async function runAndPublish(root, fake, paths, overrides = {}) {
+async function runInvocation(root, fake, paths, overrides = {}, requestOverrides = {}) {
   const policy = makePolicy(fake, overrides)
   const targets = paths.map((repoPath) => ({ path: repoPath, role: 'review' }))
   const result = await runAuditProviderInvocation(
@@ -226,13 +254,24 @@ async function runAndPublish(root, fake, paths, overrides = {}) {
       repoRoot: root,
       policy,
       targets,
+      ...requestOverrides,
     },
     createGrokAuditProvider(),
+  )
+  return { result, policy, targets }
+}
+
+async function runAndPublish(root, fake, paths, overrides = {}, requestOverrides = {}) {
+  const { result, policy, targets } = await runInvocation(
+    root,
+    fake,
+    paths,
+    overrides,
+    requestOverrides,
   )
   const publication = publishAuditProviderRunObservations(root, {
     result,
     targets,
-    providerPolicy: policy,
   })
   return { result, publication, policy, targets }
 }
@@ -342,9 +381,19 @@ test('a completed run publishes a validated per-unit observation and coverage ac
     assert.deepEqual(file.findingOccurrenceIds, [])
     assert.match(file.reviewedAt, /^\d{4}-\d{2}-\d{2}T/)
   }
-  const batchOf = (repoPath) => `phase:review:review:${Math.floor(paths.indexOf(repoPath) / 2)}`
+  // The ref names the chunk that actually reviewed the file. It is NOT the
+  // file's position in the inventory divided by the batch size: placement
+  // spreads look-alike siblings across batches, so `src/b.ts` here really is
+  // reviewed by review:1 while `src/c.ts` shares review:0 with `src/a.ts`. This
+  // assertion used to encode the positional formula and therefore asserted refs
+  // that named the wrong batch.
+  assert.deepEqual(
+    Object.keys(result.reviewUnitByPath).sort(),
+    paths,
+    'every reviewed path reports the chunk that reviewed it',
+  )
   for (const file of scope.files) {
-    assert.deepEqual(file.receiptRefs, [batchOf(file.path)])
+    assert.deepEqual(file.receiptRefs, [`phase:review:${result.reviewUnitByPath[file.path]}`])
   }
   assert.equal(
     scope.inventoryDigest,
@@ -669,4 +718,289 @@ test('publishing a subset of a unit is refused, because it would delete the rest
     false,
     'the refusal happens before any ledger is written',
   )
+})
+
+// ---------------------------------------------------------------------------
+// Cross-run receipt reuse
+//
+// An observation is whole-unit, so before reuse a one-line fix cost a
+// unit-sized re-audit: every file in the unit needed a receipt from THIS run,
+// at one provider process per file. These tests hold the line on both halves of
+// the bargain — unchanged files must not be re-reviewed, and anything the reuse
+// key cannot prove must be.
+// ---------------------------------------------------------------------------
+
+const REUSE = { reuseUnchangedReceipts: true }
+const ONE_FILE_PER_CALL = { maxBatchFiles: 1 }
+
+test('a rescan with --reuse-unchanged reviews the changed file and carries the rest', async (t) => {
+  const files = {
+    'src/a.ts': makeSource(6, 'a'),
+    'src/b.ts': makeSource(9, 'b'),
+    'src/c.ts': makeSource(12, 'c'),
+  }
+  const { root } = makeUnitRepo(t, files)
+  const fake = makeFakeGrok(t, { mode: 'ok' })
+  writeProviderPolicy(root, fake)
+  const paths = Object.keys(files)
+
+  const first = await runAndPublish(root, fake, paths, ONE_FILE_PER_CALL)
+  assert.equal(reviewCalls(fake).length, 3, 'the first run reviews every file')
+  assert.deepEqual(first.result.carriedReceipts, [], 'nothing exists to carry yet')
+  const firstObservationId = first.publication.units[0].observationId
+  const firstLedger = readJson(root, '.atlas/audits/security-fixture.json')
+  const firstReviewedAt = new Map(
+    firstLedger.current.scope.files.map((file) => [file.path, file.reviewedAt]),
+  )
+
+  // One file changes, keeping its line count so the blob is the only thing
+  // that moved — the shape of a real one-line fix. The other two do not change.
+  write(root, 'src/b.ts', makeSource(9, 'b2'))
+  commitPath(root, 'src/b.ts', 'edit b')
+
+  const before = reviewCalls(fake).length
+  const second = await runAndPublish(root, fake, paths, ONE_FILE_PER_CALL, REUSE)
+  const rescanCalls = reviewCalls(fake).slice(before)
+  assert.equal(rescanCalls.length, 1, 'a rescan costs one provider call per changed file')
+  assert.deepEqual(
+    rescanCalls[0].unit.kind === 'review' ? rescanCalls[0].snapshotFiles.map((f) => f.path) : [],
+    ['src/b.ts'],
+    'the only provider call is about the file that changed',
+  )
+  assert.deepEqual(
+    second.result.carriedReceipts.map((carried) => carried.path),
+    ['src/a.ts', 'src/c.ts'],
+  )
+  assert.deepEqual(Object.keys(second.result.reviewUnitByPath), ['src/b.ts'])
+  for (const carried of second.result.carriedReceipts) {
+    assert.equal(carried.observationId, firstObservationId)
+    assert.equal(carried.slug, 'security-fixture')
+  }
+
+  // The published unit still covers every file exactly once, and says which
+  // receipts it did not earn itself.
+  const ledger = readJson(root, '.atlas/audits/security-fixture.json')
+  const observation = ledger.current
+  assert.notEqual(observation.observationId, firstObservationId, 'a changed scope is a new observation')
+  assert.deepEqual(observation.scope.files.map((file) => file.path), paths)
+  assert.deepEqual(observation.exactCoverage.unreviewed, [])
+  const receiptOf = (repoPath) =>
+    observation.scope.files.find((file) => file.path === repoPath)
+  for (const repoPath of ['src/a.ts', 'src/c.ts']) {
+    const receipt = receiptOf(repoPath)
+    assert.deepEqual(
+      receipt.receiptRefs,
+      [`carried-from:${firstObservationId}`],
+      'a carried receipt names the observation that proved it, and no chunk of this run',
+    )
+    assert.equal(
+      receipt.reviewedAt,
+      firstReviewedAt.get(repoPath),
+      'a carried receipt keeps the timestamp of the review that actually happened',
+    )
+  }
+  const fresh = receiptOf('src/b.ts')
+  assert.deepEqual(fresh.receiptRefs, [`phase:review:${second.result.reviewUnitByPath['src/b.ts']}`])
+  assert.notEqual(fresh.reviewedAt, firstReviewedAt.get('src/b.ts'))
+
+  const parsed = parseAuditCurrentLedger(
+    root,
+    '.atlas/audits/security-fixture.json',
+    ledger,
+  )
+  assert.ok(parsed.ok, `a carried-receipt ledger must validate: ${JSON.stringify(parsed)}`)
+
+  // Downstream freshness is per-file and blob-bound, and the carried receipts
+  // carry the current blob — so `audit check` stays meaningful rather than
+  // being satisfied by something stale.
+  execFileSync(process.execPath, [path.join(PACKAGE_ROOT, 'dist', 'cli.js'), 'audit', 'check'], {
+    cwd: root,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+})
+
+test('reuse on an untouched tree spends nothing and republishes byte-identically', async (t) => {
+  const files = { 'src/a.ts': makeSource(6, 'a'), 'src/b.ts': makeSource(9, 'b') }
+  const { root } = makeUnitRepo(t, files)
+  const fake = makeFakeGrok(t, { mode: 'ok' })
+  writeProviderPolicy(root, fake)
+  const paths = Object.keys(files)
+
+  await runAndPublish(root, fake, paths, ONE_FILE_PER_CALL)
+  const ledgerPath = path.join(root, '.atlas', 'audits', 'security-fixture.json')
+  const historyPath = path.join(root, '.atlas', 'audit-history', 'security-fixture.json')
+  const before = {
+    ledger: fs.readFileSync(ledgerPath, 'utf8'),
+    history: fs.readFileSync(historyPath, 'utf8'),
+    calls: reviewCalls(fake).length,
+  }
+
+  const second = await runAndPublish(root, fake, paths, ONE_FILE_PER_CALL, REUSE)
+  assert.equal(reviewCalls(fake).length, before.calls, 'no file changed, so no review call')
+  assert.equal(second.result.carriedReceipts.length, 2)
+  assert.equal(second.publication.units[0].status, 'already-current')
+  assert.equal(fs.readFileSync(ledgerPath, 'utf8'), before.ledger)
+  assert.equal(fs.readFileSync(historyPath, 'utf8'), before.history)
+})
+
+test('a moved ruleset digest re-reviews identical bytes instead of carrying them', async (t) => {
+  const files = { 'src/a.ts': makeSource(6, 'a'), 'src/b.ts': makeSource(9, 'b') }
+  const { root } = makeUnitRepo(t, files)
+  const fake = makeFakeGrok(t, { mode: 'ok' })
+  writeProviderPolicy(root, fake)
+  const paths = Object.keys(files)
+
+  const first = await runAndPublish(root, fake, paths, ONE_FILE_PER_CALL)
+  const rulesetDigest = first.result.receipt.ruleset.digest
+
+  // Not one byte of source changed. The extra prompt enters the prompt digest,
+  // which enters the ruleset digest — a different question about the same
+  // bytes, so the old answer proves nothing.
+  const before = reviewCalls(fake).length
+  const second = await runInvocation(root, fake, paths, ONE_FILE_PER_CALL, {
+    ...REUSE,
+    extraPrompt: 'Also weigh deserialization sinks.',
+  })
+  assert.notEqual(second.result.receipt.ruleset.digest, rulesetDigest)
+  assert.deepEqual(second.result.carriedReceipts, [], 'a moved ruleset digest carries nothing')
+  assert.equal(
+    reviewCalls(fake).length - before,
+    2,
+    'every file is reviewed again under the new ruleset',
+  )
+})
+
+test('findings on a carried file keep their finding ids and their dispositions', async (t) => {
+  const files = { 'src/a.ts': makeSource(8, 'a'), 'src/b.ts': makeSource(8, 'b') }
+  const { root } = makeUnitRepo(t, files)
+  const fake = makeFakeGrok(t, { mode: 'ok', reviewFindings: { 'src/a.ts': [FINDING] } })
+  writeProviderPolicy(root, fake)
+  const paths = Object.keys(files)
+
+  const first = await runAndPublish(root, fake, paths, ONE_FILE_PER_CALL)
+  const firstObservation = readJson(root, '.atlas/audits/security-fixture.json').current
+  assert.equal(firstObservation.findings.length, 1)
+  const firstFinding = firstObservation.findings[0]
+
+  // src/b.ts changes, same line count; src/a.ts and the code its finding
+  // points at do not change at all.
+  write(root, 'src/b.ts', makeSource(8, 'b2'))
+  commitPath(root, 'src/b.ts', 'edit b')
+
+  const before = reviewCalls(fake).length
+  const second = await runAndPublish(root, fake, paths, ONE_FILE_PER_CALL, REUSE)
+  assert.equal(reviewCalls(fake).length - before, 1, 'only the changed file is reviewed')
+  assert.equal(
+    fake.invocations().filter((invocation) => invocation.phase === 'verification').length,
+    1,
+    'the carried finding is not re-verified: its terminal disposition carried with it',
+  )
+
+  const observation = readJson(root, '.atlas/audits/security-fixture.json').current
+  assert.equal(observation.findings.length, 1)
+  const finding = observation.findings[0]
+  assert.equal(
+    finding.findingId,
+    firstFinding.findingId,
+    'content-anchored identity means an unchanged file keeps the same finding id',
+  )
+  assert.deepEqual(finding.identity, firstFinding.identity)
+  assert.deepEqual(finding.fingerprints, firstFinding.fingerprints)
+  assert.equal(finding.validation.disposition, 'reportable')
+  assert.equal(finding.validation.summary, firstFinding.validation.summary)
+  assert.equal(finding.title, firstFinding.title)
+
+  // The occurrence is per-observation by construction, so it is the one id that
+  // MUST move: this is a different observation of the same finding.
+  const atlas = computeAtlasFingerprint({
+    repositoryId: 'repo_fixture',
+    domain: 'security',
+    ruleId: finding.ruleId,
+    anchor: finding.identity.anchor,
+  })
+  assert.equal(finding.occurrenceId, computeAtlasOccurrenceId(observation.observationId, atlas))
+  assert.notEqual(finding.occurrenceId, firstFinding.occurrenceId)
+  const receipt = observation.scope.files.find((file) => file.path === 'src/a.ts')
+  assert.equal(receipt.outcome, 'findings', 'a carried file is not reported clean')
+  assert.deepEqual(receipt.findingOccurrenceIds, [finding.occurrenceId])
+  assert.deepEqual(receipt.receiptRefs, [`carried-from:${firstObservation.observationId}`])
+  assert.equal(second.result.carriedReceipts.length, 1)
+})
+
+test('a missing or malformed prior observation is reviewed again, never assumed', async (t) => {
+  const files = { 'src/a.ts': makeSource(6, 'a'), 'src/b.ts': makeSource(9, 'b') }
+  const { root } = makeUnitRepo(t, files)
+  const fake = makeFakeGrok(t, { mode: 'ok' })
+  writeProviderPolicy(root, fake)
+  const paths = Object.keys(files)
+  const ledgerPath = path.join(root, '.atlas', 'audits', 'security-fixture.json')
+
+  await runAndPublish(root, fake, paths, ONE_FILE_PER_CALL)
+  const intact = fs.readFileSync(ledgerPath, 'utf8')
+
+  // Control: with the ledger intact and nothing changed, both files carry. Each
+  // case below differs from this one only in the ledger bytes.
+  const control = await runInvocation(root, fake, paths, ONE_FILE_PER_CALL, REUSE)
+  assert.equal(control.result.carriedReceipts.length, 2)
+
+  const cases = {
+    'not JSON at all': () => fs.writeFileSync(ledgerPath, '{not a ledger\n'),
+    'gone': () => fs.rmSync(ledgerPath),
+    'no reuse key': () => {
+      const ledger = JSON.parse(intact)
+      delete ledger.current.producer.effectiveConfigDigest
+      fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2) + '\n')
+    },
+    'a receipt with no blob': () => {
+      const ledger = JSON.parse(intact)
+      delete ledger.current.scope.files[0].blob
+      fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2) + '\n')
+    },
+    'a receipt that never completed': () => {
+      const ledger = JSON.parse(intact)
+      ledger.current.scope.files[0].status = 'not-reviewed'
+      fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2) + '\n')
+    },
+  }
+  for (const [label, damage] of Object.entries(cases)) {
+    damage()
+    const before = reviewCalls(fake).length
+    const { result } = await runInvocation(root, fake, paths, ONE_FILE_PER_CALL, REUSE)
+    assert.deepEqual(result.carriedReceipts, [], `${label}: nothing may carry`)
+    assert.equal(
+      reviewCalls(fake).length - before,
+      2,
+      `${label}: every file is reviewed again`,
+    )
+    fs.writeFileSync(ledgerPath, intact)
+  }
+})
+
+test('reuse is off unless asked for, and the CLI flag is how it is asked for', async (t) => {
+  const files = { 'src/a.ts': makeSource(6, 'a'), 'src/b.ts': makeSource(9, 'b') }
+  const { root } = makeUnitRepo(t, files)
+  const fake = makeFakeGrok(t, { mode: 'ok' })
+  writeProviderPolicy(root, fake)
+  const cliPath = path.join(PACKAGE_ROOT, 'dist', 'cli.js')
+  const runCli = (args) =>
+    execFileSync(process.execPath, [cliPath, 'audit', 'run', 'security', '--provider', 'grok',
+      '--unit', 'security-fixture', ...args], { cwd: root, encoding: 'utf8' })
+
+  runCli([])
+  const afterFirst = reviewCalls(fake).length
+  // .atlas/audit-providers.json batches two files per call, so a full review of
+  // this two-file unit is one call and a fully carried one is none.
+  assert.equal(afterFirst, 1)
+
+  // A bare re-run re-reviews: asking for a review must never quietly return
+  // receipts an earlier run earned.
+  const plain = runCli([])
+  assert.equal(reviewCalls(fake).length - afterFirst, 1, 'the default run reviews every file')
+  assert.doesNotMatch(plain, /carried receipts/u)
+
+  const before = reviewCalls(fake).length
+  const reused = runCli(['--reuse-unchanged'])
+  assert.equal(reviewCalls(fake).length - before, 0, '--reuse-unchanged carries both receipts')
+  assert.match(reused, /carried receipts: 2 file\(s\) not re-reviewed \(from aobs_[0-9a-f]{24}\)/u)
 })

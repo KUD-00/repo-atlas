@@ -343,6 +343,10 @@ function validateInvocationRequest(request) {
         !INVOCATION_ID_PATTERN.test(request.resumeInvocationId)) {
         fail('invalid-request', 'provider resume id must be an atlas run id (arun_...)');
     }
+    if (request.reuseUnchangedReceipts !== undefined &&
+        typeof request.reuseUnchangedReceipts !== 'boolean') {
+        fail('invalid-request', 'provider reuseUnchangedReceipts must be a boolean when present');
+    }
     return targets;
 }
 function validateProviderShape(provider, requestProvider) {
@@ -795,6 +799,439 @@ export function validateAuditProviderVerificationUnitOutput(output, candidates, 
     return { dispositions };
 }
 // ---------------------------------------------------------------------------
+// Finding identity
+// ---------------------------------------------------------------------------
+/**
+ * Stable anchor for a finding: the normalized SOURCE TEXT it points at.
+ *
+ * Identity used to hash `startLine`, `endLine` and the generator's `title`. Both
+ * are unstable across runs for an unchanged issue — any edit or reformat above a
+ * finding shifts its lines, and the title is model prose that gets reworded — so
+ * every scan minted a fresh id and no disposition ever carried. Measured on a
+ * real repository: of 169 findings carrying a canonical fingerprint, ZERO matched
+ * a prior decision, which turned "prove one fix" into "re-disposition everything".
+ *
+ * Hashing the flagged text instead gives the identity the properties it needs:
+ *  - lines shift, text does not      -> same id, disposition carries
+ *  - the model rewords the title     -> same id
+ *  - the flagged code actually changes -> NEW id, which is correct: a changed
+ *    construct deserves a fresh review rather than an inherited verdict
+ *
+ * Whitespace is collapsed so a formatter cannot rotate identity. When the range
+ * cannot be read (out-of-range line, unreadable snapshot) this falls back to the
+ * line numbers so identity stays deterministic instead of throwing — that case is
+ * no more stable than the old scheme, but it is no less.
+ */
+function findingAnchorDigest(snapshotRoot, repoPath, startLine, endLine) {
+    const absolute = path.join(snapshotRoot, ...repoPath.split('/'));
+    let text;
+    try {
+        const lines = fs.readFileSync(absolute, 'utf8').split('\n');
+        const from = Math.max(1, startLine);
+        const to = Math.max(from, endLine ?? startLine);
+        const slice = lines.slice(from - 1, to);
+        if (slice.length === 0)
+            throw new Error('range outside file');
+        text = slice
+            .map((line) => line.trim().replace(/\s+/gu, ' '))
+            .filter((line) => line.length > 0)
+            .join('\n');
+        if (text.length === 0)
+            throw new Error('range is blank');
+    }
+    catch {
+        text = `unresolved-range:${String(startLine)}:${String(endLine ?? startLine)}`;
+    }
+    return sha256Hex(text);
+}
+/**
+ * The producer-side candidate id. ONE implementation on purpose: a fresh review
+ * and a carried receipt must derive byte-identical ids from identical bytes, and
+ * two copies of this formula would drift apart silently — the failure mode being
+ * that an unchanged file's findings come back with new ids and lose their
+ * dispositions, which is precisely what content anchoring exists to prevent.
+ */
+function candidateFingerprint(snapshotRoot, repoPath, ruleId, startLine, endLine) {
+    return `cand_${sha256Hex(canonicalJson({
+        // v2: anchored to normalized source text instead of line numbers and
+        // the model's title, so an unchanged issue keeps its identity.
+        namespace: 'repo-atlas/provider-candidate/v2',
+        ruleId,
+        path: repoPath,
+        anchor: findingAnchorDigest(snapshotRoot, repoPath, startLine, endLine),
+    })).slice(0, 24)}`;
+}
+// ---------------------------------------------------------------------------
+// Cross-run receipt reuse
+// ---------------------------------------------------------------------------
+//
+// An observation is whole-unit: publishing one requires a receipt for every file
+// the unit owns, so a one-line fix used to cost a unit-sized re-audit (measured:
+// 4 changed files -> 112 files re-reviewed, one provider process each).
+//
+// Evidence is already blob-bound. A published receipt states that these exact
+// bytes were fully read under a named ruleset; re-reading the same bytes under
+// the same ruleset, model, prompt, CLI configuration and sandbox policy cannot
+// produce different evidence. So the receipt is carried forward instead of being
+// re-earned — the same reasoning `--resume` uses within a run, applied across
+// runs.
+//
+// Everything here fails closed: any missing, malformed, ambiguous or
+// unverifiable input means the file is reviewed again. A wrongly carried receipt
+// is a silent coverage lie, so "unsure" must always cost a provider call rather
+// than an unproven claim.
+const AUDIT_LEDGER_DIR = '.atlas/audits';
+const AUDIT_LEDGER_BYTE_LIMIT = 8 * 1024 * 1024;
+const OBSERVATION_ID_PATTERN = /^aobs_[0-9a-f]{24}$/;
+const GIT_BLOB_PATTERN = /^(?:git-sha1:[0-9a-f]{40}|git-sha256:[0-9a-f]{64})$/;
+const EMPTY_CARRY_PLAN = {
+    receipts: new Map(),
+    findings: [],
+};
+function optionalPlainString(value) {
+    return typeof value === 'string' && value.length > 0 && !value.includes('\0')
+        ? value
+        : undefined;
+}
+function readPriorFinding(value) {
+    if (!isPlainObject(value))
+        return null;
+    const identity = value.identity;
+    const severity = isPlainObject(value.severity) ? value.severity.level : undefined;
+    const confidence = isPlainObject(value.confidence) ? value.confidence.level : undefined;
+    const validation = isPlainObject(value.validation) ? value.validation : undefined;
+    const attackPath = isPlainObject(value.attackPath) ? value.attackPath : undefined;
+    const locations = Array.isArray(value.locations) ? value.locations : [];
+    // Exactly one location: a carried receipt is per-file, and a finding that
+    // spans two files cannot be attributed to one file's unchanged bytes.
+    if (locations.length !== 1 || !isPlainObject(locations[0]))
+        return null;
+    const location = locations[0];
+    const anchor = isPlainObject(identity) ? optionalPlainString(identity.anchor) : undefined;
+    const repoPath = optionalPlainString(location.path);
+    const ruleId = optionalPlainString(value.ruleId);
+    const occurrenceId = optionalPlainString(value.occurrenceId);
+    const startLine = location.startLine;
+    if (anchor === undefined ||
+        repoPath === undefined ||
+        ruleId === undefined ||
+        occurrenceId === undefined ||
+        typeof startLine !== 'number' ||
+        !Number.isSafeInteger(startLine) ||
+        startLine < 1 ||
+        validation === undefined ||
+        attackPath === undefined ||
+        !SEVERITIES.includes(severity) ||
+        !CONFIDENCES.includes(confidence) ||
+        !DISPOSITIONS.includes(validation.disposition)) {
+        return null;
+    }
+    const endLine = location.endLine;
+    if (endLine !== undefined &&
+        (typeof endLine !== 'number' || !Number.isSafeInteger(endLine) || endLine < startLine)) {
+        return null;
+    }
+    const title = optionalPlainString(value.title);
+    const summary = optionalPlainString(value.summary);
+    const detail = optionalPlainString(attackPath.summary);
+    const fix = optionalPlainString(value.remediation);
+    const rationale = optionalPlainString(validation.summary);
+    if (title === undefined ||
+        summary === undefined ||
+        detail === undefined ||
+        fix === undefined ||
+        rationale === undefined) {
+        return null;
+    }
+    return {
+        path: repoPath,
+        finding: {
+            fingerprint: anchor,
+            occurrenceId,
+            ruleId,
+            title,
+            severity: severity,
+            confidence: confidence,
+            summary,
+            path: repoPath,
+            startLine,
+            ...(endLine !== undefined ? { endLine } : {}),
+            detail,
+            fix,
+            disposition: validation.disposition,
+            dispositionRationale: rationale,
+        },
+    };
+}
+function readPriorFileReceipt(value) {
+    if (!isPlainObject(value))
+        return null;
+    const repoPath = optionalPlainString(value.path);
+    const blob = optionalPlainString(value.blob);
+    if (repoPath === undefined ||
+        blob === undefined ||
+        !GIT_BLOB_PATTERN.test(blob) ||
+        typeof value.lines !== 'number' ||
+        !Number.isSafeInteger(value.lines) ||
+        value.lines < 0 ||
+        // A receipt that does not claim a completed full read proves nothing worth
+        // carrying, and `unknown` is not an outcome a provider run may publish.
+        value.status !== 'reviewed' ||
+        (value.outcome !== 'clean' && value.outcome !== 'findings') ||
+        !Array.isArray(value.receiptRefs) ||
+        value.receiptRefs.some((ref) => optionalPlainString(ref) === undefined) ||
+        !Array.isArray(value.findingOccurrenceIds) ||
+        value.findingOccurrenceIds.some((id) => optionalPlainString(id) === undefined)) {
+        return null;
+    }
+    const reviewedAt = optionalPlainString(value.reviewedAt);
+    const precision = value.reviewedAtPrecision;
+    if ((reviewedAt === undefined) !== (precision === undefined) ||
+        (precision !== undefined && precision !== 'timestamp' && precision !== 'date')) {
+        return null;
+    }
+    return {
+        path: repoPath,
+        blob: blob,
+        lines: value.lines,
+        outcome: value.outcome,
+        ...(reviewedAt !== undefined
+            ? { reviewedAt, reviewedAtPrecision: precision }
+            : {}),
+        ...(optionalPlainString(value.reviewedBy) !== undefined
+            ? { reviewedBy: value.reviewedBy }
+            : {}),
+        ...(optionalPlainString(value.ruleset) !== undefined
+            ? { ruleset: value.ruleset }
+            : {}),
+        receiptRefs: [...value.receiptRefs],
+        findingOccurrenceIds: [...value.findingOccurrenceIds],
+    };
+}
+function readPriorObservation(slug, ledger) {
+    // `.atlas/audits/` also holds legacy ledgers and, in principle, other
+    // domains. Only a current V3 security ledger is understood here; anything
+    // else is not "no receipt", it is "not a ledger this may reason about".
+    if (!isPlainObject(ledger) ||
+        ledger.formatVersion !== 3 ||
+        ledger.format !== 'atlas-audit-v3' ||
+        ledger.domain !== 'security' ||
+        ledger.slug !== slug ||
+        !isPlainObject(ledger.current)) {
+        return null;
+    }
+    const current = ledger.current;
+    const producer = isPlainObject(current.producer) ? current.producer : undefined;
+    const scope = isPlainObject(current.scope) ? current.scope : undefined;
+    const ruleset = producer !== undefined && isPlainObject(producer.ruleset)
+        ? producer.ruleset
+        : undefined;
+    const observationId = optionalPlainString(current.observationId);
+    if (observationId === undefined ||
+        !OBSERVATION_ID_PATTERN.test(observationId) ||
+        producer === undefined ||
+        scope === undefined ||
+        ruleset === undefined ||
+        // Only an exact-inventory scope carries per-file receipts at all; a
+        // semantic-declaration scope has no blob to key on.
+        scope.identityBasis !== 'exact-inventory' ||
+        !Array.isArray(scope.files) ||
+        !Array.isArray(current.findings)) {
+        return null;
+    }
+    const rulesetDigest = optionalPlainString(ruleset.digest);
+    const effectiveConfigDigest = optionalPlainString(producer.effectiveConfigDigest);
+    const environmentPolicyDigest = optionalPlainString(producer.environmentPolicyDigest);
+    const producerVersion = optionalPlainString(producer.version);
+    if (rulesetDigest === undefined ||
+        !SHA256_PATTERN.test(rulesetDigest) ||
+        effectiveConfigDigest === undefined ||
+        !SHA256_PATTERN.test(effectiveConfigDigest) ||
+        environmentPolicyDigest === undefined ||
+        !SHA256_PATTERN.test(environmentPolicyDigest) ||
+        producerVersion === undefined) {
+        return null;
+    }
+    const receipts = new Map();
+    for (const raw of scope.files) {
+        const receipt = readPriorFileReceipt(raw);
+        // One unreadable receipt discards the whole observation: a partial index
+        // would silently look like "this unit never covered that file", and reuse
+        // decisions must not be taken against a half-understood ledger.
+        if (receipt === null || receipts.has(receipt.path))
+            return null;
+        receipts.set(receipt.path, receipt);
+    }
+    const findingsByPath = new Map();
+    for (const raw of current.findings) {
+        const parsed = readPriorFinding(raw);
+        if (parsed === null)
+            return null;
+        const group = findingsByPath.get(parsed.path) ?? [];
+        group.push(parsed.finding);
+        findingsByPath.set(parsed.path, group);
+    }
+    return {
+        slug,
+        observationId,
+        rulesetDigest: rulesetDigest,
+        effectiveConfigDigest: effectiveConfigDigest,
+        environmentPolicyDigest: environmentPolicyDigest,
+        producerVersion,
+        receipts,
+        findingsByPath,
+    };
+}
+/**
+ * Every published security observation whose receipts are structurally sound
+ * enough to reason about. A ledger that cannot be read, parsed, or fully
+ * understood is simply absent from the result, which means "review that file
+ * again".
+ */
+export function readAuditProviderPriorObservations(repoRoot) {
+    let names;
+    try {
+        names = fs
+            .readdirSync(path.join(repoRoot, ...AUDIT_LEDGER_DIR.split('/')))
+            .filter((name) => name.endsWith('.json'))
+            .sort();
+    }
+    catch {
+        return [];
+    }
+    const observations = [];
+    for (const name of names) {
+        const slug = name.slice(0, -'.json'.length);
+        let document;
+        try {
+            document = readBoundedAuditJsonDocument(repoRoot, `${AUDIT_LEDGER_DIR}/${name}`, AUDIT_LEDGER_BYTE_LIMIT);
+        }
+        catch {
+            continue;
+        }
+        const observation = readPriorObservation(slug, document.value);
+        if (observation !== null)
+            observations.push(observation);
+    }
+    return observations;
+}
+/**
+ * Decides, per review target, whether a published receipt still proves the file.
+ *
+ * The reuse key is the file's blob plus every input that could change a verdict
+ * for those same bytes:
+ *
+ *  - `rulesetDigest` — prompt (including any repository-specific extra prompt),
+ *    model, adapter and adapter version;
+ *  - `effectiveConfigDigest` — the provider CLI's own effective configuration:
+ *    hooks, plugins, MCP servers, project instructions, permission sources;
+ *  - `environmentPolicyDigest` — the sandbox the reviewer ran in: tool set,
+ *    permission flags, environment allowlist, and the batch/response limits that
+ *    decide how much context one review call sees;
+ *  - `producerVersion` — the provider binary generation.
+ *
+ * Any mismatch, on any one of them, means the whole observation is unusable and
+ * every one of its files is reviewed again. The check is observation-wide on
+ * purpose: those inputs describe the run, not the file.
+ */
+function planCarriedReceipts(context, key) {
+    const priors = context.priorObservations;
+    if (priors === undefined || priors.length === 0)
+        return EMPTY_CARRY_PLAN;
+    const usable = priors.filter((prior) => prior.rulesetDigest === key.rulesetDigest &&
+        prior.effectiveConfigDigest === key.effectiveConfigDigest &&
+        prior.environmentPolicyDigest === key.environmentPolicyDigest &&
+        prior.producerVersion === key.producerVersion);
+    if (usable.length === 0)
+        return EMPTY_CARRY_PLAN;
+    const receipts = new Map();
+    const findings = [];
+    for (const target of context.targets) {
+        if (target.role !== 'review')
+            continue;
+        const claimants = usable.filter((prior) => prior.receipts.has(target.path));
+        // Two observations claiming one path is an ambiguity this layer must not
+        // resolve by guessing: carrying the wrong unit's receipt would publish a
+        // verdict taken under another unit's scope.
+        if (claimants.length !== 1)
+            continue;
+        const prior = claimants[0];
+        const receipt = prior.receipts.get(target.path);
+        if (receipt.blob !== target.blob || receipt.lines !== target.lines)
+            continue;
+        const priorFindings = prior.findingsByPath.get(target.path) ?? [];
+        // The published receipt and the published findings must already agree with
+        // each other, or the observation is internally inconsistent and nothing
+        // about it can be trusted for this file.
+        if (receipt.findingOccurrenceIds.length !== priorFindings.length)
+            continue;
+        const occurrenceIds = new Set(receipt.findingOccurrenceIds);
+        if (priorFindings.some((finding) => !occurrenceIds.has(finding.occurrenceId)))
+            continue;
+        if ((receipt.outcome === 'findings') !== (priorFindings.length > 0))
+            continue;
+        // The load-bearing invariant: recomputing each finding's identity against
+        // the bytes in THIS run's snapshot has to land on the id the observation
+        // published. When it does, the carried findings keep their finding ids and
+        // their dispositions carry. When it does not — an older, line-anchored
+        // identity scheme, say — the file is reviewed again rather than republished
+        // under ids nothing would match.
+        const carried = [];
+        let identityStable = true;
+        for (const finding of priorFindings) {
+            // Publication emits only reportable occurrences, so a published finding
+            // that claims anything else did not come from this pipeline and its
+            // occurrence list cannot be reconstructed from the carried receipt.
+            if (finding.disposition !== 'reportable') {
+                identityStable = false;
+                break;
+            }
+            const recomputed = candidateFingerprint(context.snapshotRoot, finding.path, finding.ruleId, finding.startLine, finding.endLine);
+            if (recomputed !== finding.fingerprint) {
+                identityStable = false;
+                break;
+            }
+            carried.push({
+                fingerprint: finding.fingerprint,
+                ruleId: finding.ruleId,
+                title: finding.title,
+                severity: finding.severity,
+                confidence: finding.confidence,
+                summary: finding.summary,
+                path: finding.path,
+                startLine: finding.startLine,
+                ...(finding.endLine !== undefined ? { endLine: finding.endLine } : {}),
+                detail: finding.detail,
+                fix: finding.fix,
+                disposition: finding.disposition,
+                dispositionRationale: finding.dispositionRationale,
+            });
+        }
+        if (!identityStable)
+            continue;
+        receipts.set(target.path, {
+            path: target.path,
+            blob: target.blob,
+            lines: target.lines,
+            outcome: receipt.outcome,
+            observationId: prior.observationId,
+            slug: prior.slug,
+            ...(receipt.reviewedAt !== undefined
+                ? {
+                    reviewedAt: receipt.reviewedAt,
+                    reviewedAtPrecision: receipt.reviewedAtPrecision ?? 'timestamp',
+                }
+                : {}),
+            ...(receipt.reviewedBy !== undefined ? { reviewedBy: receipt.reviewedBy } : {}),
+            ...(receipt.ruleset !== undefined ? { ruleset: receipt.ruleset } : {}),
+            receiptRefs: [...receipt.receiptRefs],
+            findingFingerprints: carried.map((finding) => finding.fingerprint),
+        });
+        findings.push(...carried);
+    }
+    return { receipts, findings };
+}
+// ---------------------------------------------------------------------------
 // Bounded parallel dispatch
 // ---------------------------------------------------------------------------
 /**
@@ -941,8 +1378,18 @@ export async function runAuditProviderPhases(context, handlers) {
         effectiveConfigDigest: inventoryFacts.effectiveConfigDigest,
         environmentPolicyDigest: context.environmentPolicyDigest,
     };
+    // Receipts a previously published observation still proves. These files are
+    // removed from batching entirely — that is the whole saving — so everything
+    // downstream (synthesis, the receipt chain, publication) has to learn about
+    // them from the plan rather than from a review chunk.
+    const carryPlan = planCarriedReceipts(context, {
+        rulesetDigest: context.ruleset.digest,
+        effectiveConfigDigest: inventoryFacts.effectiveConfigDigest,
+        environmentPolicyDigest: context.environmentPolicyDigest,
+        producerVersion: inventoryFacts.binaryVersion,
+    });
     // Phase 2: parallel bounded review — one bounded process per batch.
-    const reviewFiles = context.targets.filter((target) => target.role === 'review');
+    const reviewFiles = context.targets.filter((target) => target.role === 'review' && !carryPlan.receipts.has(target.path));
     // Slicing the sorted inventory groups siblings, and siblings share basenames:
     // this repository has 23 `index.ts` files under one directory and 147 overall,
     // so a batch could be eight files distinguishable only by parent directory.
@@ -960,7 +1407,13 @@ export async function runAuditProviderPhases(context, handlers) {
     //
     // This changes no validation: every file is reviewed exactly once, and the
     // batch digest still pins its exact contents.
-    const batchCount = Math.max(1, Math.ceil(reviewFiles.length / policy.maxBatchFiles));
+    //
+    // Zero batches, not one empty batch: when every file's receipt carried
+    // forward there is nothing to ask a provider about, and a batch of no files
+    // would spawn a process to review nothing.
+    const batchCount = reviewFiles.length === 0
+        ? 0
+        : Math.max(1, Math.ceil(reviewFiles.length / policy.maxBatchFiles));
     const batches = Array.from({ length: batchCount }, () => []);
     const basenameOf = (file) => file.path.slice(file.path.lastIndexOf('/') + 1);
     const dirnameOf = (file) => {
@@ -1031,6 +1484,11 @@ export async function runAuditProviderPhases(context, handlers) {
         })),
         ...sharedKeyMaterial,
     });
+    const reviewUnitByPath = {};
+    batches.forEach((files, index) => {
+        for (const file of files)
+            reviewUnitByPath[file.path] = `review:${index}`;
+    });
     const reviewExecutions = await boundedMapUnits(batches, policy.concurrency, context.signal, async (files, index, attempt) => {
         const unit = `review:${index}`;
         const inputDigest = reviewKey(unit, files);
@@ -1048,49 +1506,6 @@ export async function runAuditProviderPhases(context, handlers) {
         return output;
     }, policy.maxAttempts);
     context.assertSnapshotIntact();
-    /**
-     * Stable anchor for a finding: the normalized SOURCE TEXT it points at.
-     *
-     * Identity used to hash `startLine`, `endLine` and the generator's `title`. Both
-     * are unstable across runs for an unchanged issue — any edit or reformat above a
-     * finding shifts its lines, and the title is model prose that gets reworded — so
-     * every scan minted a fresh id and no disposition ever carried. Measured on a
-     * real repository: of 169 findings carrying a canonical fingerprint, ZERO matched
-     * a prior decision, which turned "prove one fix" into "re-disposition everything".
-     *
-     * Hashing the flagged text instead gives the identity the properties it needs:
-     *  - lines shift, text does not      -> same id, disposition carries
-     *  - the model rewords the title     -> same id
-     *  - the flagged code actually changes -> NEW id, which is correct: a changed
-     *    construct deserves a fresh review rather than an inherited verdict
-     *
-     * Whitespace is collapsed so a formatter cannot rotate identity. When the range
-     * cannot be read (out-of-range line, unreadable snapshot) this falls back to the
-     * line numbers so identity stays deterministic instead of throwing — that case is
-     * no more stable than the old scheme, but it is no less.
-     */
-    function findingAnchorDigest(snapshotRoot, repoPath, startLine, endLine) {
-        const absolute = path.join(snapshotRoot, ...repoPath.split('/'));
-        let text;
-        try {
-            const lines = fs.readFileSync(absolute, 'utf8').split('\n');
-            const from = Math.max(1, startLine);
-            const to = Math.max(from, endLine ?? startLine);
-            const slice = lines.slice(from - 1, to);
-            if (slice.length === 0)
-                throw new Error('range outside file');
-            text = slice
-                .map((line) => line.trim().replace(/\s+/gu, ' '))
-                .filter((line) => line.length > 0)
-                .join('\n');
-            if (text.length === 0)
-                throw new Error('range is blank');
-        }
-        catch {
-            text = `unresolved-range:${String(startLine)}:${String(endLine ?? startLine)}`;
-        }
-        return sha256Hex(text);
-    }
     // Deterministic candidate identity/dedupe between review and verification.
     const candidates = [];
     const seenFingerprints = new Set();
@@ -1098,14 +1513,7 @@ export async function runAuditProviderPhases(context, handlers) {
         const receipts = [...output.receipts].sort((left, right) => left.path.localeCompare(right.path));
         for (const receipt of receipts) {
             for (const finding of receipt.findings) {
-                const fingerprint = `cand_${sha256Hex(canonicalJson({
-                    // v2: anchored to normalized source text instead of line numbers and
-                    // the model's title, so an unchanged issue keeps its identity.
-                    namespace: 'repo-atlas/provider-candidate/v2',
-                    ruleId: finding.ruleId,
-                    path: receipt.path,
-                    anchor: findingAnchorDigest(context.snapshotRoot, receipt.path, finding.startLine, finding.endLine),
-                })).slice(0, 24)}`;
+                const fingerprint = candidateFingerprint(context.snapshotRoot, receipt.path, finding.ruleId, finding.startLine, finding.endLine);
                 if (seenFingerprints.has(fingerprint))
                     continue;
                 seenFingerprints.add(fingerprint);
@@ -1126,7 +1534,13 @@ export async function runAuditProviderPhases(context, handlers) {
         }
     }
     // Phase 3: independent verification — bounded parallel fact checking.
+    //
+    // Carried findings are deliberately absent from `candidates`: their terminal
+    // disposition was reached by an independent verification against these exact
+    // bytes and is carried with the receipt. Re-verifying them would be the
+    // provider cost this whole mechanism exists to avoid.
     const verificationOutputs = [];
+    const verificationUnitByFingerprint = {};
     if (candidates.length === 0) {
         const output = { dispositions: [] };
         const inputDigest = canonicalDigest({
@@ -1161,6 +1575,11 @@ export async function runAuditProviderPhases(context, handlers) {
             ];
             units.push({ unit: `verification:${unitIndex}`, index: unitIndex, candidates: slice, files });
         }
+        for (const unit of units) {
+            for (const candidate of unit.candidates) {
+                verificationUnitByFingerprint[candidate.fingerprint] = unit.unit;
+            }
+        }
         const verificationKey = (unit) => canonicalDigest({
             namespace: 'repo-atlas/provider-chunk-input/v1',
             phase: 'verification',
@@ -1193,8 +1612,18 @@ export async function runAuditProviderPhases(context, handlers) {
         reviewOutputs: reviewExecutions,
         verificationOutputs,
         candidates,
+        carried: carryPlan,
     });
-    validateSynthesisOutput(context, synthesis, candidates);
+    validateSynthesisOutput(context, synthesis, candidates, carryPlan);
+    const carriedChunkInput = [...carryPlan.receipts.values()]
+        .map((receipt) => ({
+        path: receipt.path,
+        blob: receipt.blob,
+        outcome: receipt.outcome,
+        observationId: receipt.observationId,
+        findingFingerprints: [...receipt.findingFingerprints].sort(),
+    }))
+        .sort((left, right) => left.path.localeCompare(right.path));
     const synthesisInputDigest = canonicalDigest({
         namespace: 'repo-atlas/provider-chunk-input/v1',
         phase: 'synthesis',
@@ -1205,6 +1634,11 @@ export async function runAuditProviderPhases(context, handlers) {
         verificationChunkDigests: slots
             .filter((slot) => slot.chunk.phase === 'verification')
             .map((slot) => slot.chunk.digest),
+        // Absent when nothing carried, so a run that reviews everything keeps the
+        // digest it has always had. When something did carry, the receipt chain has
+        // to name it: the proof for those files lives in another observation, and a
+        // transcript digest that ignored them would look like a full review.
+        ...(carriedChunkInput.length > 0 ? { carried: carriedChunkInput } : {}),
         ...sharedKeyMaterial,
     });
     const synthesisOutput = {
@@ -1255,15 +1689,48 @@ export async function runAuditProviderPhases(context, handlers) {
         receipt,
         reusedChunks,
         executedChunks,
+        carriedReceipts: [...carryPlan.receipts.values()].sort((left, right) => left.path.localeCompare(right.path)),
+        reviewUnitByPath,
+        verificationUnitByFingerprint,
     };
 }
-function validateSynthesisOutput(context, synthesis, candidates) {
+function validateSynthesisOutput(context, synthesis, candidates, carried) {
     const reviewTargets = context.targets.filter((target) => target.role === 'review');
     const byPath = new Map(synthesis.files.map((file) => [file.path, file]));
     if (byPath.size !== reviewTargets.length) {
         fail('missing-file-receipt', 'synthesis does not cover every review target exactly once', 'synthesis');
     }
-    const knownFingerprints = new Set(candidates.map((candidate) => candidate.fingerprint));
+    // A carried receipt is the one thing synthesis cannot re-derive, so it is the
+    // one thing synthesis is not allowed to restate. Both directions are checked:
+    // a carried file must publish exactly the carried outcome and exactly the
+    // carried findings, and a carried finding must not go missing.
+    const emittedFindings = new Map(synthesis.findings.map((finding) => [finding.fingerprint, finding]));
+    for (const receipt of carried.receipts.values()) {
+        const file = byPath.get(receipt.path);
+        if (file === undefined) {
+            fail('missing-file-receipt', `synthesis dropped the carried receipt for ${receipt.path}`, 'synthesis');
+        }
+        if (file.outcome !== receipt.outcome) {
+            fail('output-invalid', `synthesis restated the carried outcome for ${receipt.path} as ${file.outcome} instead of ${receipt.outcome}`, 'synthesis');
+        }
+        if (canonicalJson([...file.findingFingerprints].sort()) !==
+            canonicalJson([...receipt.findingFingerprints].sort())) {
+            fail('output-invalid', `synthesis restated the carried findings for ${receipt.path}`, 'synthesis');
+        }
+    }
+    for (const finding of carried.findings) {
+        const emitted = emittedFindings.get(finding.fingerprint);
+        if (emitted === undefined) {
+            fail('output-invalid', `synthesis dropped carried finding ${finding.fingerprint} on ${finding.path}`, 'synthesis');
+        }
+        if (canonicalJson(emitted) !== canonicalJson(finding)) {
+            fail('output-invalid', `synthesis altered carried finding ${finding.fingerprint} on ${finding.path}`, 'synthesis');
+        }
+    }
+    const knownFingerprints = new Set([
+        ...candidates.map((candidate) => candidate.fingerprint),
+        ...carried.findings.map((finding) => finding.fingerprint),
+    ]);
     for (const target of reviewTargets) {
         const file = byPath.get(target.path);
         if (file === undefined) {
@@ -1412,6 +1879,11 @@ export async function runAuditProviderInvocation(request, provider) {
             assertSnapshotIntact: () => assertSnapshotIntact(snapshotRoot, manifest, policy),
             manifestEntry: (repoPath) => manifestByPath.get(repoPath),
             ...(resumeSourceDir !== undefined ? { resumeSourceDir } : {}),
+            // Read before the provider starts, from the tracked ledgers only. The
+            // absence of this field is what makes a default run a full review.
+            ...(request.reuseUnchangedReceipts === true
+                ? { priorObservations: readAuditProviderPriorObservations(repoRoot) }
+                : {}),
         };
         try {
             const result = await provider.run(context);

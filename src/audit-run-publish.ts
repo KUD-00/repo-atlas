@@ -11,7 +11,6 @@ import {
 } from './audit-policy.js'
 import type {
   AuditProviderFileOutcome,
-  AuditProviderPolicy,
   AuditProviderResult,
   AuditProviderTarget,
 } from './audit-providers.js'
@@ -54,7 +53,6 @@ const CONFIG_BYTE_LIMIT = 1024 * 1024
 export interface AuditRunPublicationOptions {
   result: AuditProviderResult
   targets: readonly AuditProviderTarget[]
-  providerPolicy: AuditProviderPolicy
 }
 
 export interface AuditRunPublicationUnit {
@@ -216,7 +214,7 @@ export function publishAuditProviderRunObservations(
   root: string,
   options: AuditRunPublicationOptions,
 ): AuditRunPublication {
-  const { result, targets, providerPolicy } = options
+  const { result, targets } = options
   const receipt = result.receipt
 
   const repositoryId = loadRepositoryId(root)
@@ -298,20 +296,29 @@ export function publishAuditProviderRunObservations(
   const observedAt = new Date().toISOString()
 
   const reviewTargets = targets.filter((target) => target.role === 'review')
-  const reviewBatchOf = (repoPath: string): number => {
-    const index = reviewTargets.findIndex((target) => target.path === repoPath)
-    if (index < 0) {
-      throw new Error(`run output file was not a review target: ${repoPath}`)
+  for (const file of result.files) {
+    if (!reviewTargets.some((target) => target.path === file.path)) {
+      throw new Error(`run output file was not a review target: ${file.path}`)
     }
-    return Math.floor(index / providerPolicy.maxBatchFiles)
   }
-  const verificationUnitOf = new Map<string, string>()
-  result.findings.forEach((finding, index) => {
-    verificationUnitOf.set(
-      finding.fingerprint,
-      `verification:${Math.floor(index / providerPolicy.maxVerificationCandidates)}`,
-    )
-  })
+  // Which chunk actually produced each receipt, taken from the run rather than
+  // guessed from a path's position. Batch membership is chosen by the placement
+  // heuristic, and a run that carried receipts forward batches only the files it
+  // re-reviewed — a positional formula names a batch that never held the file.
+  const carriedByPath = new Map(
+    result.carriedReceipts.map((carried) => [carried.path, carried]),
+  )
+  const reviewUnitOf = (repoPath: string): string => {
+    const unit = result.reviewUnitByPath[repoPath]
+    if (unit === undefined) {
+      throw new Error(
+        `run output file ${repoPath} names no review chunk and carries no prior receipt`,
+      )
+    }
+    return unit
+  }
+  const verificationUnitOf = (fingerprint: string): string | undefined =>
+    result.verificationUnitByFingerprint[fingerprint]
 
   const buildObservation = (unit: UnitContext): AtlasSecurityObservationV3 => {
     const reportable = result.findings.filter(
@@ -394,12 +401,53 @@ export function publishAuditProviderRunObservations(
     )
     const files: AuditFileReceiptV3[] = orderedUnitFiles.map((file) => {
       const occurrenceIds = [...(occurrenceIdsByPath.get(file.path) ?? [])].sort()
-      const receiptRefs = new Set<string>([
-        `phase:review:review:${reviewBatchOf(file.path)}`,
-      ])
+      const carried = carriedByPath.get(file.path)
+      if (carried !== undefined) {
+        // A carried receipt keeps the provenance of the review that actually
+        // happened: its own timestamp, reviewer and ruleset, none of which this
+        // run re-earned. Stamping `observedAt` here would refresh evidence
+        // nothing re-read.
+        //
+        // `carried-from:<observationId>` is what tells a reader this receipt was
+        // not proven by this run, and where its proof lives. It is omitted in
+        // exactly one case: when this observation IS that observation (identical
+        // snapshot, identical producer identity, so the same observation id), the
+        // reference would point at itself and the prior receipt refs still hold.
+        //
+        // The outcome is restated from the receipt, not re-derived from the
+        // occurrences published here: if those two ever disagreed, re-deriving
+        // would quietly downgrade a findings-bearing carried file to clean.
+        if ((occurrenceIds.length > 0) !== (carried.outcome === 'findings')) {
+          throw new Error(
+            `carried receipt for ${file.path} says ${carried.outcome} but this observation ` +
+            `publishes ${String(occurrenceIds.length)} occurrence(s) for it`,
+          )
+        }
+        const selfCarried = carried.observationId === observationId
+        return {
+          path: file.path,
+          blob: file.blob,
+          lines: file.lines,
+          status: 'reviewed',
+          outcome: carried.outcome,
+          ...(carried.reviewedAt !== undefined
+            ? {
+                reviewedAt: carried.reviewedAt,
+                reviewedAtPrecision: carried.reviewedAtPrecision ?? 'timestamp',
+              }
+            : {}),
+          ...(carried.reviewedBy !== undefined ? { reviewedBy: carried.reviewedBy } : {}),
+          ...(carried.ruleset !== undefined ? { ruleset: carried.ruleset } : {}),
+          findingOccurrenceIds: occurrenceIds,
+          receiptRefs: selfCarried
+            ? [...carried.receiptRefs].sort()
+            : [`carried-from:${carried.observationId}`],
+        }
+      }
+      const receiptRefs = new Set<string>([`phase:review:${reviewUnitOf(file.path)}`])
       for (const finding of reportable) {
         if (finding.path !== file.path) continue
-        const verificationUnit = verificationUnitOf.get(finding.fingerprint)
+        const verificationUnit = verificationUnitOf(finding.fingerprint)
         if (verificationUnit !== undefined) {
           receiptRefs.add(`phase:verification:${verificationUnit}`)
         }

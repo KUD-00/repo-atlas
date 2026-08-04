@@ -1206,6 +1206,23 @@ function grokSynthesize(context, input) {
     for (const target of context.targets) {
         if (target.role !== 'review')
             continue;
+        // A carried file was not reviewed this run, so nothing in this run's outputs
+        // describes it. Deriving its outcome from those outputs would publish it as
+        // clean — a file reported clean that nothing re-examined. Its verdict is
+        // restated from the receipt exactly as carried, and the driver rejects any
+        // deviation.
+        const carried = input.carried.receipts.get(target.path);
+        if (carried !== undefined) {
+            files.push({
+                path: target.path,
+                blob: target.blob,
+                lines: target.lines,
+                status: 'reviewed',
+                outcome: carried.outcome,
+                findingFingerprints: [...carried.findingFingerprints],
+            });
+            continue;
+        }
         files.push({
             path: target.path,
             blob: target.blob,
@@ -1219,7 +1236,7 @@ function grokSynthesize(context, input) {
                 .map((finding) => finding.fingerprint),
         });
     }
-    return { files, findings };
+    return { files, findings: [...findings, ...input.carried.findings] };
 }
 export function createGrokAuditProvider() {
     return {

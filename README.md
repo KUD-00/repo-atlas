@@ -552,7 +552,8 @@ leaves coverage scope only with its history proven.
 ### Explicit Grok execution
 
 ```sh
-repo-atlas audit run security --provider grok [--unit <slug> | --all | --stale] [--resume <id>]
+repo-atlas audit run security --provider grok [--unit <slug> | --all | --stale] \
+  [--resume <id>] [--reuse-unchanged]
 ```
 
 This is the only command that launches a provider, and it refuses to run
@@ -575,6 +576,26 @@ transcript digests, per-file outcomes — no wall-clock fields) and the
 transcripts stay clone-local under `.atlas/.runtime/audit-runs/<id>/`;
 `--resume <id>` reuses completed chunks from a failed run. The CLI version
 is probed against the supported contract before any analysis starts.
+
+An observation covers a whole unit, so a rescan re-reviews every file the
+unit owns — one provider process per batch — even when one line changed.
+`--reuse-unchanged` makes that cost track the change instead: a file whose
+Git blob is unchanged since the unit's published observation keeps its
+receipt, and only the rest are sent to the provider. Reuse requires the
+prior observation to match on the whole reviewing identity — ruleset digest
+(prompt, model, adapter), the CLI's effective-config digest, the sandbox
+environment-policy digest, and the CLI version — and it re-derives each
+carried finding's content anchor from the snapshot bytes, so carried
+findings land on the same finding IDs and keep their dispositions. Anything
+missing, malformed, ambiguous, or unverifiable means the file is reviewed
+again.
+
+A carried receipt is labelled in the published observation: its
+`receiptRefs` name `carried-from:<observationId>` instead of a chunk of this
+run, and it keeps the `reviewedAt`/`reviewedBy` of the review that actually
+read the bytes. Per-file freshness stays blob-bound, so `audit check` is as
+strict as it was. Reuse is opt-in: without the flag every selected file is
+reviewed again.
 
 ### Sealed Codex Security import
 

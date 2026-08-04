@@ -86,8 +86,12 @@ usage: repo-atlas audit <verb> [args]
   audit status [--json]    report the V3 portfolio, decisions, migrations, and
                            coverage state (canonical JSON with --json)
   audit run security --provider grok [--unit <slug> | --all | --stale] [--resume <id>]
+                     [--reuse-unchanged]
                            the ONLY command that launches a provider; default
-                           selection is stale units from policy evidence
+                           selection is stale units from policy evidence.
+                           --reuse-unchanged carries a published receipt forward
+                           for any file whose blob and reviewing inputs are
+                           unchanged, so a rescan costs what changed
   audit import codex-security <scan-dir> --slug <slug> [--apply]
                            import a sealed Codex Security 1.0 bundle as a V3
                            semantic observation (dry-run without --apply)
@@ -115,7 +119,8 @@ const USAGE_CHECK = 'usage: repo-atlas audit check [--allow-incomplete]'
 const USAGE_COVERAGE = 'usage: repo-atlas audit coverage <check|update> [--allow-incomplete]'
 const USAGE_STATUS = 'usage: repo-atlas audit status [--json]'
 const USAGE_RUN =
-  'usage: repo-atlas audit run security --provider grok [--unit <slug> | --all | --stale] [--resume <id>]'
+  'usage: repo-atlas audit run security --provider grok [--unit <slug> | --all | --stale] ' +
+  '[--resume <id>] [--reuse-unchanged]'
 const USAGE_IMPORT = 'usage: repo-atlas audit import <codex-security|legacy-v1> ...'
 const USAGE_IMPORT_CODEX =
   'usage: repo-atlas audit import codex-security <scan-dir> --slug <slug> [--apply]'
@@ -706,7 +711,10 @@ async function auditRun(root: string, args: string[]): Promise<void> {
   }
   const parsed = parseAuditArgs(
     rest,
-    { values: ['--provider', '--unit', '--resume'], flags: ['--all', '--stale'] },
+    {
+      values: ['--provider', '--unit', '--resume'],
+      flags: ['--all', '--stale', '--reuse-unchanged'],
+    },
     USAGE_RUN,
   )
   rejectPositionals(parsed, USAGE_RUN)
@@ -755,12 +763,15 @@ async function auditRun(root: string, args: string[]): Promise<void> {
     ...(parsed.values.has('--resume')
       ? { resumeInvocationId: parsed.values.get('--resume')! }
       : {}),
+    // Reuse is opt-in, like --resume: a bare `audit run security` re-reviews
+    // every file it selects, so asking for a review can never quietly return a
+    // receipt somebody else's run earned.
+    ...(parsed.flags.has('--reuse-unchanged') ? { reuseUnchangedReceipts: true } : {}),
   }
   const result = await runAuditProviderInvocation(request, createGrokAuditProvider())
   const publication = publishAuditProviderRunObservations(root, {
     result,
     targets,
-    providerPolicy: policy,
   })
   const findings = result.files.filter((file) => file.outcome === 'findings').length
   console.log(`audit run security: completed`)
@@ -775,6 +786,13 @@ async function auditRun(root: string, args: string[]): Promise<void> {
   console.log(
     `  chunks: ${result.executedChunks.length} executed · ${result.reusedChunks.length} reused`,
   )
+  if (result.carriedReceipts.length > 0) {
+    const sources = [...new Set(result.carriedReceipts.map((carried) => carried.observationId))]
+    console.log(
+      `  carried receipts: ${result.carriedReceipts.length} file(s) not re-reviewed ` +
+      `(from ${sources.sort().join(', ')})`,
+    )
+  }
   for (const unit of publication.units) {
     console.log(
       `  published ${unit.slug}: ${unit.status} (${unit.observationId}` +
