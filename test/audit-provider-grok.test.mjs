@@ -994,6 +994,64 @@ test('a missing per-file receipt prevents publication', async (t) => {
   )
 })
 
+test('finding identity survives line shifts and rewording, and changes with the code', async (t) => {
+  // Identity used to hash startLine/endLine and the model's title. Both are
+  // unstable for an UNCHANGED issue: an edit above it shifts the lines and the
+  // model rewords the title, so every run minted a new id and no disposition ever
+  // carried. Measured on a real repository: 0 of 169 canonical fingerprints
+  // matched a prior decision. Identity is now the normalized flagged source text.
+  const runFor = async (sourceLines, findingOverrides, label) => {
+    const finding = {
+      ruleId: 'injection-sql-cmd-path-ssrf/command-exec',
+      title: 'unsanitized exec',
+      severity: 'high',
+      confidence: 'high',
+      summary: 'user input reaches exec',
+      startLine: 2,
+      endLine: 2,
+      detail: 'abuse path detail',
+      fix: 'spawn with an argv array',
+      ...findingOverrides,
+    }
+    const fake = makeFakeGrok(t, { mode: 'ok', reviewFindings: { 'src/a.ts': [finding] } })
+    const root = makeRepo(t, { 'src/a.ts': sourceLines.join('\n') + '\n' })
+    const result = await runAuditProviderInvocation(
+      makeRequest(root, makePolicy(fake), ['src/a.ts']),
+      createGrokAuditProvider(),
+    )
+    assert.equal(result.status, 'completed', `${label} did not complete`)
+    assert.equal(result.findings.length, 1, `${label} lost its finding`)
+    return result.findings[0].fingerprint
+  }
+
+  const flagged = 'export const danger = exec(userInput)'
+  const base = ['export const a_1 = 1', flagged, 'export const a_3 = 3']
+
+  // 1. Baseline.
+  const first = await runFor(base, {}, 'baseline')
+
+  // 2. Two lines inserted ABOVE the finding: it now reports at line 4, and the
+  //    model words the title differently. Same issue, so the id must not move.
+  const shifted = ['export const pre_1 = 0', 'export const pre_2 = 0', ...base]
+  const afterShift = await runFor(
+    shifted,
+    { startLine: 4, endLine: 4, title: 'command executed with unsanitized input' },
+    'line shift + reword',
+  )
+  assert.equal(afterShift, first, 'a line shift and a reworded title changed the identity')
+
+  // 3. Reformatted flagged line: whitespace only. Still the same construct.
+  const reformatted = ['export const a_1 = 1', `  ${flagged.replace(/ /gu, '   ')}`, 'export const a_3 = 3']
+  const afterFormat = await runFor(reformatted, {}, 'reformat')
+  assert.equal(afterFormat, first, 'reformatting the flagged line changed the identity')
+
+  // 4. The flagged CODE actually changes: a new id is correct, because an altered
+  //    construct deserves a fresh review rather than an inherited verdict.
+  const fixed = ['export const a_1 = 1', "export const safe = spawn('cmd', [userInput])", 'export const a_3 = 3']
+  const afterFix = await runFor(fixed, {}, 'code changed')
+  assert.notEqual(afterFix, first, 'changing the flagged code must mint a new identity')
+})
+
 test('a retry restates the required paths instead of resending identical bytes', async (t) => {
   // A retry used to resend byte-identical bytes, so a generator that answered
   // about a path it invented re-invented it and burned every attempt on the same

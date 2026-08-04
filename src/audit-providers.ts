@@ -1611,6 +1611,52 @@ export async function runAuditProviderPhases(
   )
   context.assertSnapshotIntact()
 
+/**
+ * Stable anchor for a finding: the normalized SOURCE TEXT it points at.
+ *
+ * Identity used to hash `startLine`, `endLine` and the generator's `title`. Both
+ * are unstable across runs for an unchanged issue — any edit or reformat above a
+ * finding shifts its lines, and the title is model prose that gets reworded — so
+ * every scan minted a fresh id and no disposition ever carried. Measured on a
+ * real repository: of 169 findings carrying a canonical fingerprint, ZERO matched
+ * a prior decision, which turned "prove one fix" into "re-disposition everything".
+ *
+ * Hashing the flagged text instead gives the identity the properties it needs:
+ *  - lines shift, text does not      -> same id, disposition carries
+ *  - the model rewords the title     -> same id
+ *  - the flagged code actually changes -> NEW id, which is correct: a changed
+ *    construct deserves a fresh review rather than an inherited verdict
+ *
+ * Whitespace is collapsed so a formatter cannot rotate identity. When the range
+ * cannot be read (out-of-range line, unreadable snapshot) this falls back to the
+ * line numbers so identity stays deterministic instead of throwing — that case is
+ * no more stable than the old scheme, but it is no less.
+ */
+function findingAnchorDigest(
+  snapshotRoot: string,
+  repoPath: string,
+  startLine: number,
+  endLine: number | undefined,
+): string {
+  const absolute = path.join(snapshotRoot, ...repoPath.split('/'))
+  let text: string
+  try {
+    const lines = fs.readFileSync(absolute, 'utf8').split('\n')
+    const from = Math.max(1, startLine)
+    const to = Math.max(from, endLine ?? startLine)
+    const slice = lines.slice(from - 1, to)
+    if (slice.length === 0) throw new Error('range outside file')
+    text = slice
+      .map((line) => line.trim().replace(/\s+/gu, ' '))
+      .filter((line) => line.length > 0)
+      .join('\n')
+    if (text.length === 0) throw new Error('range is blank')
+  } catch {
+    text = `unresolved-range:${String(startLine)}:${String(endLine ?? startLine)}`
+  }
+  return sha256Hex(text)
+}
+
   // Deterministic candidate identity/dedupe between review and verification.
   const candidates: AuditProviderCandidateFinding[] = []
   const seenFingerprints = new Set<string>()
@@ -1622,12 +1668,17 @@ export async function runAuditProviderPhases(
       for (const finding of receipt.findings) {
         const fingerprint = `cand_${sha256Hex(
           canonicalJson({
-            namespace: 'repo-atlas/provider-candidate/v1',
+            // v2: anchored to normalized source text instead of line numbers and
+            // the model's title, so an unchanged issue keeps its identity.
+            namespace: 'repo-atlas/provider-candidate/v2',
             ruleId: finding.ruleId,
             path: receipt.path,
-            startLine: finding.startLine,
-            endLine: finding.endLine ?? null,
-            title: finding.title,
+            anchor: findingAnchorDigest(
+              context.snapshotRoot,
+              receipt.path,
+              finding.startLine,
+              finding.endLine,
+            ),
           }),
         ).slice(0, 24)}`
         if (seenFingerprints.has(fingerprint)) continue
