@@ -1352,6 +1352,14 @@ export interface AuditCoverageLifecycleFinding {
   blocking: boolean
   lifecycle: 'new' | 'persisting' | 'resolved' | 'reopened' | 'unknown'
   expiryState: 'not-applicable' | 'active' | 'warning' | 'expired'
+  /** Why the state is what it is — `carry-invalidated` means a decision exists but no longer applies. */
+  derivation:
+    | 'explicit-event'
+    | 'carried'
+    | 'carry-invalidated'
+    | 'implicit-open'
+    | 'automatic-reopen'
+    | 'reconciliation-conflict'
 }
 
 export interface AuditCoverageLifecycleAssurance {
@@ -1373,6 +1381,45 @@ export interface AuditCoverageResult {
   report: ReviewCoverageReport
   diagnostics: CoverageDiagnostic[]
   runtimeAssurance: AuditCoverageRuntimeAssurance
+}
+
+/**
+ * A blocking finding used to produce NO diagnostic at all.
+ *
+ * `runtimeAssuranceAllows` would fail the coverage area while every printed line
+ * was an unrelated coverage gap, so the reason the gate was red never appeared in
+ * its own output. Observed on a real repository: 153 decisions had been silently
+ * invalidated by a stale `reviewContext.policyDigest` — the reducer knew
+ * (`derivation: 'carry-invalidated'`) and the projection dropped it, so the state
+ * read as an indistinguishable `open` and diagnosing it took hours.
+ *
+ * One line per derivation, not per finding: the count is the signal, and a
+ * per-finding list would bury it under a thousand coverage gaps.
+ */
+function blockingFindingDiagnostics(
+  assurance: AuditCoverageRuntimeAssurance,
+): CoverageDiagnostic[] {
+  const byDerivation = new Map<string, number>()
+  for (const finding of assurance.lifecycle.findings) {
+    if (!finding.blocking) continue
+    const key = finding.derivation ?? 'unknown'
+    byDerivation.set(key, (byDerivation.get(key) ?? 0) + 1)
+  }
+  return [...byDerivation.entries()]
+    .sort(([left], [right]) => compareText(left, right))
+    .map(([derivation, count]) =>
+      diagnostic(
+        'blocking-findings',
+        `${String(count)} finding(s) block coverage with derivation "${derivation}"` +
+          (derivation === 'carry-invalidated'
+            ? ' — their decisions exist but no longer apply; the usual cause is a' +
+              ' reviewContext policyDigest or ruleset that no longer matches the' +
+              ' current policy. Re-record them against the current policy.'
+            : derivation === 'implicit-open'
+              ? ' — never dispositioned. Record a decision with `audit decision set`.'
+              : ''),
+      ),
+    )
 }
 
 function lifecycleAssurance(
@@ -1420,6 +1467,14 @@ function lifecycleAssurance(
         blocking: finding.blocking,
         lifecycle: finding.lifecycle,
         expiryState: finding.expiryState,
+        // WHY a finding is blocking, not just that it is. The reducer already
+        // distinguishes a never-dispositioned finding from one whose decision was
+        // invalidated (`carry-invalidated` — a stale reviewContext policyDigest or
+        // ruleset, or an expired acceptance), but this projection dropped the
+        // field, so both surfaced as an indistinguishable `open`. Diagnosing 153
+        // silently invalidated decisions in a real repository took hours that this
+        // one word would have saved.
+        derivation: finding.derivation,
       }))
       .sort((left, right) => compareText(left.findingId, right.findingId))
     return { findings, diagnostics: [] }
@@ -1616,6 +1671,7 @@ function prepareCoverage(root: string): PreparedCoverage {
     ...report.invalidLedgerDetails,
     ...gapDiagnostics(report),
     ...assurance.lifecycle.diagnostics,
+    ...blockingFindingDiagnostics(assurance),
   ])
   return {
     report,
