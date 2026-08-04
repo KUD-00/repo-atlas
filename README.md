@@ -593,33 +593,19 @@ semantic coverage and leaves exact coverage unknown rather than inventing
 receipts. Dry-run is the default; `--apply` publishes the current ledger
 and appends history under the audit lock.
 
-### RelayOS migrations
+### RelayOS migrations (removed)
 
-```sh
-repo-atlas audit migrate relayos-security-v1 --scan-root <path> --policy <path> \
-  --source-revision <commit> --validation-revision <commit> \
-  [--include-history | --no-include-history] [--apply]
-repo-atlas audit migrate relayos-root-audits-v1 --audits-root <path> \
-  --source-revision <commit> --validation-revision <commit> [--apply]
-```
+The two single-use RelayOS V1 migrators (`audit migrate relayos-security-v1` and
+`relayos-root-audits-v1`) were deleted once that migration completed and the
+consumer's legacy `audits/` tree was removed. `audit migrate` has no registered
+migrations and the verb is gone.
 
-Both migrators are deterministic, idempotent, and non-destructive, and
-both dry-run by default. The seam is a pure builder plus a locked apply:
-the dry run plans every output byte; `--apply` re-plans under the audit
-lock and refuses if the source or validation state changed underneath.
-The two-revision contract pins what was read (`--source-revision`) against
-what it was validated against (`--validation-revision`). The security
-migrator converts a known RelayOS scan root (ledger, candidates,
-dispositions, phase-zero provenance) into per-unit V3 observations,
-decision events, retirements, and reconciliations, including observation
-history unless `--no-include-history`. The root-audits migrator converts
-the design-scan set and historical reports, retaining the reports as
-bounded artifacts under `.atlas/artifacts/historical-audits/` with design
-parity checks. Each apply seals a canonical receipt at
-`.atlas/migrations/<migrationId>.json` whose digest covers both full
-revisions, the repository identity, the exact policy seal, the
-historical-assignment digest, the converter name/version/commit, and the
-sorted raw input seals — `audit check` revalidates receipt digests.
+Their sealed receipts remain at `.atlas/migrations/<migrationId>.json` in the
+consumer repository and are still revalidated by `audit check`: each receipt's
+digest covers both revisions, the repository identity, the policy seal, the
+historical-assignment digest, the converter name/version/commit, and the sorted
+raw input seals. The record of what was converted therefore survives the
+converter.
 
 ### Audit lock and recovery
 
