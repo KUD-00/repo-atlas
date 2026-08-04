@@ -994,6 +994,52 @@ test('a missing per-file receipt prevents publication', async (t) => {
   )
 })
 
+test('a retry restates the required paths instead of resending identical bytes', async (t) => {
+  // A retry used to resend byte-identical bytes, so a generator that answered
+  // about a path it invented re-invented it and burned every attempt on the same
+  // wrong answer. Observed live six times across two runs on one batch before
+  // this was fixed.
+  const fake = makeFakeGrok(t, { mode: 'missing-receipt' })
+  const root = makeRepo(t, {
+    'src/a.ts': makeSource(6, 'a'),
+    'src/b.ts': makeSource(6, 'b'),
+  })
+  await assert.rejects(
+    () =>
+      runAuditProviderInvocation(
+        makeRequest(root, makePolicy(fake, { maxBatchFiles: 2 }), ['src/a.ts', 'src/b.ts']),
+        createGrokAuditProvider(),
+      ),
+    (error) => error instanceof AuditProviderError && error.code === 'missing-file-receipt',
+  )
+
+  const prompts = fake
+    .invocations()
+    .filter((invocation) => invocation.kind === 'run' && typeof invocation.prompt === 'string')
+    .map((invocation) => invocation.prompt)
+  assert.ok(prompts.length >= 2, `expected at least one retry, saw ${prompts.length} run(s)`)
+
+  // First attempt carries no correction; every retry does, and names both paths.
+  assert.ok(
+    !prompts[0].includes('## Retry correction'),
+    'the first attempt must not claim a previous attempt failed',
+  )
+  for (const [index, prompt] of prompts.slice(1).entries()) {
+    assert.match(prompt, /## Retry correction/u, `retry ${index + 1} lost the correction`)
+    assert.match(prompt, /- src\/a\.ts/u)
+    assert.match(prompt, /- src\/b\.ts/u)
+  }
+
+  // The correction must never displace the terminal unit block: the reader takes
+  // everything after the LAST `ATLAS-UNIT` marker as JSON, so prose after it
+  // corrupts the block rather than adding to the prompt.
+  for (const prompt of prompts) {
+    const marker = prompt.lastIndexOf('ATLAS-UNIT')
+    assert.ok(marker >= 0, 'prompt lost its ATLAS-UNIT block')
+    JSON.parse(prompt.slice(marker + 'ATLAS-UNIT'.length).trim())
+  }
+})
+
 test('a receipt for a path absent from the inventory is rejected alone', async (t) => {
   // The generator invented three paths across three real runs and each one
   // aborted a completed review phase. A fabrication is one bad receipt, not a

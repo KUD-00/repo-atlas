@@ -529,7 +529,10 @@ async function grokInventory(context) {
 // ---------------------------------------------------------------------------
 // Prompts
 // ---------------------------------------------------------------------------
-function renderUnitPrompt(context, unitBlock, template) {
+function renderUnitPrompt(context, unitBlock, template, extraSection = '') {
+    // `ATLAS-UNIT` + JSON stays TERMINAL: both the real reader and the fake parse
+    // everything after the last marker as the unit block, so anything appended
+    // after it corrupts the block rather than adding to the prompt.
     const sections = [
         template,
         '',
@@ -537,6 +540,7 @@ function renderUnitPrompt(context, unitBlock, template) {
         '',
         context.prompt.trim().length > 0 ? context.prompt.trim() : 'None supplied.',
         '',
+        ...(extraSection ? [extraSection, ''] : []),
         'ATLAS-UNIT',
         JSON.stringify(unitBlock),
         '',
@@ -962,6 +966,26 @@ function parseFinalJsonBlock(response, context, phase) {
 // ---------------------------------------------------------------------------
 // Analysis units (review + verification): one bounded grok process each
 // ---------------------------------------------------------------------------
+/**
+ * Appended only on a retry. The previous attempt's output did not carry a
+ * receipt for every requested path — either it named a file it was not asked
+ * about, or it omitted one — so restate the closed set and forbid substitution.
+ */
+function renderReviewCorrection(unit) {
+    const paths = unit.files.map((file) => `- ${file.path}`).join('\n');
+    return [
+        '## Retry correction',
+        '',
+        `A previous attempt on this batch (attempt ${String(unit.attempt - 1)}) did not return`,
+        'exactly one receipt per requested path. Emit one receipt for EACH path below and',
+        'for NO other path. Copy each `path` value verbatim from this list — do not',
+        'normalize, abbreviate, pluralize, or infer a neighbouring directory name. If a',
+        'file cannot be read, still emit its receipt and say so in the summary rather',
+        'than substituting a different path.',
+        '',
+        paths,
+    ].join('\n');
+}
 async function runGrokAnalysisUnit(context, options) {
     const policy = context.policy;
     const phase = options.kind;
@@ -997,7 +1021,17 @@ async function runGrokAnalysisUnit(context, options) {
                 sha256: file.sha256,
             })),
         };
-    const prompt = renderUnitPrompt(context, unitBlock, options.kind === 'review' ? GROK_REVIEW_PROMPT : GROK_VERIFICATION_PROMPT);
+    // A retry used to re-send byte-identical bytes, so a model that answered about
+    // a path it invented re-invented it and burned every attempt on the same wrong
+    // answer. Seen live: a single-file review batch for
+    // apps/daemon/src/capabilities/artifacts/index.ts returned a receipt for
+    // apps/daemon/src/capabilities/packets/index.ts — a path absent from the repo,
+    // its history, and the snapshot — six times across two runs. Name the required
+    // paths explicitly on a retry instead of hoping for different sampling.
+    const correction = options.kind === 'review' && options.unit.attempt > 1
+        ? renderReviewCorrection(options.unit)
+        : '';
+    const prompt = renderUnitPrompt(context, unitBlock, options.kind === 'review' ? GROK_REVIEW_PROMPT : GROK_VERIFICATION_PROMPT, correction);
     const promptsDir = path.join(context.tempRoot, 'prompts');
     fs.mkdirSync(promptsDir, { recursive: true, mode: 0o700 });
     const promptFile = path.join(promptsDir, `${options.unit.unit.replaceAll(':', '-')}-${randomUUID().slice(0, 8)}.md`);

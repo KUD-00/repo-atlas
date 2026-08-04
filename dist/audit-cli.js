@@ -9,8 +9,6 @@ import { appendAuditDecision, buildAuditDecisionIndex, loadAuditDecisionLedgers,
 import { classifyAuditInventory, loadAuditReviewPolicy, readAuditTrackedInventory, } from './audit-policy.js';
 import { buildAuditCoverageReport, checkAuditCoverage, updateAuditCoverage, } from './audit-coverage-generator.js';
 import { importCodexSecurityBundle } from './audit-import-codex.js';
-import { buildRelayOSAuditMigration, migrateRelayOSAudit, } from './audit-migrate-relayos.js';
-import { buildRelayOSRootAuditsMigration, migrateRelayOSRootAudits, } from './audit-migrate-relayos-root-audits.js';
 import { AUDIT_PROVIDER_INVOCATION_COMMAND, AuditProviderError, loadAuditProviderPolicy, resolveAuditProviderPolicy, runAuditProviderInvocation, } from './audit-providers.js';
 import { createGrokAuditProvider } from './audit-provider-grok.js';
 import { publishAuditProviderRunObservations } from './audit-run-publish.js';
@@ -42,15 +40,7 @@ usage: repo-atlas audit <verb> [args]
                            semantic observation (dry-run without --apply)
   audit import legacy-v1 <ledger.json>...
                            import legacy scans[] ledgers into atlas-audit-v1
-  audit migrate relayos-security-v1 --scan-root <path> --policy <path>
-         --source-revision <commit> --validation-revision <commit>
-         [--include-history | --no-include-history] [--apply]
-                           migrate a known RelayOS scan root into per-unit V3
-                           state + a sealed receipt (history included by default)
-  audit migrate relayos-root-audits-v1 --audits-root <path>
-         --source-revision <commit> --validation-revision <commit> [--apply]
-                           migrate a known RelayOS root audit set (bounded
-                           artifacts + design parity + sealed receipt)
+
   audit decision set <finding-or-occurrence> <action> --event <event.json>
                            append a finding-disposition event (a write by name)
   audit reconcile <before> <after> --event <event.json>
@@ -74,12 +64,6 @@ const USAGE_RUN = 'usage: repo-atlas audit run security --provider grok [--unit 
 const USAGE_IMPORT = 'usage: repo-atlas audit import <codex-security|legacy-v1> ...';
 const USAGE_IMPORT_CODEX = 'usage: repo-atlas audit import codex-security <scan-dir> --slug <slug> [--apply]';
 const USAGE_IMPORT_LEGACY = 'usage: repo-atlas audit import legacy-v1 <legacy-ledger.json>...';
-const USAGE_MIGRATE = 'usage: repo-atlas audit migrate <relayos-security-v1|relayos-root-audits-v1> ...';
-const USAGE_MIGRATE_SECURITY = 'usage: repo-atlas audit migrate relayos-security-v1 --scan-root <path> --policy <path>' +
-    ' --source-revision <commit> --validation-revision <commit>' +
-    ' [--include-history | --no-include-history] [--apply]';
-const USAGE_MIGRATE_ROOT_AUDITS = 'usage: repo-atlas audit migrate relayos-root-audits-v1 --audits-root <path>' +
-    ' --source-revision <commit> --validation-revision <commit> [--apply]';
 const USAGE_DECISION_SET = 'usage: repo-atlas audit decision set <finding-or-occurrence> <action> --event <event.json>';
 const USAGE_RECONCILE = 'usage: repo-atlas audit reconcile <before> <after> --event <event.json>';
 const USAGE_RETIRE = 'usage: repo-atlas audit retire <path> --event <event.json>\n' +
@@ -657,81 +641,6 @@ export function auditImportLegacyCommand(root, args) {
     }
 }
 // ---------------------------------------------------------------------------
-// audit migrate
-// ---------------------------------------------------------------------------
-function auditMigrate(root, args) {
-    const [kind, ...rest] = args;
-    if (kind === 'relayos-security-v1')
-        return auditMigrateRelayosSecurity(root, rest);
-    if (kind === 'relayos-root-audits-v1')
-        return auditMigrateRelayosRootAudits(root, rest);
-    usage(USAGE_MIGRATE, kind === undefined
-        ? 'audit migrate requires a migration kind'
-        : `unknown audit migrate kind: ${kind}`);
-}
-function printMigrationWrites(writes, apply) {
-    console.log(`  ${apply ? 'writes' : 'planned writes'}: ${writes.length} file(s)`);
-    for (const writeEntry of writes.slice(0, PRINT_ROW_LIMIT)) {
-        console.log(`    ${writeEntry.path}`);
-    }
-    if (writes.length > PRINT_ROW_LIMIT) {
-        console.log(`    … and ${writes.length - PRINT_ROW_LIMIT} more`);
-    }
-    if (!apply)
-        console.log('  dry run — pass --apply to write these outputs');
-}
-function auditMigrateRelayosSecurity(root, args) {
-    const parsed = parseAuditArgs(args, {
-        values: ['--scan-root', '--policy', '--source-revision', '--validation-revision'],
-        flags: ['--apply', '--include-history', '--no-include-history'],
-    }, USAGE_MIGRATE_SECURITY);
-    rejectPositionals(parsed, USAGE_MIGRATE_SECURITY);
-    if (parsed.flags.has('--include-history') && parsed.flags.has('--no-include-history')) {
-        usage(USAGE_MIGRATE_SECURITY, '--include-history and --no-include-history are mutually exclusive');
-    }
-    const options = {
-        scanRoot: requiredValue(parsed, '--scan-root', USAGE_MIGRATE_SECURITY),
-        policyPath: requiredValue(parsed, '--policy', USAGE_MIGRATE_SECURITY),
-        sourceRevision: requiredValue(parsed, '--source-revision', USAGE_MIGRATE_SECURITY),
-        validationRevision: requiredValue(parsed, '--validation-revision', USAGE_MIGRATE_SECURITY),
-        includeHistory: !parsed.flags.has('--no-include-history'),
-    };
-    const apply = parsed.flags.has('--apply');
-    const result = apply
-        ? migrateRelayOSAudit(root, { ...options, apply: true })
-        : buildRelayOSAuditMigration(root, options);
-    const counts = result.receipt.counts;
-    console.log(`audit migrate relayos-security-v1: ${result.migrationId}`);
-    console.log(`  ${counts.scanRecords} scan record(s) · ${counts.activeFindings} active finding(s) · ` +
-        `${result.decisionEvents.length} decision event(s) · ` +
-        `${result.retirementEvents.length} retirement(s) · ` +
-        `${result.reconciliationEvents.length} reconciliation(s)`);
-    console.log(`  receipt: .atlas/migrations/${result.migrationId}.json`);
-    printMigrationWrites(result.writes, apply);
-}
-function auditMigrateRelayosRootAudits(root, args) {
-    const parsed = parseAuditArgs(args, {
-        values: ['--audits-root', '--source-revision', '--validation-revision'],
-        flags: ['--apply'],
-    }, USAGE_MIGRATE_ROOT_AUDITS);
-    rejectPositionals(parsed, USAGE_MIGRATE_ROOT_AUDITS);
-    const options = {
-        auditsRoot: requiredValue(parsed, '--audits-root', USAGE_MIGRATE_ROOT_AUDITS),
-        sourceRevision: requiredValue(parsed, '--source-revision', USAGE_MIGRATE_ROOT_AUDITS),
-        validationRevision: requiredValue(parsed, '--validation-revision', USAGE_MIGRATE_ROOT_AUDITS),
-    };
-    const apply = parsed.flags.has('--apply');
-    const result = apply
-        ? migrateRelayOSRootAudits(root, { ...options, apply: true })
-        : buildRelayOSRootAuditsMigration(root, options);
-    const counts = result.receipt.counts;
-    console.log(`audit migrate relayos-root-audits-v1: ${result.migrationId}`);
-    console.log(`  ${counts.sourceFiles} source file(s) · ${counts.designScanRecords} design scan record(s) · ` +
-        `${counts.historicalReports} historical report(s) · ` +
-        `${result.receipt.parityChecks.length} parity check(s) passed`);
-    console.log(`  receipt: .atlas/migrations/${result.migrationId}.json`);
-    printMigrationWrites(result.writes, apply);
-}
 // ---------------------------------------------------------------------------
 // audit decision set / reconcile / retire
 // ---------------------------------------------------------------------------
@@ -1018,7 +927,6 @@ export async function runAuditCommand(root, args) {
         case 'status': return auditStatus(root, rest);
         case 'run': return auditRun(root, rest);
         case 'import': return auditImport(root, rest);
-        case 'migrate': return auditMigrate(root, rest);
         case 'decision': return auditDecision(root, rest);
         case 'reconcile': return auditReconcile(root, rest);
         case 'retire': return auditRetire(root, rest);

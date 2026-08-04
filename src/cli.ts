@@ -42,9 +42,8 @@ usage: repo-atlas <command> [args]
                            (or concepts/<slug>) recomputes their sources_hash
   audit <verb> [args]      hierarchical audit surface: check, coverage check|update,
                            status, run security --provider grok, import
-                           codex-security|legacy-v1, migrate relayos-security-v1|
-                           relayos-root-audits-v1, decision set, reconcile, retire,
-                           stamp, localization input|check
+                           codex-security|legacy-v1, decision set, reconcile,
+                           retire, stamp, localization input|check
                            (run 'repo-atlas audit' for the full usage)
   audit-stamp [names...]   deprecated alias of 'audit stamp': (re)stamp audit
                            ledgers in .atlas/audits/*.json with per-file git

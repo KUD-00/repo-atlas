@@ -590,15 +590,14 @@ describe('platform product and package boundary', () => {
     }
   })
 
-  test('RelayOS source-format strings stay inside the migrator boundary', () => {
-    // Only the two migrators, the audit command surface that names them, the
-    // legacy sourceKind contract, and the top-level usage text may mention
-    // the consumer product at all. Any new module matching /relayos/i fails
-    // here until its content is justified and this list is re-reviewed.
+  test('no RelayOS source-format strings remain anywhere', () => {
+    // The two single-use RelayOS V1 migrators were deleted once that migration
+    // completed, which makes this boundary absolute rather than a list of
+    // exceptions: with no converter left, NOTHING in src/ has a reason to name
+    // the consumer product or its legacy schema ids.
     const allowedModules = new Set([
+      // These name the product only in usage/config text, not as a source format.
       'audit-cli.ts',
-      'audit-migrate-relayos.ts',
-      'audit-migrate-relayos-root-audits.ts',
       'audit-policy.ts',
       'cli.ts',
       'types.ts',
@@ -608,41 +607,17 @@ describe('platform product and package boundary', () => {
     assert.deepEqual(
       offenders,
       [],
-      `RelayOS references escaped the migrator boundary: ${offenders.join(', ')}`,
+      `RelayOS references escaped the boundary: ${offenders.join(', ')}`,
     )
 
-    // The legacy ruleset id appears only as an identity rejection when
-    // reading the known source format — Repo Atlas never owns its ruleset
-    // text (rule definitions, prompts, or policy bodies).
-    const migrator = read('src/audit-migrate-relayos.ts')
-    const rulesetMentions = migrator.split('\n')
-      .filter((line) => line.includes('relayos-secscan-v1'))
-    assert.ok(rulesetMentions.length > 0, 'the migrator must validate the legacy ruleset id')
-    for (const line of rulesetMentions) {
-      assert.match(
-        line,
-        /!==\s*'relayos-secscan-v1'/u,
-        `relayos-secscan-v1 may only be an identity check, got: ${line.trim()}`,
-      )
-    }
-
-    // The legacy review-policy schema id is a recognized format string, not
-    // an embedded policy document: exactly one occurrence, the constant.
-    assert.equal(
-      migrator.match(/relayos-review-policy-v1/gu)?.length ?? 0,
-      1,
-      'the legacy policy schema id must be defined exactly once',
-    )
-    assert.match(
-      migrator,
-      /const LEGACY_POLICY_SCHEMA = 'relayos-review-policy-v1'/u,
-    )
+    // The legacy formats had exactly one reader — the deleted migrators — so no
+    // module may mention their identifiers now, in any position.
     for (const name of sourceModuleNames()) {
       const src = read(`src/${name}`)
-      if (name !== 'audit-migrate-relayos.ts') {
+      for (const legacyId of ['relayos-secscan-v1', 'relayos-review-policy-v1']) {
         assert.ok(
-          !src.includes('relayos-review-policy-v1'),
-          `${name} must not reference the legacy policy schema`,
+          !src.includes(legacyId),
+          `${name} must not reference the deleted legacy format ${legacyId}`,
         )
       }
       assert.doesNotMatch(

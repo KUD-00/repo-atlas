@@ -833,7 +833,7 @@ async function boundedMapUnits(items, concurrency, signal, fn, maxAttempts = 1) 
             for (;;) {
                 attempt += 1;
                 try {
-                    results[index] = await fn(items[index], index);
+                    results[index] = await fn(items[index], index, attempt);
                     break;
                 }
                 catch (error) {
@@ -1031,7 +1031,7 @@ export async function runAuditProviderPhases(context, handlers) {
         })),
         ...sharedKeyMaterial,
     });
-    const reviewExecutions = await boundedMapUnits(batches, policy.concurrency, context.signal, async (files, index) => {
+    const reviewExecutions = await boundedMapUnits(batches, policy.concurrency, context.signal, async (files, index, attempt) => {
         const unit = `review:${index}`;
         const inputDigest = reviewKey(unit, files);
         const resumed = tryResume('review', unit, inputDigest, (output) => validateAuditProviderReviewUnitOutput(output, files, policy, inventoryHas));
@@ -1039,7 +1039,10 @@ export async function runAuditProviderPhases(context, handlers) {
             persistChunk(resumed.chunk, resumed.output, true);
             return resumed.output;
         }
-        const execution = await handlers.review(context, { unit, index, files });
+        // `attempt` deliberately does NOT enter `inputDigest`: the chunk identity
+        // must stay the input identity, so a corrected retry resumes as the same
+        // chunk instead of forking a second cache entry for the same batch.
+        const execution = await handlers.review(context, { unit, index, files, attempt });
         const output = validateAuditProviderReviewUnitOutput(execution.output, files, policy, inventoryHas);
         persistChunk(makeChunk('review', unit, inputDigest, { ...execution, output }), output, false);
         return output;

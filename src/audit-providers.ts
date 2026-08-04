@@ -303,6 +303,13 @@ export interface AuditProviderReviewUnit {
   unit: string
   index: number
   files: AuditProviderSnapshotEntry[]
+  /**
+   * 1 on the first try, incremented per retry. A retry used to re-send the
+   * byte-identical prompt, so a model that answered about a path it invented
+   * kept inventing it and burned every attempt on the same wrong answer. The
+   * handler uses this to add a corrective instruction naming the required paths.
+   */
+  attempt: number
 }
 
 export interface AuditProviderVerificationUnit {
@@ -1324,7 +1331,7 @@ async function boundedMapUnits<T, R>(
   items: readonly T[],
   concurrency: number,
   signal: AbortSignal,
-  fn: (item: T, index: number) => Promise<R>,
+  fn: (item: T, index: number, attempt: number) => Promise<R>,
   maxAttempts = 1,
 ): Promise<R[]> {
   const results: R[] = new Array(items.length)
@@ -1340,7 +1347,7 @@ async function boundedMapUnits<T, R>(
         for (;;) {
           attempt += 1
           try {
-            results[index] = await fn(items[index], index)
+            results[index] = await fn(items[index], index, attempt)
             break
           } catch (error) {
             // One unit's unvalidatable output used to abort the whole run, so a
@@ -1573,7 +1580,7 @@ export async function runAuditProviderPhases(
     batches,
     policy.concurrency,
     context.signal,
-    async (files, index) => {
+    async (files, index, attempt) => {
       const unit = `review:${index}`
       const inputDigest = reviewKey(unit, files)
       const resumed = tryResume('review', unit, inputDigest, (output) =>
@@ -1583,7 +1590,10 @@ export async function runAuditProviderPhases(
         persistChunk(resumed.chunk, resumed.output, true)
         return resumed.output
       }
-      const execution = await handlers.review(context, { unit, index, files })
+      // `attempt` deliberately does NOT enter `inputDigest`: the chunk identity
+      // must stay the input identity, so a corrected retry resumes as the same
+      // chunk instead of forking a second cache entry for the same batch.
+      const execution = await handlers.review(context, { unit, index, files, attempt })
       const output = validateAuditProviderReviewUnitOutput(
         execution.output,
         files,
