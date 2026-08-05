@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { TextDecoder } from 'node:util'
 import {
-  canonicalJson,
   atomicWriteAuditFile,
+  canonicalJson,
   listBoundedAuditDirectory,
   normalizeAuditRepoPath,
   readBoundedAuditGitBlob,
@@ -801,12 +801,31 @@ function configRepositoryId(root: string): string {
   return repositoryId
 }
 
+/**
+ * Whether the claimed blob object has to be present in THIS repository.
+ *
+ * `required` for the current observation and for anything being published: those
+ * are live claims about bytes a reader must be able to re-derive.
+ *
+ * `optional` for retained history. A sealed history entry's integrity comes from
+ * its own digest — the recorded line count and code snippets are inside the
+ * canonical observation the digest covers, so they cannot be altered without
+ * breaking it. Demanding the object as well made history validity depend on
+ * whether the repository still HAS it, which is a property of clone depth and
+ * gc rather than of the record: a shallow CI checkout, or a scan taken against
+ * an uncommitted working tree (whose blob was never reachable from any commit
+ * and so never reached the remote at all), turned every downstream ledger
+ * invalid on one machine and valid on another.
+ */
+type AuditBlobAvailability = 'required' | 'optional'
+
 function gitBlobBytes(
   root: string,
   blob: AuditGitBlob,
   pointer: string,
   context: AuditValidationContext,
-): Buffer {
+  availability: AuditBlobAvailability,
+): Buffer | null {
   const cached = context.blobBytes.get(blob)
   if (cached !== undefined) return cached
   let loaded: Uint8Array
@@ -814,6 +833,7 @@ function gitBlobBytes(
     loaded = readBoundedAuditGitBlob(root, blob)
   } catch (error) {
     if (error instanceof AuditValidationFailure) throw error
+    if (availability === 'optional') return null
     invalid(
       'missing-blob',
       pointer,
@@ -1247,7 +1267,8 @@ function parseFileReceipt(
   value: unknown,
   pointer: string,
   context: AuditValidationContext,
-): { receipt: AuditFileReceiptV3; bytes: Buffer } {
+  availability: AuditBlobAvailability,
+): { receipt: AuditFileReceiptV3; bytes: Buffer | null } {
   const file = recordAt(value, pointer)
   exactKeys(
     file,
@@ -1257,9 +1278,11 @@ function parseFileReceipt(
   )
   const repoPath = repoPathAt(file.path, `${pointer}/path`)
   const blob = gitBlobAt(file.blob, `${pointer}/blob`)
-  const bytes = gitBlobBytes(root, blob, `${pointer}/blob`, context)
+  const bytes = gitBlobBytes(root, blob, `${pointer}/blob`, context, availability)
   const lines = safeIntegerAt(file.lines, `${pointer}/lines`)
-  if (lines !== lineCount(bytes)) {
+  // Only cross-checkable when the object is here. For retained history the
+  // recorded count is already sealed by the entry digest.
+  if (bytes !== null && lines !== lineCount(bytes)) {
     invalid('line-count-mismatch', `${pointer}/lines`, 'does not match the exact Git blob')
   }
   const status = enumAt(file.status, ['reviewed', 'not-reviewed'] as const, `${pointer}/status`)
@@ -1985,7 +2008,7 @@ function parseFinding(
   exactInventory: boolean,
   value: unknown,
   pointer: string,
-  fileByPath: Map<string, { receipt: AuditFileReceiptV3; bytes: Buffer }>,
+  fileByPath: Map<string, { receipt: AuditFileReceiptV3; bytes: Buffer | null }>,
   sourceArtifacts: Map<string, ParsedSourceArtifact>,
   extensionKeys: Set<string>,
 ): AtlasSecurityFindingV3 {
@@ -2271,14 +2294,20 @@ function parseFinding(
         if (!scoped || scoped.receipt.blob !== blob) {
           invalid('evidence-blob-mismatch', `${evidencePointer}/blob`, 'must match an exact scoped file blob')
         }
-        const expectedCode = snippetFromBlob(
-          scoped.bytes,
-          startLine,
-          endLine,
-          `${evidencePointer}/code`,
-        )
-        if (code !== expectedCode) {
-          invalid('snippet-mismatch', `${evidencePointer}/code`, 'does not match the claimed exact blob lines')
+        // Skipped when the object is not in this repository: for retained history
+        // the quoted snippet is inside the canonical observation the entry digest
+        // covers, so it cannot drift from what was recorded. The current
+        // observation always has its blobs, so this still runs where it matters.
+        if (scoped.bytes !== null) {
+          const expectedCode = snippetFromBlob(
+            scoped.bytes,
+            startLine,
+            endLine,
+            `${evidencePointer}/code`,
+          )
+          if (code !== expectedCode) {
+            invalid('snippet-mismatch', `${evidencePointer}/code`, 'does not match the claimed exact blob lines')
+          }
         }
       } else {
         const sourceSeal = recordAt(evidence.sourceSeal, `${evidencePointer}/sourceSeal`)
@@ -2503,6 +2532,7 @@ function parseObservation(
   value: unknown,
   pointer: string,
   context: AuditValidationContext,
+  availability: AuditBlobAvailability,
 ): AtlasSecurityObservationV3 {
   const observation = recordAt(value, pointer)
   exactKeys(
@@ -2607,7 +2637,7 @@ function parseObservation(
     if (scope[key] !== undefined) stringAt(scope[key], `${pointer}/scope/${key}`)
   }
 
-  const fileByPath = new Map<string, { receipt: AuditFileReceiptV3; bytes: Buffer }>()
+  const fileByPath = new Map<string, { receipt: AuditFileReceiptV3; bytes: Buffer | null }>()
   let fileCount = 0
   let scopeMode:
     | import('./audit-v3-types.js').AuditExactScopeMode
@@ -2633,6 +2663,7 @@ function parseObservation(
         row,
         `${pointer}/scope/files/${index}`,
         context,
+        availability,
       )
       if (producer.rulesetId !== undefined) {
         if (
@@ -3080,6 +3111,7 @@ function parseAuditCurrentLedgerWithContext(
       wrapper.current,
       '/current',
       context,
+      'required',
     )
     const currentDigest = sha256At(wrapper.currentDigest, '/currentDigest')
     if (currentDigest !== computeAuditCanonicalDigest(current)) {
@@ -3212,6 +3244,9 @@ function parseAuditObservationHistoryWithContext(
         JSON.parse(observationCanonical),
         `${pointer}/observation`,
         context,
+        // Retained history: the entry digest is the integrity guarantee, so a
+        // blob this clone no longer has must not invalidate the ledger.
+        'optional',
       )
       if (observation.observationId !== observationId) {
         invalid(
@@ -3679,6 +3714,7 @@ export function prepareAuditObservationPublication(
       observationSnapshot,
       '/current',
       createAuditValidationContext(),
+      'required',
     )
   } catch (error) {
     throw new Error(

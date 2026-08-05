@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { TextDecoder } from 'node:util';
-import { canonicalJson, atomicWriteAuditFile, listBoundedAuditDirectory, normalizeAuditRepoPath, readBoundedAuditGitBlob, readBoundedAuditJson, readBoundedAuditJsonDocument, stableAuditId, withAuditLock, } from './audit-core.js';
+import { atomicWriteAuditFile, canonicalJson, listBoundedAuditDirectory, normalizeAuditRepoPath, readBoundedAuditGitBlob, readBoundedAuditJson, readBoundedAuditJsonDocument, stableAuditId, withAuditLock, } from './audit-core.js';
 const SHA256_RE = /^sha256:[0-9a-f]{64}$/u;
 const GIT_BLOB_RE = /^(git-sha1:[0-9a-f]{40}|git-sha256:[0-9a-f]{64})$/u;
 const OBSERVATION_ID_RE = /^aobs_[0-9a-f]{24}$/u;
@@ -614,7 +614,7 @@ function configRepositoryId(root) {
     }
     return repositoryId;
 }
-function gitBlobBytes(root, blob, pointer, context) {
+function gitBlobBytes(root, blob, pointer, context, availability) {
     const cached = context.blobBytes.get(blob);
     if (cached !== undefined)
         return cached;
@@ -625,6 +625,8 @@ function gitBlobBytes(root, blob, pointer, context) {
     catch (error) {
         if (error instanceof AuditValidationFailure)
             throw error;
+        if (availability === 'optional')
+            return null;
         invalid('missing-blob', pointer, error instanceof Error
             ? `claimed Git blob is unavailable: ${error.message}`
             : 'claimed Git blob is unavailable');
@@ -937,14 +939,16 @@ function parseTarget(root, producerKind, value, pointer) {
     }
     return { repositoryId, targetId, identityDigest };
 }
-function parseFileReceipt(root, value, pointer, context) {
+function parseFileReceipt(root, value, pointer, context, availability) {
     const file = recordAt(value, pointer);
     exactKeys(file, ['path', 'blob', 'lines', 'status', 'outcome', 'findingOccurrenceIds', 'receiptRefs'], ['reviewedAt', 'reviewedAtPrecision', 'reviewedBy', 'ruleset'], pointer);
     const repoPath = repoPathAt(file.path, `${pointer}/path`);
     const blob = gitBlobAt(file.blob, `${pointer}/blob`);
-    const bytes = gitBlobBytes(root, blob, `${pointer}/blob`, context);
+    const bytes = gitBlobBytes(root, blob, `${pointer}/blob`, context, availability);
     const lines = safeIntegerAt(file.lines, `${pointer}/lines`);
-    if (lines !== lineCount(bytes)) {
+    // Only cross-checkable when the object is here. For retained history the
+    // recorded count is already sealed by the entry digest.
+    if (bytes !== null && lines !== lineCount(bytes)) {
         invalid('line-count-mismatch', `${pointer}/lines`, 'does not match the exact Git blob');
     }
     const status = enumAt(file.status, ['reviewed', 'not-reviewed'], `${pointer}/status`);
@@ -1663,9 +1667,15 @@ function parseFinding(root, findingIndex, observationId, repositoryId, targetId,
                 if (!scoped || scoped.receipt.blob !== blob) {
                     invalid('evidence-blob-mismatch', `${evidencePointer}/blob`, 'must match an exact scoped file blob');
                 }
-                const expectedCode = snippetFromBlob(scoped.bytes, startLine, endLine, `${evidencePointer}/code`);
-                if (code !== expectedCode) {
-                    invalid('snippet-mismatch', `${evidencePointer}/code`, 'does not match the claimed exact blob lines');
+                // Skipped when the object is not in this repository: for retained history
+                // the quoted snippet is inside the canonical observation the entry digest
+                // covers, so it cannot drift from what was recorded. The current
+                // observation always has its blobs, so this still runs where it matters.
+                if (scoped.bytes !== null) {
+                    const expectedCode = snippetFromBlob(scoped.bytes, startLine, endLine, `${evidencePointer}/code`);
+                    if (code !== expectedCode) {
+                        invalid('snippet-mismatch', `${evidencePointer}/code`, 'does not match the claimed exact blob lines');
+                    }
                 }
             }
             else {
@@ -1792,7 +1802,7 @@ function parseFinding(root, findingIndex, observationId, repositoryId, targetId,
     }
     return finding;
 }
-function parseObservation(root, slug, value, pointer, context) {
+function parseObservation(root, slug, value, pointer, context, availability) {
     const observation = recordAt(value, pointer);
     exactKeys(observation, [
         'observationId',
@@ -1884,7 +1894,7 @@ function parseObservation(root, slug, value, pointer, context) {
         const fileRows = arrayAt(scope.files, `${pointer}/scope/files`);
         let previousPath;
         for (const [index, row] of fileRows.entries()) {
-            const parsed = parseFileReceipt(root, row, `${pointer}/scope/files/${index}`, context);
+            const parsed = parseFileReceipt(root, row, `${pointer}/scope/files/${index}`, context, availability);
             if (producer.rulesetId !== undefined) {
                 if (parsed.receipt.status === 'reviewed' &&
                     parsed.receipt.ruleset === undefined) {
@@ -2143,7 +2153,7 @@ function parseAuditCurrentLedgerWithContext(root, repoPath, value, context) {
             if (!KEBAB_RE.test(conceptSlug))
                 invalid('invalid-slug', '/conceptSlug', 'must use lowercase kebab-case');
         }
-        const current = parseObservation(root, slug, wrapper.current, '/current', context);
+        const current = parseObservation(root, slug, wrapper.current, '/current', context, 'required');
         const currentDigest = sha256At(wrapper.currentDigest, '/currentDigest');
         if (currentDigest !== computeAuditCanonicalDigest(current)) {
             invalid('current-digest-mismatch', '/currentDigest', 'does not match canonical current observation');
@@ -2221,7 +2231,10 @@ function parseAuditObservationHistoryWithContext(root, repoPath, value, context)
             if (Buffer.byteLength(observationCanonical, 'utf8') > LEDGER_BYTE_LIMIT) {
                 invalid('ledger-byte-limit', `${pointer}/observation`, `canonical observation exceeds the ${LEDGER_BYTE_LIMIT}-byte limit`);
             }
-            const observation = parseObservation(root, slug, JSON.parse(observationCanonical), `${pointer}/observation`, context);
+            const observation = parseObservation(root, slug, JSON.parse(observationCanonical), `${pointer}/observation`, context, 
+            // Retained history: the entry digest is the integrity guarantee, so a
+            // blob this clone no longer has must not invalidate the ledger.
+            'optional');
             if (observation.observationId !== observationId) {
                 invalid('history-observation-mismatch', `${pointer}/observationId`, 'must equal embedded observation.observationId');
             }
@@ -2516,7 +2529,7 @@ export function prepareAuditObservationPublication(root, observation, metadata) 
     const observationSnapshot = JSON.parse(observationCanonical);
     let parsedObservation;
     try {
-        parsedObservation = parseObservation(root, slug, observationSnapshot, '/current', createAuditValidationContext());
+        parsedObservation = parseObservation(root, slug, observationSnapshot, '/current', createAuditValidationContext(), 'required');
     }
     catch (error) {
         throw new Error(`invalid observation for publication: ${diagnostic(error).path} ${diagnostic(error).message}`);

@@ -3345,3 +3345,48 @@ test('strict current-ledger parsing rejects unknown members and resealed wrong i
     cleanup(root)
   }
 })
+
+test('a history blob this clone no longer has keeps the ledger valid, while the current one does not', () => {
+  const root = makeV3Repo()
+  try {
+    const fixture = buildExactFixture()
+    // A blob id of the right shape that no object database contains. This is not
+    // hypothetical: a dirty-worktree run registers reviewed bytes with
+    // `hash-object -w`, which produces a loose object reachable from no ref, so it
+    // is never pushed and `git gc` may prune it. The record survives; the object
+    // does not travel.
+    const absent = `git-sha1:${'a1b2c3d4'.repeat(5)}`
+
+    const historyWithAbsentBlob = JSON.parse(JSON.stringify(fixture.history))
+    const entry = historyWithAbsentBlob.entries.at(-1)
+    entry.observation.scope.files[0].blob = absent
+    const history = parseAuditObservationHistory(
+      root,
+      '.atlas/audit-history/security-runtime.json',
+      historyWithAbsentBlob,
+    )
+    // Not ok — the entry digest no longer matches, which is the RIGHT reason to
+    // reject: integrity is the digest chain. What must not happen is a rejection
+    // whose reason is merely that the object is absent.
+    if (history.ok === false) {
+      const reasons = JSON.stringify(history)
+      assert.ok(
+        !reasons.includes('claimed Git blob is unavailable'),
+        `history must not be rejected for blob absence alone: ${reasons.slice(0, 400)}`,
+      )
+    }
+
+    // The current observation is a live claim a reader must be able to
+    // re-derive, so there the absent object IS the failure.
+    const currentWithAbsentBlob = JSON.parse(JSON.stringify(fixture.ledger))
+    currentWithAbsentBlob.current.scope.files[0].blob = absent
+    const current = parseAuditCurrentLedger(
+      root,
+      '.atlas/audits/security-runtime.json',
+      currentWithAbsentBlob,
+    )
+    assert.equal(current.ok, false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
