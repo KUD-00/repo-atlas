@@ -1399,16 +1399,31 @@ export interface AuditCoverageResult {
 function blockingFindingDiagnostics(
   assurance: AuditCoverageRuntimeAssurance,
 ): CoverageDiagnostic[] {
-  const byDerivation = new Map<string, number>()
+  const byDerivation = new Map<string, string[]>()
   for (const finding of assurance.lifecycle.findings) {
     if (!finding.blocking) continue
     const key = finding.derivation ?? 'unknown'
-    byDerivation.set(key, (byDerivation.get(key) ?? 0) + 1)
+    const ids = byDerivation.get(key) ?? []
+    // Name them. A count alone means the reader has to reconstruct WHICH findings
+    // block by joining the observation ledgers against the decision ledgers by
+    // hand — which is exactly the work this diagnostic exists to save, and it has
+    // to be redone after every run. Sorted so the message is stable across runs.
+    ids.push(finding.findingId)
+    byDerivation.set(key, ids)
   }
   return [...byDerivation.entries()]
     .sort(([left], [right]) => compareText(left, right))
-    .map(([derivation, count]) =>
-      diagnostic(
+    .map(([derivation, rawIds]) => {
+      const ids = [...rawIds].sort(compareText)
+      const count = ids.length
+      // Bounded: a derivation covering hundreds of findings must not push a
+      // multi-kilobyte line into a report that is byte-compared.
+      const MAX_NAMED = 40
+      const named =
+        ids.length <= MAX_NAMED
+          ? ids.join(', ')
+          : `${ids.slice(0, MAX_NAMED).join(', ')}, … and ${String(ids.length - MAX_NAMED)} more`
+      return diagnostic(
         'blocking-findings',
         `${String(count)} finding(s) block coverage with derivation "${derivation}"` +
           (derivation === 'carry-invalidated'
@@ -1417,9 +1432,10 @@ function blockingFindingDiagnostics(
               ' current policy. Re-record them against the current policy.'
             : derivation === 'implicit-open'
               ? ' — never dispositioned. Record a decision with `audit decision set`.'
-              : ''),
-      ),
-    )
+              : '') +
+          `: ${named}`,
+      )
+    })
 }
 
 function lifecycleAssurance(
