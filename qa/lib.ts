@@ -38,6 +38,15 @@ export const AGENT_BIN = process.env.ATLAS_QA_AGENT || "grok";
 // 就长到 6GB 上下，税在长跑后期回来一部分。所以默认 per-call，没有临时目录可用时才退回固定 home。
 // 凭证始终指向真实 auth.json，token 刷新自动跟随。
 // 逃生阀：调用方自己设了 GROK_HOME 就一律尊重，不覆盖（交互式排障要看得到历史）。
+//
+// ⚠ per-call 临时 home 与工具证据门互斥（2026-08-08 实测）：transcript 就住在这个临时
+// 目录里，而 runAgent 的 finally 在返回前就 rmSync 掉了它；agentToolCounts/agentWrites
+// 是调用方在 runAgent **返回之后**才调的，那时 transcript 已经没了 → 恒返回 null →
+// design.ts / audit.ts 的证据硬门判"transcript 不可得"，整轮作废（7 个 design 单元各
+// 白跑 222-338s）。所以要过证据门的文体层必须由调用方把 GROK_HOME 指到一个持久目录：
+//   GROK_HOME=~/.grok-batch bun qa/design.ts --all
+// 代价是那个 home 会长（每页约 4.5MB），跑完自己清。彻底的修法是让 runAgent 在删 temp
+// 前取证并随返回值交出去——那样 per-call 的零税和证据门就能同时成立。
 export function agentEnv(bin: string, callTempDir?: string): Record<string, string> {
   const env = process.env as Record<string, string>;
   const home = env.HOME;
@@ -184,7 +193,8 @@ export function newDirtyOutsideAtlas(repo: string, before: Set<string>): string[
 // ---------- 精确越界守卫（transcript 归因） ----------
 // 共享工作区里，git 差分守卫会把"别的 session 并发弄脏的路径"冤枉成本 agent 越界（实测
 // 一整波 concept 生成被另一 session 的重构误杀）。grok 把每次会话的工具调用记录在
-// ~/.grok/sessions/<urlencode(cwd)>/<sessionId>/chat_history.jsonl —— 据此精确回答
+// $GROK_HOME/sessions/<urlencode(cwd)>/<sessionId>/chat_history.jsonl（GROK_HOME 未设时
+// 是 ~/.grok）—— 据此精确回答
 // "这个 agent 自己写了哪些文件"。终端命令无法按路径归因，调用方应对无需终端的阶段
 // 直接 disallow Shell，让全部写入可归因。
 const WRITE_TOOLS = new Set(["write", "search_replace", "edit_file", "create_file", "apply_patch", "str_replace"]);
@@ -197,7 +207,8 @@ export const DENY_TERMINAL = "run_terminal_cmd";
 export const DENY_ALL_WRITES = "run_terminal_cmd,write,search_replace,create_file,edit_file,apply_patch";
 export function agentWrites(cwd: string, sessionId: string): { files: string[]; shells: string[] } | null {
   const home = process.env.HOME || "";
-  const f = join(home, ".grok/sessions", encodeURIComponent(cwd), sessionId, "chat_history.jsonl");
+  const grokHome = process.env.GROK_HOME || join(home, ".grok");
+  const f = join(grokHome, "sessions", encodeURIComponent(cwd), sessionId, "chat_history.jsonl");
   if (!home || !sessionId || !existsSync(f)) return null;
   const files: string[] = [], shells: string[] = [];
   for (const ln of readFileSync(f, "utf8").split("\n")) {
@@ -221,7 +232,8 @@ export function agentWrites(cwd: string, sessionId: string): { files: string[]; 
 // 对未知工具名稳妥。
 export function agentToolCounts(cwd: string, sessionId: string): { reads: number; writes: number; shells: number; tools: Record<string, number> } | null {
   const home = process.env.HOME || "";
-  const f = join(home, ".grok/sessions", encodeURIComponent(cwd), sessionId, "chat_history.jsonl");
+  const grokHome = process.env.GROK_HOME || join(home, ".grok");
+  const f = join(grokHome, "sessions", encodeURIComponent(cwd), sessionId, "chat_history.jsonl");
   if (!home || !sessionId || !existsSync(f)) return null;
   const tools: Record<string, number> = {};
   for (const ln of readFileSync(f, "utf8").split("\n")) {
