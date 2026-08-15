@@ -114,6 +114,11 @@ const MAX_TOOL_ARGUMENT_BYTES = 16 * 1024
 // tokens — very long lines, which `.min.js` exclusions already keep out of
 // scope. If the wording drifted, the symptom is a run that dies on a large
 // file with an unrecognized tool result, not a silent miscount.
+// read_file's answer for a zero-line file on 0.2.118, verified live. Only
+// consulted when the manifest already proves the file has no lines, so the
+// sentence corroborates a fact the snapshot established rather than asserting
+// one on the model's word.
+const EMPTY_FILE_READ = /^File is empty\.\s*$/u
 const TOKEN_CAP_REFUSAL =
   /^(?:File content \(\d+ tokens\) exceeds maximum allowed tokens \(\d+ tokens\)\.|The requested line range \(offset=\d+, limit=\d+\) contains \d+ tokens, which exceeds the maximum allowed tokens \(\d+ tokens\)\.)/u
 const PROBE_TIMEOUT_CAP_MS = 60_000
@@ -1022,10 +1027,16 @@ function proveTranscriptReadInterval(
     // repository with a single empty tracked file in scope unauditable — a
     // `.gitkeep` placeholder was enough to fail an entire run, and the failure
     // named neither the file nor the empty result. The manifest already proves
-    // the file has no lines; an empty read is the only correct result, so it is
-    // the proof. Anything non-empty coming back for a zero-line file is still a
-    // contradiction and still fails below.
-    if (content.trim() === '') {
+    // the file has no lines; a read that returns no content is the only correct
+    // result, so it is the proof. Anything else coming back for a zero-line
+    // file is still a contradiction and still fails below.
+    //
+    // 0.2.111 answered a zero-line read with empty content. 0.2.118 answers it
+    // with the literal sentence below, which is why the empty-file allowance
+    // stopped firing and a single `.gitkeep` again killed a 3255-file run at
+    // its 2477th chunk. The sentence is anchored to the start of the result so
+    // a file whose own first line reads "File is empty." cannot pose as one.
+    if (content.trim() === '' || EMPTY_FILE_READ.test(content)) {
       return { start: call.offset, end: call.offset - 1 }
     }
   }

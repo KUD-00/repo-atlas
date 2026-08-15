@@ -75,6 +75,18 @@ const MAX_TOOL_ARGUMENT_BYTES = 16 * 1024;
 // the first refusal produced an unrecognized second refusal and killed the run
 // anyway. Each alternative is spelled out and anchored at the start of the
 // result, so a source file quoting the phrase cannot pass as a refusal.
+//
+// NOT re-verified on 0.2.118: the 19,114-line probe never reached the cap,
+// because an unranged read is truncated to 1000 lines before any token count
+// is taken. Reaching it needs a file whose 1000-line window exceeds 25k
+// tokens — very long lines, which `.min.js` exclusions already keep out of
+// scope. If the wording drifted, the symptom is a run that dies on a large
+// file with an unrecognized tool result, not a silent miscount.
+// read_file's answer for a zero-line file on 0.2.118, verified live. Only
+// consulted when the manifest already proves the file has no lines, so the
+// sentence corroborates a fact the snapshot established rather than asserting
+// one on the model's word.
+const EMPTY_FILE_READ = /^File is empty\.\s*$/u;
 const TOKEN_CAP_REFUSAL = /^(?:File content \(\d+ tokens\) exceeds maximum allowed tokens \(\d+ tokens\)\.|The requested line range \(offset=\d+, limit=\d+\) contains \d+ tokens, which exceeds the maximum allowed tokens \(\d+ tokens\)\.)/u;
 const PROBE_TIMEOUT_CAP_MS = 60_000;
 const GROK_REVIEW_PROMPT = `You are performing a READ-ONLY security audit of an exact byte snapshot of repository source files. This prompt is one bounded sub-review dispatched by the Repo Atlas orchestrator; sibling sub-reviews cover other files in parallel. The ruleset is atlas-security-v3.
@@ -696,9 +708,10 @@ function normalizeTranscriptDirectory(value, context, phase) {
 // A read_file result is raw file bytes with line anchors: the first returned
 // line is prefixed `<start>→` and every absolute decade line (10, 20, …)
 // carries its line number as a `<n>→` prefix (verified against live 0.2.111
-// sessions, including 500-line files and ranged reads; the `<n>→` prefix
-// itself re-confirmed on 0.2.118, the decade cadence and ranged reads not
-// re-measured there). The anchors plus the
+// sessions, including 500-line files and ranged reads; re-verified on 0.2.118
+// against a 19,114-line file, where an unranged read returns exactly 1000
+// lines with no warning and anchors at 1 then every decade through 1000).
+// The anchors plus the
 // returned line count prove the exact range the tool returned, mirroring the
 // old startLine/endLine proof.
 //
@@ -725,10 +738,16 @@ function proveTranscriptReadInterval(content, call, context, phase) {
         // repository with a single empty tracked file in scope unauditable — a
         // `.gitkeep` placeholder was enough to fail an entire run, and the failure
         // named neither the file nor the empty result. The manifest already proves
-        // the file has no lines; an empty read is the only correct result, so it is
-        // the proof. Anything non-empty coming back for a zero-line file is still a
-        // contradiction and still fails below.
-        if (content.trim() === '') {
+        // the file has no lines; a read that returns no content is the only correct
+        // result, so it is the proof. Anything else coming back for a zero-line
+        // file is still a contradiction and still fails below.
+        //
+        // 0.2.111 answered a zero-line read with empty content. 0.2.118 answers it
+        // with the literal sentence below, which is why the empty-file allowance
+        // stopped firing and a single `.gitkeep` again killed a 3255-file run at
+        // its 2477th chunk. The sentence is anchored to the start of the result so
+        // a file whose own first line reads "File is empty." cannot pose as one.
+        if (content.trim() === '' || EMPTY_FILE_READ.test(content)) {
             return { start: call.offset, end: call.offset - 1 };
         }
     }
