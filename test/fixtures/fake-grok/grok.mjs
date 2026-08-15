@@ -92,7 +92,7 @@ const HELP_FLAGS = [
 
 // The pinned version the adapter accepts. A test overrides it to prove the
 // preflight rejects any other build instead of parsing its output hopefully.
-const CLI_VERSION = control.version ?? '0.2.111'
+const CLI_VERSION = control.version ?? '0.2.118'
 
 if (argv[0] === '--version') {
   finishRecord({ kind: 'version' })
@@ -111,12 +111,17 @@ if (argv[0] === 'inspect') {
   record.homeEntries = listHome(process.env.HOME)
   finishRecord({ kind: 'inspect' })
   const inspect = {
-    version: CLI_VERSION,
+    grokVersion: CLI_VERSION,
     hooks: [],
     plugins: [],
     mcpServers: [],
     projectInstructions: [],
-    permissionSources: ['default'],
+    permissions: {
+      sources: [],
+      loaded: 0,
+      skipped: [],
+      managedSettingsActive: false,
+    },
     effectiveConfig: {},
     ...(control.inspect ?? {}),
   }
@@ -555,7 +560,7 @@ async function main() {
     if (mode !== 'no-terminal-end') {
       stdoutEvents.push({
         type: 'end',
-        stopReason: mode === 'bad-stop-reason' ? 'MaxTokens' : 'EndTurn',
+        stopReason: mode === 'bad-stop-reason' ? 'max_tokens' : 'end_turn',
         sessionId: mode === 'bad-session-id' ? 'ffffffff-ffff-4fff-8fff-ffffffffffff' : sessionId,
         requestId: '00000000-1111-4222-8333-444444444444',
       })

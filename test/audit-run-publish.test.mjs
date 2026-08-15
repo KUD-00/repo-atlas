@@ -341,7 +341,7 @@ test('a completed run publishes a validated per-unit observation and coverage ac
   const producer = observation.producer
   assert.equal(producer.kind, 'grok-cli')
   assert.equal(producer.name, 'grok')
-  assert.equal(producer.version, '0.2.111')
+  assert.equal(producer.version, '0.2.118')
   assert.equal(producer.adapter, 'repo-atlas/grok-v1')
   assert.equal(producer.adapterVersion, '0.1.0')
   assert.equal(producer.runId, result.invocationId)

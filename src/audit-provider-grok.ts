@@ -45,14 +45,14 @@ import type { AuditProviderPhaseKind, AuditSha256 } from './audit-v3-types.js'
 
 export const GROK_ADAPTER_ID = 'repo-atlas/grok-v1'
 export const GROK_ADAPTER_VERSION = '0.1.0'
-export const GROK_SUPPORTED_CLI_VERSION = '0.2.111'
+export const GROK_SUPPORTED_CLI_VERSION = '0.2.118'
 export const GROK_RULESET_ID = 'atlas-security-v3'
 export const GROK_PROMPT_BUILTIN_VERSION = 'atlas-security-prompt-v1'
 export const GROK_VALIDATION_RUBRIC_VERSION = 'atlas-security-validation-rubric-v1'
 
 const GROK_TOOLS = ['Read', 'Grep', 'Glob'] as const
-// The real tool names behind the argv allowlist, verified against live
-// 0.2.111 sessions: with `--tools Read,Grep,Glob` the exposed tools are
+// The real tool names behind the argv allowlist, re-verified against live
+// 0.2.118 sessions: with `--tools Read,Grep,Glob` the exposed tools are
 // read_file, grep, and list_dir (no dedicated glob tool is exposed; the
 // model uses list_dir for directory listings). Transcript tool calls use
 // these snake_case names.
@@ -61,8 +61,10 @@ const GROK_TRANSCRIPT_TOOLS = new Map<string, (typeof GROK_TOOLS)[number]>([
   ['grep', 'Grep'],
   ['list_dir', 'Glob'],
 ])
-// Spawn-able flag allowlist, verified against grok CLI 0.2.111 `--help`. Note
-// that `-p, --single <PROMPT>` is deliberately absent: in 0.2.111 it requires
+// Spawn-able flag allowlist, re-verified against grok CLI 0.2.118 `--help`
+// (all eleven still present with unchanged arity, and `--output-format`
+// still accepts `streaming-json`, `--permission-mode` still `dontAsk`). Note
+// that `-p, --single <PROMPT>` is deliberately absent: in 0.2.118 it requires
 // an inline prompt value, and `--prompt-file` alone already selects the
 // single-turn headless mode.
 const GROK_PERMISSION_FLAGS = [
@@ -105,6 +107,13 @@ const MAX_TOOL_ARGUMENT_BYTES = 16 * 1024
 // the first refusal produced an unrecognized second refusal and killed the run
 // anyway. Each alternative is spelled out and anchored at the start of the
 // result, so a source file quoting the phrase cannot pass as a refusal.
+//
+// NOT re-verified on 0.2.118: the 19,114-line probe never reached the cap,
+// because an unranged read is truncated to 1000 lines before any token count
+// is taken. Reaching it needs a file whose 1000-line window exceeds 25k
+// tokens — very long lines, which `.min.js` exclusions already keep out of
+// scope. If the wording drifted, the symptom is a run that dies on a large
+// file with an unrecognized tool result, not a silent miscount.
 const TOKEN_CAP_REFUSAL =
   /^(?:File content \(\d+ tokens\) exceeds maximum allowed tokens \(\d+ tokens\)\.|The requested line range \(offset=\d+, limit=\d+\) contains \d+ tokens, which exceeds the maximum allowed tokens \(\d+ tokens\)\.)/u
 const PROBE_TIMEOUT_CAP_MS = 60_000
@@ -530,7 +539,12 @@ function validateInspectPayload(
       'inventory',
     )
   }
-  if (value.version !== undefined && value.version !== GROK_SUPPORTED_CLI_VERSION) {
+  // 0.2.118 names this `grokVersion`; 0.2.111 called it `version`. The old
+  // reader skipped the check when the key was absent, so the rename alone
+  // would have turned this gate into a silent no-op and left `--version` as
+  // the only version proof. It is required now: an inspect payload that
+  // cannot state its version is not evidence the binary is the supported one.
+  if (value.grokVersion !== GROK_SUPPORTED_CLI_VERSION) {
     throw new AuditProviderError(
       'preflight-rejected',
       'grok inspect reports an unsupported CLI version',
@@ -548,20 +562,32 @@ function validateInspectPayload(
       )
     }
   }
-  const permissionSources = value.permissionSources
-  if (permissionSources !== undefined) {
-    if (
-      !Array.isArray(permissionSources) ||
-      permissionSources.some(
-        (source) => source !== 'default' && source !== 'command-line',
-      )
-    ) {
-      throw new AuditProviderError(
-        'preflight-rejected',
-        'grok reports an unexpected permission source',
-        'inventory',
-      )
-    }
+  // 0.2.111 exposed a flat `permissionSources` array; 0.2.118 replaced it with
+  // a `permissions` object. The assertion is unchanged in substance: the
+  // isolated environment must load no permission configuration at all, so
+  // every permission in force came from the command line the adapter built.
+  // Managed settings are a machine-level file outside the isolated HOME, so
+  // an active one is exactly the ambient influence this preflight exists to
+  // catch.
+  const permissions = value.permissions
+  if (!isPlainObject(permissions)) {
+    throw new AuditProviderError(
+      'preflight-rejected',
+      'grok inspect did not report a permissions object',
+      'inventory',
+    )
+  }
+  if (
+    permissions.loaded !== 0 ||
+    !Array.isArray(permissions.sources) ||
+    permissions.sources.length > 0 ||
+    permissions.managedSettingsActive === true
+  ) {
+    throw new AuditProviderError(
+      'preflight-rejected',
+      'grok reports an unexpected permission source',
+      'inventory',
+    )
   }
   const effectiveConfig = value.effectiveConfig === undefined ? {} : value.effectiveConfig
   if (!isPlainObject(effectiveConfig)) {
@@ -748,15 +774,20 @@ function renderUnitPrompt(
 // Stdout and transcript proof
 // ---------------------------------------------------------------------------
 
-// Real grok 0.2.111 `--output-format streaming-json` vocabulary, verified
+// Real grok 0.2.118 `--output-format streaming-json` vocabulary, verified
 // against the live CLI: reasoning streams as `thought` chunks, the assistant
 // response streams as ordered `text` chunks whose concatenation is the final
 // response, and exactly one terminal `end` event with
-// `stopReason: "EndTurn"` closes a successful turn. Tool calls never appear
-// on stdout; they live only in the session transcript. Failures surface as an
-// in-band `error` event (usually paired with a nonzero exit). Unknown
-// non-terminal event types are ignored; a missing or non-EndTurn terminal,
-// an error event, or anything after the terminal fails closed.
+// `stopReason: "end_turn"` closes a successful turn. 0.2.111 spelled that
+// stop reason `EndTurn`; the rename is the whole reason a run against an
+// unpinned CLI failed at its last event, after paying for the analysis.
+// 0.2.118 also emits `available_commands`, `usage`, `tool_call`, and
+// `tool_call_update` on stdout — 0.2.111 kept tool calls in the session
+// transcript only. None of them are consumed here: the transcript remains the
+// sole evidence of what was read. Failures surface as an in-band `error`
+// event (usually paired with a nonzero exit). Unknown non-terminal event
+// types are ignored; a missing or non-`end_turn` terminal, an error event, or
+// anything after the terminal fails closed.
 function parseStreamingStdout(
   stdout: string,
   context: AuditProviderContext,
@@ -838,10 +869,10 @@ function parseStreamingStdout(
       phase,
     )
   }
-  if (terminal.stopReason !== 'EndTurn') {
+  if (terminal.stopReason !== 'end_turn') {
     throw new AuditProviderError(
       'output-invalid',
-      'grok stdout terminal end event is not a successful EndTurn',
+      'grok stdout terminal end event is not a successful end_turn',
       phase,
     )
   }
@@ -956,7 +987,10 @@ function normalizeTranscriptDirectory(
 // A read_file result is raw file bytes with line anchors: the first returned
 // line is prefixed `<start>→` and every absolute decade line (10, 20, …)
 // carries its line number as a `<n>→` prefix (verified against live 0.2.111
-// sessions, including 500-line files and ranged reads). The anchors plus the
+// sessions, including 500-line files and ranged reads; re-verified on 0.2.118
+// against a 19,114-line file, where an unranged read returns exactly 1000
+// lines with no warning and anchors at 1 then every decade through 1000).
+// The anchors plus the
 // returned line count prove the exact range the tool returned, mirroring the
 // old startLine/endLine proof.
 //
@@ -1091,7 +1125,7 @@ function proveTranscriptReadInterval(
   return { start: call.offset, end }
 }
 
-// Real grok 0.2.111 session transcript contract, verified against the live
+// Real grok 0.2.118 session transcript contract, re-verified against the live
 // CLI. `system`, `user`, and `reasoning` events are ambient and ignored.
 // `assistant` events carry text content plus optional tool_calls (whose
 // arguments are a bounded JSON string); `tool_result` events link back via
@@ -1509,7 +1543,7 @@ async function runGrokAnalysisUnit(
   const home = path.join(context.tempRoot, 'home')
   const env = isolatedEnvironment(context, home)
   const sessionId = randomUUID()
-  // No bare `--single`: grok 0.2.111 parses `-p, --single <PROMPT>` as a
+  // No bare `--single`: grok 0.2.118 parses `-p, --single <PROMPT>` as a
   // value-taking option and exits 2 when the value is missing. Prompt
   // delivery stays `--prompt-file`, which implies single-turn headless mode.
   const argv = [
