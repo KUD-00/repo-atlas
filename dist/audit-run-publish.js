@@ -5,7 +5,6 @@ import { loadAuditReviewPolicy, readAuditTrackedInventory, classifyAuditInventor
 import { computeAtlasFindingId, computeAtlasFingerprint, computeAtlasObservationId, computeAtlasOccurrenceId, computeAuditInventoryDigest, computeAuditScopeHash, computeExactScopeIdentityDigest, prepareAuditObservationPublication, publishAuditObservation, } from './audit-v3.js';
 import { updateAuditCoverage } from './audit-coverage-generator.js';
 import { git, headCommitFull } from './scan.js';
-import { GROK_SUPPORTED_CLI_VERSION } from './audit-provider-grok.js';
 // Terminal publication seam for first-party provider runs.
 //
 // A completed `audit run security` invocation proves its evidence in the
@@ -378,7 +377,7 @@ export function publishAuditProviderRunObservations(root, options) {
             producer: {
                 kind: 'grok-cli',
                 name: 'grok',
-                version: GROK_SUPPORTED_CLI_VERSION,
+                version: receipt.binaryVersion,
                 adapter: receipt.adapter,
                 adapterVersion: receipt.adapterVersion,
                 runId: result.invocationId,

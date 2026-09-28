@@ -52,6 +52,9 @@ const IDENTIFIER_RE = /^[a-z0-9](?:[a-z0-9._-]{0,127})$/
 const ROUTE_SLUG_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
 const OBJECT_FORMATS = new Set(['sha1', 'sha256'])
 const REGULAR_GIT_MODES = new Set(['100644', '100755'])
+const SYMLINK_GIT_MODE = '120000'
+const MAX_SYMLINK_TARGET_BYTES = 4_096
+const MAX_SYMLINK_HOPS = 8
 const EXECUTABLE_OR_CONFIG_EXTENSIONS = new Set([
   '.bash', '.c', '.cc', '.cjs', '.cpp', '.cts', '.fish', '.go', '.graphql',
   '.h', '.hcl', '.hpp', '.java', '.js', '.jsx', '.kt', '.kts', '.mjs',
@@ -719,6 +722,8 @@ function readAuditTrackedInventoryWithCapability(
 
   const expectedHashLength = objectFormat === 'sha1' ? 40 : 64
   const files: AuditTrackedFile[] = []
+  // Tracked symlinks, by path, with their target as recorded in the index.
+  const links = new Map<string, string>()
   const rawPaths = new Set<string>()
   const collisionPaths = new Map<string, string>()
   for (const record of records) {
@@ -783,6 +788,32 @@ function readAuditTrackedInventoryWithCapability(
       ))
       continue
     }
+    if (indexMode === SYMLINK_GIT_MODE) {
+      // A symlink carries no reviewable bytes of its own — only a target
+      // path. Repositories that share source between packages by symlink
+      // (one module compiled by several build systems) used to be refused
+      // outright. It is admitted when its target provably stays inside the
+      // repository at a tracked path, checked below once every tracked path is
+      // known; the target's bytes are then reviewed under their own path. A
+      // link that is absolute, escapes the repository, or dangles is still an
+      // unsafe-index-mode diagnostic: those are exactly the links a snapshot
+      // could not reproduce or a reviewer could be steered through.
+      let target: string
+      try {
+        target = UTF8.decode(
+          capability.gitBytes(['cat-file', 'blob', indexBlob], MAX_SYMLINK_TARGET_BYTES),
+        )
+      } catch {
+        diagnostics.push(diagnostic(
+          'unsafe-index-mode',
+          `tracked symlink target is unreadable or not strict UTF-8: ${JSON.stringify(repoPath)}`,
+          repoPath,
+        ))
+        continue
+      }
+      links.set(repoPath, target)
+      continue
+    }
     if (!REGULAR_GIT_MODES.has(indexMode)) {
       diagnostics.push(diagnostic(
         'unsafe-index-mode',
@@ -842,12 +873,63 @@ function readAuditTrackedInventoryWithCapability(
       ))
     }
   }
+  diagnostics.push(...validateTrackedSymlinks(links, files))
   files.sort((left, right) => compareText(left.path, right.path))
   diagnostics.sort((left, right) =>
     compareText(left.path ?? '', right.path ?? '') ||
     compareText(left.code, right.code) ||
     compareText(left.message, right.message))
   return { objectFormat, files, diagnostics }
+}
+
+// Every link must resolve, within a bounded number of hops through other
+// tracked links, to a tracked regular file or to a directory that contains one.
+// Resolution is purely textual over repository paths: nothing on disk is
+// followed, so a worktree swapped under the check cannot redirect it.
+function validateTrackedSymlinks(
+  links: ReadonlyMap<string, string>,
+  files: readonly AuditTrackedFile[],
+): CoverageDiagnostic[] {
+  const tracked = new Set(files.map((file) => file.path))
+  const directories = new Set<string>()
+  for (const file of files) {
+    let parent = path.posix.dirname(file.path)
+    while (parent !== '.' && !directories.has(parent)) {
+      directories.add(parent)
+      parent = path.posix.dirname(parent)
+    }
+  }
+  const diagnostics: CoverageDiagnostic[] = []
+  const reject = (repoPath: string, reason: string) => diagnostics.push(diagnostic(
+    'unsafe-index-mode',
+    `tracked symlink ${reason}: ${JSON.stringify(repoPath)}`,
+    repoPath,
+  ))
+  for (const [repoPath, firstTarget] of links) {
+    let current = repoPath
+    let target = firstTarget
+    let resolved: string | undefined
+    for (let hop = 0; hop < MAX_SYMLINK_HOPS; hop += 1) {
+      if (target.length === 0 || target.includes('\0') || path.posix.isAbsolute(target)) {
+        break
+      }
+      const joined = path.posix.normalize(path.posix.join(path.posix.dirname(current), target))
+      if (joined === '..' || joined.startsWith('../') || joined === '.') break
+      const next = links.get(joined)
+      if (next === undefined) {
+        resolved = joined
+        break
+      }
+      current = joined
+      target = next
+    }
+    if (resolved === undefined) {
+      reject(repoPath, 'target is absolute, escapes the repository, or loops')
+    } else if (!tracked.has(resolved) && !directories.has(resolved)) {
+      reject(repoPath, `target ${JSON.stringify(resolved)} is not a tracked path`)
+    }
+  }
+  return diagnostics
 }
 
 export function readAuditTrackedInventory(root: string): AuditTrackedInventory {

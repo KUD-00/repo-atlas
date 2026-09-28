@@ -45,7 +45,21 @@ import type { AuditProviderPhaseKind, AuditSha256 } from './audit-v3-types.js'
 
 export const GROK_ADAPTER_ID = 'repo-atlas/grok-v1'
 export const GROK_ADAPTER_VERSION = '0.1.0'
-export const GROK_SUPPORTED_CLI_VERSION = '0.2.118'
+// CLI builds whose whole surface this adapter depends on was re-verified live:
+// the flag set, the `inspect --json` payload, the streaming-json vocabulary, the
+// session transcript layout and schema, and read_file's line anchors, phantom
+// decade anchor, and empty-file sentence. 1.0.41 changed none of those except
+// two flags (see GROK_OPTIONAL_FLAGS).
+//
+// A build outside this list is not refused by default. The version string never
+// was the real guard: every contract above is checked on the bytes each run
+// produces and fails closed on the first deviation, so an unverified build that
+// drifted dies at a named check instead of publishing. The pin only ever turned
+// a routine CLI update into an outage. `strictCliVersion` in
+// .atlas/audit-providers.json restores the refusal for runs that must be
+// reproducible on a known build; the version actually used is recorded in the
+// run receipt and the published producer either way.
+export const GROK_VERIFIED_CLI_VERSIONS: readonly string[] = ['0.2.118', '1.0.41']
 export const GROK_RULESET_ID = 'atlas-security-v3'
 export const GROK_PROMPT_BUILTIN_VERSION = 'atlas-security-prompt-v1'
 export const GROK_VALIDATION_RUBRIC_VERSION = 'atlas-security-validation-rubric-v1'
@@ -61,17 +75,16 @@ const GROK_TRANSCRIPT_TOOLS = new Map<string, (typeof GROK_TOOLS)[number]>([
   ['grep', 'Grep'],
   ['list_dir', 'Glob'],
 ])
-// Spawn-able flag allowlist, re-verified against grok CLI 0.2.118 `--help`
-// (all eleven still present with unchanged arity, and `--output-format`
-// still accepts `streaming-json`, `--permission-mode` still `dontAsk`). Note
-// that `-p, --single <PROMPT>` is deliberately absent: in 0.2.118 it requires
-// an inline prompt value, and `--prompt-file` alone already selects the
-// single-turn headless mode.
-const GROK_PERMISSION_FLAGS = [
+// Spawn-able flag allowlist, re-verified against grok CLI 0.2.118 and 1.0.41
+// `--help` (unchanged arity; `--output-format` still accepts `streaming-json`,
+// `--permission-mode` still `dontAsk`). Every one must be advertised or the
+// preflight refuses. Note that `-p, --single <PROMPT>` is deliberately absent:
+// it requires an inline prompt value, and `--prompt-file` alone already selects
+// the single-turn headless mode.
+const GROK_REQUIRED_FLAGS = [
   '--no-plan',
   '--permission-mode',
   '--tools',
-  '--no-memory',
   '--no-subagents',
   '--disable-web-search',
   '--output-format',
@@ -80,6 +93,18 @@ const GROK_PERMISSION_FLAGS = [
   '--cwd',
   '--prompt-file',
 ] as const
+// Passed only when `--help` advertises them, because the builds disagree:
+// - `--no-memory` exists in 0.2.118 and is gone in 1.0.41, where cross-session
+//   memory is opt-in and the isolated config pins it off (GROK_ISOLATED_CONFIG)
+//   — so its absence loses nothing.
+// - `--disallowed-tools` is new in 1.0.41, which exposes two MCP meta tools
+//   (`search_tool`, `use_tool`) even under `--tools Read,Grep,Glob`. The
+//   isolated home has no MCP servers (the inspect preflight proves it), so they
+//   reach nothing; removing them keeps the model's tool list exactly the three
+//   read-only tools, and the transcript check would reject a call anyway.
+const GROK_OPTIONAL_FLAGS = ['--no-memory', '--disallowed-tools'] as const
+const GROK_DISALLOWED_TOOLS = ['search_tool', 'use_tool'] as const
+const GROK_PERMISSION_FLAGS = [...GROK_REQUIRED_FLAGS, ...GROK_OPTIONAL_FLAGS] as const
 
 const AMBIENT_PROBE_ENV_KEYS = [
   'PATH',
@@ -453,7 +478,10 @@ function resolveGrokCommand(command: string, phase: AuditProviderPhaseKind): str
 // proof fails closed (consumer R7+). Ignoring the entire skills directory
 // keeps the model's context free of skills. The content is deterministic
 // and part of the versioned adapter contract, like the flag allowlist.
-const GROK_ISOLATED_CONFIG = '[skills]\nignore = ["~/.grok/skills"]\n'
+//
+// Memory is pinned off here rather than by flag: 1.0.41 dropped `--no-memory`,
+// and a config key is honoured by every build that has memory at all.
+const GROK_ISOLATED_CONFIG = '[skills]\nignore = ["~/.grok/skills"]\n\n[memory]\nenabled = false\n'
 
 function createIsolatedHome(context: AuditProviderContext): string {
   const home = path.join(context.tempRoot, 'home')
@@ -536,6 +564,7 @@ function copyAgentIdentity(authRecordPath: string, home: string): void {
 function validateInspectPayload(
   value: unknown,
   context: AuditProviderContext,
+  binaryVersion: string,
 ): AuditSha256 {
   if (!isPlainObject(value)) {
     throw new AuditProviderError(
@@ -544,15 +573,15 @@ function validateInspectPayload(
       'inventory',
     )
   }
-  // 0.2.118 names this `grokVersion`; 0.2.111 called it `version`. The old
-  // reader skipped the check when the key was absent, so the rename alone
-  // would have turned this gate into a silent no-op and left `--version` as
-  // the only version proof. It is required now: an inspect payload that
-  // cannot state its version is not evidence the binary is the supported one.
-  if (value.grokVersion !== GROK_SUPPORTED_CLI_VERSION) {
+  // 0.2.118 and 1.0.41 name this `grokVersion`; 0.2.111 called it `version`.
+  // The old reader skipped the check when the key was absent, so the rename
+  // alone would have turned this gate into a silent no-op. It is required: the
+  // isolated environment must be running the very binary `--version` described,
+  // or the recorded version describes some other build.
+  if (value.grokVersion !== binaryVersion) {
     throw new AuditProviderError(
       'preflight-rejected',
-      'grok inspect reports an unsupported CLI version',
+      'grok inspect reports a different CLI version than grok --version',
       'inventory',
     )
   }
@@ -616,7 +645,20 @@ function validateInspectPayload(
   return digest
 }
 
+// A flag counts as advertised only as a whole token: `--tools` must not be
+// satisfied by `--disallowed-tools`, nor `--no-memory` by some longer flag.
+function helpAdvertises(help: string, flag: string): boolean {
+  const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(?:^|[\\s,])${escaped}(?=[\\s,=]|$)`, 'm').test(help)
+}
+
 const resolvedCommands = new WeakMap<AuditProviderContext, string>()
+// Which optional flags this binary advertised. Inventory runs fresh on every
+// invocation, resume included, so the analysis phases always find an entry.
+const advertisedOptionalFlags = new WeakMap<
+  AuditProviderContext,
+  ReadonlySet<(typeof GROK_OPTIONAL_FLAGS)[number]>
+>()
 
 async function grokInventory(
   context: AuditProviderContext,
@@ -655,14 +697,30 @@ async function grokInventory(
   })
   classifyProcessResult(versionProbe, 'grok --version', secrets, 'inventory')
   const versionMatch = /(\d+\.\d+\.\d+)/.exec(versionProbe.stdout)
-  if (versionMatch === null || versionMatch[1] !== GROK_SUPPORTED_CLI_VERSION) {
+  if (versionMatch === null) {
     throw new AuditProviderError(
       'preflight-rejected',
-      `grok CLI version is unsupported by ${GROK_ADAPTER_ID}`,
+      'grok --version did not report a version',
       'inventory',
     )
   }
-  const binaryVersion = versionMatch[1]
+  const binaryVersion = versionMatch[1]!
+  if (!GROK_VERIFIED_CLI_VERSIONS.includes(binaryVersion)) {
+    if (policy.strictCliVersion) {
+      throw new AuditProviderError(
+        'preflight-rejected',
+        `grok CLI ${binaryVersion} is not a build ${GROK_ADAPTER_ID} was verified against (${GROK_VERIFIED_CLI_VERSIONS.join(
+          ', ',
+        )}) and strictCliVersion is set`,
+        'inventory',
+      )
+    }
+    process.stderr.write(
+      `audit provider note: grok CLI ${binaryVersion} is not one of the builds ${GROK_ADAPTER_ID} was verified against (${GROK_VERIFIED_CLI_VERSIONS.join(
+        ', ',
+      )}); every output contract is still checked, and the version is recorded in the receipt\n`,
+    )
+  }
 
   const helpProbe = await spawnGrokProcess({
     command,
@@ -678,8 +736,13 @@ async function grokInventory(
     phase: 'inventory',
   })
   classifyProcessResult(helpProbe, 'grok --help', secrets, 'inventory')
-  for (const flag of GROK_PERMISSION_FLAGS) {
-    if (!helpProbe.stdout.includes(flag)) {
+  const optional = new Set<(typeof GROK_OPTIONAL_FLAGS)[number]>()
+  for (const flag of GROK_OPTIONAL_FLAGS) {
+    if (helpAdvertises(helpProbe.stdout, flag)) optional.add(flag)
+  }
+  advertisedOptionalFlags.set(context, optional)
+  for (const flag of GROK_REQUIRED_FLAGS) {
+    if (!helpAdvertises(helpProbe.stdout, flag)) {
       throw new AuditProviderError(
         'preflight-rejected',
         `grok --help does not advertise the required flag ${flag}`,
@@ -721,7 +784,7 @@ async function grokInventory(
       'inventory',
     )
   }
-  const effectiveConfigDigest = validateInspectPayload(inspectValue, context)
+  const effectiveConfigDigest = validateInspectPayload(inspectValue, context, binaryVersion)
 
   return {
     output: {
@@ -1554,16 +1617,20 @@ async function runGrokAnalysisUnit(
   const home = path.join(context.tempRoot, 'home')
   const env = isolatedEnvironment(context, home)
   const sessionId = randomUUID()
-  // No bare `--single`: grok 0.2.118 parses `-p, --single <PROMPT>` as a
+  // No bare `--single`: grok parses `-p, --single <PROMPT>` as a
   // value-taking option and exits 2 when the value is missing. Prompt
   // delivery stays `--prompt-file`, which implies single-turn headless mode.
+  const optional = advertisedOptionalFlags.get(context) ?? new Set()
   const argv = [
     '--no-plan',
     '--permission-mode',
     'dontAsk',
     '--tools',
     GROK_TOOLS.join(','),
-    '--no-memory',
+    ...(optional.has('--disallowed-tools')
+      ? ['--disallowed-tools', GROK_DISALLOWED_TOOLS.join(',')]
+      : []),
+    ...(optional.has('--no-memory') ? ['--no-memory'] : []),
     '--no-subagents',
     '--disable-web-search',
     '--output-format',

@@ -142,6 +142,7 @@ export interface AuditProviderPolicyInput {
   apiKeyEnv?: string
   authRecordPath?: string
   approvedConfigDigests?: AuditSha256[]
+  strictCliVersion?: boolean
 }
 
 export interface AuditProviderPolicy {
@@ -166,6 +167,12 @@ export interface AuditProviderPolicy {
   apiKeyEnv?: string
   authRecordPath: string
   approvedConfigDigests: AuditSha256[]
+  /**
+   * Refuse a grok build the adapter was not verified against. Off by default:
+   * the output contracts are checked on every run regardless, so the version
+   * string is a reproducibility promise, not a safety gate.
+   */
+  strictCliVersion: boolean
 }
 
 export interface AuditProviderInvocationRequest {
@@ -512,6 +519,13 @@ export function resolveAuditProviderPolicy(
     maxFindingsPerFile: policyInteger(values.maxFindingsPerFile, 'maxFindingsPerFile', 64, 1, 1_024),
     authRecordPath: '.grok/auth.json',
     approvedConfigDigests: [],
+    strictCliVersion: false,
+  }
+  if (values.strictCliVersion !== undefined) {
+    if (typeof values.strictCliVersion !== 'boolean') {
+      fail('policy-invalid', 'provider policy strictCliVersion must be a boolean')
+    }
+    policy.strictCliVersion = values.strictCliVersion
   }
   if (values.apiKeyEnv !== undefined) {
     if (!ENV_NAME_PATTERN.test(values.apiKeyEnv)) {
@@ -571,6 +585,7 @@ const PROVIDER_POLICY_KEYS = new Set([
   'apiKeyEnv',
   'authRecordPath',
   'approvedConfigDigests',
+  'strictCliVersion',
 ])
 
 export function loadAuditProviderPolicy(root: string): AuditProviderPolicyInput | null {
@@ -649,6 +664,9 @@ export function loadAuditProviderPolicy(root: string): AuditProviderPolicyInput 
   }
   if (value.approvedConfigDigests !== undefined) {
     input.approvedConfigDigests = value.approvedConfigDigests as AuditSha256[]
+  }
+  if (value.strictCliVersion !== undefined) {
+    input.strictCliVersion = value.strictCliVersion as boolean
   }
   // Reuse the resolver for range/shape validation, then return the sparse input.
   resolveAuditProviderPolicy(input)
@@ -2438,6 +2456,10 @@ export async function runAuditProviderPhases(
     ruleset: context.ruleset,
     prompt: context.promptReceipt,
     model: policy.model,
+    // The build that actually ran. Publication names it as the producer
+    // version; it used to name the single pinned version instead, which stops
+    // being the same thing the moment another build is allowed to run.
+    binaryVersion: inventoryFacts.binaryVersion,
     effectiveConfigDigest: inventoryFacts.effectiveConfigDigest,
     environmentPolicyDigest: context.environmentPolicyDigest,
     snapshotManifestDigest: context.snapshotManifestDigest,

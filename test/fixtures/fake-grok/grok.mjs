@@ -90,9 +90,17 @@ const HELP_FLAGS = [
   '--model',
 ]
 
-// The pinned version the adapter accepts. A test overrides it to prove the
-// preflight rejects any other build instead of parsing its output hopefully.
-const CLI_VERSION = control.version ?? '0.2.118'
+// 1.0.41 dropped `--no-memory` and added `--disallowed-tools`; `control.cli:
+// '1.0.41'` makes the double advertise and accept that surface instead, so the
+// adapter's advertised-flag selection is exercised against both real builds.
+if (control.cli === '1.0.41') {
+  HELP_FLAGS.splice(HELP_FLAGS.indexOf('--no-memory'), 1)
+  HELP_FLAGS.push('--disallowed-tools')
+}
+
+// A test overrides the version to prove how the preflight treats builds the
+// adapter was not verified against (refused only under strictCliVersion).
+const CLI_VERSION = control.version ?? (control.cli === '1.0.41' ? '1.0.41' : '0.2.118')
 
 if (argv[0] === '--version') {
   finishRecord({ kind: 'version' })
@@ -149,6 +157,7 @@ const VALUE_FLAGS = new Map([
   ['--session-id', '<SESSION_ID>'],
   ['--cwd', '<CWD>'],
   ['--prompt-file', '<PATH>'],
+  ...(control.cli === '1.0.41' ? [['--disallowed-tools', '<TOOLS>']] : []),
 ])
 const SHORT_ALIASES = new Map([
   ['-p', '--single'],
@@ -157,7 +166,7 @@ const SHORT_ALIASES = new Map([
 ])
 const BOOLEAN_FLAGS = new Set([
   '--no-plan',
-  '--no-memory',
+  ...(control.cli === '1.0.41' ? [] : ['--no-memory']),
   '--no-subagents',
   '--disable-web-search',
 ])

@@ -33,7 +33,6 @@ import type {
 } from './audit-v3-types.js'
 import { updateAuditCoverage } from './audit-coverage-generator.js'
 import { git, headCommitFull } from './scan.js'
-import { GROK_SUPPORTED_CLI_VERSION } from './audit-provider-grok.js'
 
 // Terminal publication seam for first-party provider runs.
 //
@@ -478,7 +477,7 @@ export function publishAuditProviderRunObservations(
       producer: {
         kind: 'grok-cli',
         name: 'grok',
-        version: GROK_SUPPORTED_CLI_VERSION,
+        version: receipt.binaryVersion,
         adapter: receipt.adapter,
         adapterVersion: receipt.adapterVersion,
         runId: result.invocationId,

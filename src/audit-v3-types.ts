@@ -1359,6 +1359,7 @@ export interface AuditProviderRunReceiptV3 {
   ruleset: AuditRulesetReceiptV3
   prompt: AuditPromptReceiptV3
   model: string
+  binaryVersion: string
   effectiveConfigDigest: AuditSha256
   environmentPolicyDigest: AuditSha256
   snapshotManifestDigest: AuditSha256

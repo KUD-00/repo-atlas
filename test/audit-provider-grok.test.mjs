@@ -595,7 +595,10 @@ test('ambient hooks, plugins, MCP, and config stay out of the isolated home; onl
   const configEntry = run.homeEntries.find((entry) => entry.path === '.grok/config.toml')
   assert.ok(configEntry, 'the adapter writes its own deterministic skills suppression config')
   assert.equal(configEntry.mode, '600')
-  assert.equal(configEntry.size, '[skills]\nignore = ["~/.grok/skills"]\n'.length)
+  assert.equal(
+    configEntry.size,
+    '[skills]\nignore = ["~/.grok/skills"]\n\n[memory]\nenabled = false\n'.length,
+  )
 
   const journalBytes = fs.readFileSync(
     path.join(journalDir(root, result.invocationId), 'journal.json'),
@@ -1608,11 +1611,52 @@ test('the ruleset digest ignores the run inventory, so dispositions survive file
   )
 })
 
-test('the preflight rejects any grok build other than the pinned one', async (t) => {
-  // The transcript vocabulary, tool names, and option contract are all verified
-  // against one specific build. A different build must fail closed at the
-  // probe rather than produce receipts nobody validated the format of.
+test('strictCliVersion rejects a grok build the adapter was not verified against', async (t) => {
+  // Strict runs promise a known build: the transcript vocabulary, tool names,
+  // and option contract were verified against specific versions, and a strict
+  // policy must fail closed at the probe rather than run on an unverified one.
   const fake = makeFakeGrok(t, { mode: 'ok', version: '0.2.82' })
+  const files = { 'src/a.ts': makeSource(6, 'a') }
+  const root = makeRepo(t, files)
+
+  await assert.rejects(
+    runAuditProviderInvocation(
+      makeRequest(root, makePolicy(fake, { strictCliVersion: true }), Object.keys(files)),
+      createGrokAuditProvider(),
+    ),
+    (error) =>
+      error instanceof AuditProviderError &&
+      error.code === 'preflight-rejected' &&
+      /strictCliVersion/.test(error.message),
+  )
+
+  assert.deepEqual(
+    fake.invocations().map((invocation) => invocation.kind),
+    ['version'],
+    'the run stops at the version probe and never starts a review',
+  )
+})
+
+test('without strictCliVersion an unverified build runs and is recorded as the producer', async (t) => {
+  // The version pin turned every routine CLI update into an outage while
+  // guarding nothing the output checks do not already guard. Default runs
+  // proceed on any build whose outputs pass, and name the build that ran.
+  const fake = makeFakeGrok(t, { mode: 'ok', version: '9.9.9' })
+  const files = { 'src/a.ts': makeSource(6, 'a') }
+  const root = makeRepo(t, files)
+
+  const result = await runAuditProviderInvocation(
+    makeRequest(root, makePolicy(fake), Object.keys(files)),
+    createGrokAuditProvider(),
+  )
+  assert.equal(result.status, 'completed')
+  assert.equal(result.receipt.binaryVersion, '9.9.9')
+})
+
+test('inspect must report the same build as --version', async (t) => {
+  // A mismatch means the isolated environment is not running the binary the
+  // version probe described, so the recorded version would name another build.
+  const fake = makeFakeGrok(t, { mode: 'ok', inspect: { grokVersion: '1.0.40' } })
   const files = { 'src/a.ts': makeSource(6, 'a') }
   const root = makeRepo(t, files)
 
@@ -1623,14 +1667,33 @@ test('the preflight rejects any grok build other than the pinned one', async (t)
     ),
     (error) =>
       error instanceof AuditProviderError &&
-      error.code === 'preflight-rejected',
+      error.code === 'preflight-rejected' &&
+      /different CLI version/.test(error.message),
   )
+})
 
-  assert.deepEqual(
-    fake.invocations().map((invocation) => invocation.kind),
-    ['version'],
-    'the run stops at the version probe and never starts a review',
+test('a 1.0.41 build gets --disallowed-tools instead of the removed --no-memory', async (t) => {
+  // 1.0.41 removed `--no-memory` (memory is opt-in and the isolated config pins
+  // it off) and exposes MCP meta tools that `--disallowed-tools` strips. The
+  // double rejects `--no-memory` in this mode exactly like the real binary.
+  const fake = makeFakeGrok(t, { mode: 'ok', cli: '1.0.41' })
+  const files = { 'src/a.ts': makeSource(6, 'a') }
+  const root = makeRepo(t, files)
+
+  const result = await runAuditProviderInvocation(
+    makeRequest(root, makePolicy(fake, { strictCliVersion: true }), Object.keys(files)),
+    createGrokAuditProvider(),
   )
+  assert.equal(result.status, 'completed')
+  assert.equal(result.receipt.binaryVersion, '1.0.41')
+  const runs = fake.invocations().filter((invocation) => invocation.kind === 'run')
+  assert.ok(runs.length > 0)
+  for (const run of runs) {
+    assert.ok(!run.argv.includes('--no-memory'))
+    const index = run.argv.indexOf('--disallowed-tools')
+    assert.ok(index > 0, 'the meta tools are removed')
+    assert.equal(run.argv[index + 1], 'search_tool,use_tool')
+  }
 })
 
 test('a whole-file read refused over the token cap proves nothing but does not fail the run', async (t) => {

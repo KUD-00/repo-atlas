@@ -144,7 +144,14 @@ export function resolveAuditProviderPolicy(input) {
         maxFindingsPerFile: policyInteger(values.maxFindingsPerFile, 'maxFindingsPerFile', 64, 1, 1_024),
         authRecordPath: '.grok/auth.json',
         approvedConfigDigests: [],
+        strictCliVersion: false,
     };
+    if (values.strictCliVersion !== undefined) {
+        if (typeof values.strictCliVersion !== 'boolean') {
+            fail('policy-invalid', 'provider policy strictCliVersion must be a boolean');
+        }
+        policy.strictCliVersion = values.strictCliVersion;
+    }
     if (values.apiKeyEnv !== undefined) {
         if (!ENV_NAME_PATTERN.test(values.apiKeyEnv)) {
             fail('policy-invalid', 'provider policy apiKeyEnv must be an environment variable name');
@@ -196,6 +203,7 @@ const PROVIDER_POLICY_KEYS = new Set([
     'apiKeyEnv',
     'authRecordPath',
     'approvedConfigDigests',
+    'strictCliVersion',
 ]);
 export function loadAuditProviderPolicy(root) {
     let document;
@@ -269,6 +277,9 @@ export function loadAuditProviderPolicy(root) {
     }
     if (value.approvedConfigDigests !== undefined) {
         input.approvedConfigDigests = value.approvedConfigDigests;
+    }
+    if (value.strictCliVersion !== undefined) {
+        input.strictCliVersion = value.strictCliVersion;
     }
     // Reuse the resolver for range/shape validation, then return the sparse input.
     resolveAuditProviderPolicy(input);
@@ -1668,6 +1679,10 @@ export async function runAuditProviderPhases(context, handlers) {
         ruleset: context.ruleset,
         prompt: context.promptReceipt,
         model: policy.model,
+        // The build that actually ran. Publication names it as the producer
+        // version; it used to name the single pinned version instead, which stops
+        // being the same thing the moment another build is allowed to run.
+        binaryVersion: inventoryFacts.binaryVersion,
         effectiveConfigDigest: inventoryFacts.effectiveConfigDigest,
         environmentPolicyDigest: context.environmentPolicyDigest,
         snapshotManifestDigest: context.snapshotManifestDigest,
